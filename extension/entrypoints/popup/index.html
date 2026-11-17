@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Japanese Ultimate Sensei</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      body {
+        margin: 0;
+        width: 320px;
+        padding: 16px;
+        background: #0f172a;
+        color: #f8fafc;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1rem;
+      }
+      .badge {
+        font-size: 0.75rem;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-weight: 600;
+      }
+      .badge.online {
+        background: rgba(34, 197, 94, 0.2);
+        color: #86efac;
+        border: 1px solid #22c55e;
+      }
+      .badge.offline {
+        background: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+        border: 1px solid #ef4444;
+      }
+      .panel {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+        font-size: 0.825rem;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      .row:last-child {
+        margin-bottom: 0;
+      }
+      .muted {
+        color: #94a3b8;
+      }
+      label {
+        display: block;
+        font-size: 0.8rem;
+        color: #cbd5e1;
+        margin-bottom: 4px;
+      }
+      select {
+        width: 100%;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #475569;
+        background: #0f172a;
+        color: #f8fafc;
+        margin-bottom: 10px;
+      }
+      button {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #475569;
+        background: #334155;
+        color: #f8fafc;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Sensei</h1>
+      <span id="health-badge" class="badge offline">Checking...</span>
+    </div>
+    <div class="panel">
+      <div class="row">
+        <span class="muted">Server</span>
+        <span id="server-url-text">-</span>
+      </div>
+      <div class="row">
+        <span class="muted">Version</span>
+        <span id="version-text">-</span>
+      </div>
+      <div class="row">
+        <span class="muted">JMdict</span>
+        <span id="dict-text">-</span>
+      </div>
+      <div class="row">
+        <span class="muted">Auth</span>
+        <span id="auth-text">-</span>
+      </div>
+    </div>
+    <div class="panel">
+      <label for="episode-select">Active Episode Overlay</label>
+      <select id="episode-select">
+        <option value="">None (overlay disabled)</option>
+      </select>
+    </div>
+    <button id="open-options-btn" type="button">Options &amp; Token</button>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

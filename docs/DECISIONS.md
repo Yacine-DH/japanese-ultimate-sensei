@@ -2,6 +2,11 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-17: Frontend foundation choices (Antigravity)
+- **WXT + framework-free Shadow DOM for the video overlay (`extension/`).** Keeps the content script tiny (~30 KB) inside streaming-site player iframes and fullscreen containers while sharing strict TypeScript modules (`timing`, `furigana`, `highlight`, `video`) tested with Vitest + happy-dom.
+- **`openapi-typescript` from `docs/openapi.json`.** Both `extension/src/api/schema.d.ts` and `web/src/api/schema.d.ts` are generated directly from the server's OpenAPI 3.1 schema.
+- **Vite + React 18 + Tailwind v4 + React Router + TanStack Query (`web/`).** Dark-mode SPA built to `web/dist` so FastAPI can serve it from the same origin in S-7.
+
 ### 2026-11-17: Foundation choices (Claude)
 - **Extension over the streaming site, not our own player (v0.1).** The owner watches on free
   sites. Their players are usually hls.js/MSE, so canvas and `captureStream` capture work from a content
