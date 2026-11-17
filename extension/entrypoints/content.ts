@@ -1,5 +1,6 @@
 import {
   api,
+  isTabStateChangedMessage,
   type LineOut,
   type LookupResult,
   type TokenOut,
@@ -27,6 +28,7 @@ export default defineContentScript({
   main() {
     let settings: ExtensionSettings | null = null;
     let currentEpisodeId: number | null = null;
+    let tabOverlayEnabled = false;
     let lines: LineOut[] = [];
     let subOffsetMs = 0;
     let currentVideo: HTMLVideoElement | null = null;
@@ -489,7 +491,7 @@ export default defineContentScript({
     }
 
     function syncSubtitleFrame(): void {
-      if (!currentVideo || !settings?.activeEpisodeId || lines.length === 0) {
+      if (!currentVideo || !tabOverlayEnabled || !currentEpisodeId || lines.length === 0) {
         if (renderedLineId !== null) {
           renderLine(null);
         }
@@ -503,14 +505,22 @@ export default defineContentScript({
       }
     }
 
-    async function loadEpisodeData(episodeId: number | null): Promise<void> {
-      currentEpisodeId = episodeId;
-      renderedLineId = null;
-      if (!episodeId) {
+    async function loadEpisodeData(episodeId: number | null, enabled: boolean): Promise<void> {
+      tabOverlayEnabled = enabled && episodeId !== null;
+      if (!tabOverlayEnabled || !episodeId) {
+        currentEpisodeId = episodeId;
         lines = [];
+        renderedLineId = null;
         renderLine(null);
         return;
       }
+      if (currentEpisodeId === episodeId && lines.length > 0) {
+        renderedLineId = null;
+        syncSubtitleFrame();
+        return;
+      }
+      currentEpisodeId = episodeId;
+      renderedLineId = null;
       const [epRes, linesRes] = await Promise.all([
         api.getEpisode(episodeId),
         api.getEpisodeLines(episodeId),
@@ -547,7 +557,7 @@ export default defineContentScript({
       ) {
         return;
       }
-      if (!currentVideo || !currentEpisodeId || lines.length === 0) {
+      if (!currentVideo || !tabOverlayEnabled || !currentEpisodeId || lines.length === 0) {
         return;
       }
 
@@ -582,25 +592,26 @@ export default defineContentScript({
       }
     });
 
+    browser.runtime.onMessage.addListener((msg: unknown) => {
+      if (isTabStateChangedMessage(msg)) {
+        void loadEpisodeData(msg.state.episodeId, msg.state.enabled);
+      }
+    });
+
     browser.storage.onChanged.addListener((changes) => {
       if (changes[SETTINGS_STORAGE_KEY]) {
-        void getSettings().then((next) => {
-          const prevEp = settings?.activeEpisodeId ?? null;
+        void Promise.all([getSettings(), api.getTabState()]).then(([next, tabState]) => {
           settings = next;
           renderedLineId = null;
-          if (next.activeEpisodeId !== prevEp) {
-            void loadEpisodeData(next.activeEpisodeId);
-          } else {
-            syncSubtitleFrame();
-          }
+          void loadEpisodeData(tabState.episodeId, tabState.enabled);
         });
       }
     });
 
-    void getSettings().then((initial) => {
+    void Promise.all([getSettings(), api.getTabState()]).then(([initial, tabState]) => {
       settings = initial;
       scanForVideo();
-      void loadEpisodeData(initial.activeEpisodeId);
+      void loadEpisodeData(tabState.episodeId, tabState.enabled);
       setInterval(scanForVideo, 1500);
     });
   },

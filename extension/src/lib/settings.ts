@@ -6,7 +6,7 @@ export interface ExtensionSettings {
   glossLang: GlossLanguage;
   romaji: boolean;
   highlightLimit: number;
-  activeEpisodeId: number | null;
+  urlMappings: Record<string, number>;
 }
 
 export const DEFAULT_SERVER_URL = 'http://<tailscale-host>:8000';
@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   glossLang: 'eng',
   romaji: false,
   highlightLimit: 3,
-  activeEpisodeId: null,
+  urlMappings: {},
 };
 
 export const SETTINGS_STORAGE_KEY = 'sensei_settings';
@@ -27,6 +27,19 @@ export function normalizeServerUrl(raw: string): string {
   return trimmed || DEFAULT_SERVER_URL;
 }
 
+export function sanitizeUrlMappings(raw: unknown): Record<string, number> {
+  if (typeof raw !== 'object' || raw === null) {
+    return {};
+  }
+  const clean: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k === 'string' && k.trim() !== '' && typeof v === 'number' && Number.isFinite(v)) {
+      clean[k] = v;
+    }
+  }
+  return clean;
+}
+
 export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): ExtensionSettings {
   const merged = { ...DEFAULT_SETTINGS, ...(partial ?? {}) };
   const glossLang: GlossLanguage = merged.glossLang === 'ger' ? 'ger' : 'eng';
@@ -34,10 +47,6 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
   const highlightLimit = Number.isFinite(rawLimit)
     ? Math.max(0, Math.min(20, Math.round(rawLimit)))
     : DEFAULT_SETTINGS.highlightLimit;
-  const activeEpisodeId =
-    typeof merged.activeEpisodeId === 'number' && Number.isFinite(merged.activeEpisodeId)
-      ? merged.activeEpisodeId
-      : null;
 
   return {
     serverUrl: normalizeServerUrl(String(merged.serverUrl ?? DEFAULT_SERVER_URL)),
@@ -45,7 +54,7 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     glossLang,
     romaji: Boolean(merged.romaji),
     highlightLimit,
-    activeEpisodeId,
+    urlMappings: sanitizeUrlMappings(merged.urlMappings),
   };
 }
 
@@ -67,7 +76,10 @@ let memorySettings: ExtensionSettings = { ...DEFAULT_SETTINGS };
 export async function getSettings(): Promise<ExtensionSettings> {
   const storage = getBrowserStorage();
   if (!storage) {
-    return { ...memorySettings };
+    return {
+      ...memorySettings,
+      urlMappings: { ...memorySettings.urlMappings },
+    };
   }
   const result = await storage.get(SETTINGS_STORAGE_KEY);
   const raw = result?.[SETTINGS_STORAGE_KEY] as Partial<ExtensionSettings> | undefined;

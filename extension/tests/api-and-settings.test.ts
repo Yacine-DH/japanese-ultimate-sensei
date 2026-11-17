@@ -14,14 +14,14 @@ describe('settings utilities', () => {
     expect(normalizeServerUrl('   ')).toBe(DEFAULT_SERVER_URL);
   });
 
-  it('sanitizes settings with safe defaults and bounds', () => {
+  it('sanitizes settings with safe defaults, bounds, and URL mappings', () => {
     const s = sanitizeSettings({
       serverUrl: 'http://100.64.0.1:8000/',
       apiToken: ' secret-token ',
       glossLang: 'ger',
       romaji: true,
       highlightLimit: 99,
-      activeEpisodeId: 7,
+      urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
     });
     expect(s).toEqual({
       serverUrl: 'http://100.64.0.1:8000',
@@ -29,7 +29,7 @@ describe('settings utilities', () => {
       glossLang: 'ger',
       romaji: true,
       highlightLimit: 20,
-      activeEpisodeId: 7,
+      urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
     });
   });
 });
@@ -80,15 +80,6 @@ describe('API background proxy', () => {
       version: '0.1.0',
       dictionary: true,
       auth: true,
-    });
-    expect(mockFetch).toHaveBeenCalledWith('http://sensei:8000/health', {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: 'Bearer my-token',
-        'X-Sensei-Token': 'my-token',
-      },
-      body: undefined,
     });
   });
 

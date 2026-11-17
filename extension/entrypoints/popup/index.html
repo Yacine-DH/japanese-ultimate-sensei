@@ -11,8 +11,8 @@
       }
       body {
         margin: 0;
-        width: 320px;
-        padding: 16px;
+        width: 350px;
+        padding: 14px;
         background: #0f172a;
         color: #f8fafc;
       }
@@ -20,14 +20,14 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
       }
       h1 {
         margin: 0;
         font-size: 1rem;
       }
       .badge {
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         padding: 3px 8px;
         border-radius: 999px;
         font-weight: 600;
@@ -47,12 +47,13 @@
         border: 1px solid #334155;
         border-radius: 8px;
         padding: 10px 12px;
-        margin-bottom: 12px;
-        font-size: 0.825rem;
+        margin-bottom: 10px;
+        font-size: 0.8rem;
       }
       .row {
         display: flex;
         justify-content: space-between;
+        align-items: center;
         margin-bottom: 6px;
       }
       .row:last-child {
@@ -61,30 +62,96 @@
       .muted {
         color: #94a3b8;
       }
+      .pattern-pill {
+        font-family: monospace;
+        font-size: 0.72rem;
+        color: #7dd3fc;
+        background: #0f172a;
+        padding: 3px 6px;
+        border-radius: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 210px;
+      }
       label {
         display: block;
-        font-size: 0.8rem;
+        font-size: 0.78rem;
         color: #cbd5e1;
         margin-bottom: 4px;
+        font-weight: 600;
       }
+      input[type='text'],
+      input[type='number'],
       select {
         width: 100%;
+        box-sizing: border-box;
         padding: 6px 8px;
         border-radius: 6px;
         border: 1px solid #475569;
         background: #0f172a;
         color: #f8fafc;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
+        font-size: 0.8rem;
+      }
+      input[type='file'] {
+        width: 100%;
+        font-size: 0.75rem;
+        margin-bottom: 8px;
+        color: #cbd5e1;
+      }
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #334155;
+      }
+      .suggest-banner {
+        display: none;
+        background: rgba(56, 189, 248, 0.14);
+        border: 1px solid #38bdf8;
+        border-radius: 6px;
+        padding: 7px 9px;
+        margin-bottom: 8px;
+      }
+      .suggest-banner.visible {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
       }
       button {
         width: 100%;
-        padding: 8px 12px;
+        padding: 7px 10px;
         border-radius: 6px;
         border: 1px solid #475569;
         background: #334155;
         color: #f8fafc;
         font-weight: 600;
         cursor: pointer;
+        font-size: 0.8rem;
+      }
+      button.primary {
+        background: #38bdf8;
+        color: #0f172a;
+        border-color: #38bdf8;
+      }
+      button.small {
+        width: auto;
+        padding: 4px 8px;
+        font-size: 0.74rem;
+      }
+      details summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: #7dd3fc;
+        outline: none;
+      }
+      .upload-status {
+        margin-top: 6px;
+        font-size: 0.75rem;
       }
     </style>
   </head>
@@ -93,30 +160,67 @@
       <h1>Sensei</h1>
       <span id="health-badge" class="badge offline">Checking...</span>
     </div>
+
+    <div class="panel">
+      <div class="toggle-row">
+        <span>Overlay on this tab</span>
+        <input id="tab-enable-toggle" type="checkbox" />
+      </div>
+      <div class="row" style="margin-bottom: 8px">
+        <span class="muted">Page URL</span>
+        <span id="page-pattern-text" class="pattern-pill">-</span>
+      </div>
+
+      <div id="suggest-banner" class="suggest-banner">
+        <span id="suggest-text"></span>
+        <button id="apply-suggest-btn" type="button" class="primary small">Attach</button>
+      </div>
+
+      <label for="episode-search">Find Episode</label>
+      <input
+        id="episode-search"
+        type="text"
+        placeholder="Filter by anime or episode..."
+      />
+
+      <label for="episode-select">Attached Episode (remembered for this URL)</label>
+      <select id="episode-select">
+        <option value="">None (detached)</option>
+      </select>
+    </div>
+
+    <div class="panel">
+      <details id="upload-details">
+        <summary>+ Upload JP Subtitle (.srt / .ass)</summary>
+        <form id="upload-form" style="margin-top: 10px">
+          <label for="upload-anime">Anime Title</label>
+          <input id="upload-anime" type="text" placeholder="e.g. Frieren" required />
+          <label for="upload-ep-num">Episode Number</label>
+          <input id="upload-ep-num" type="number" step="0.5" placeholder="e.g. 1" />
+          <label for="upload-file">Subtitle File</label>
+          <input
+            id="upload-file"
+            type="file"
+            accept=".srt,.ass,.ssa,.vtt"
+            required
+          />
+          <button type="submit" class="primary">Upload &amp; Attach to Tab</button>
+          <div id="upload-status" class="upload-status muted"></div>
+        </form>
+      </details>
+    </div>
+
     <div class="panel">
       <div class="row">
         <span class="muted">Server</span>
         <span id="server-url-text">-</span>
       </div>
       <div class="row">
-        <span class="muted">Version</span>
-        <span id="version-text">-</span>
-      </div>
-      <div class="row">
         <span class="muted">JMdict</span>
         <span id="dict-text">-</span>
       </div>
-      <div class="row">
-        <span class="muted">Auth</span>
-        <span id="auth-text">-</span>
-      </div>
     </div>
-    <div class="panel">
-      <label for="episode-select">Active Episode Overlay</label>
-      <select id="episode-select">
-        <option value="">None (overlay disabled)</option>
-      </select>
-    </div>
+
     <button id="open-options-btn" type="button">Options &amp; Token</button>
     <script type="module" src="./main.ts"></script>
   </body>
