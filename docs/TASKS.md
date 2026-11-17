@@ -6,7 +6,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 
 ## Owner actions
 - [x] **O-1** Install `uv` on the server: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- [ ] **O-2** Install Node.js 22 LTS on the server (e.g. `fnm install 22` or nvm), plus `pnpm` (`corepack enable`)
+- [x] **O-2** Install Node.js 22 LTS on the server (e.g. `fnm install 22` or nvm), plus `pnpm` (`corepack enable`) (antigravity, 2026-11-17: Node v22.23.5 + pnpm 12.21.0 installed in `~/.local/bin`)
 - [ ] **O-3** Make a free [jimaku.cc](https://jimaku.cc) account and API key → `SENSEI_JIMAKU_API_KEY` in `server/.env`
 - [ ] **O-4** Set `SENSEI_API_TOKEN` in `server/.env` (any long random string: `openssl rand -hex 24`)
 - [ ] **O-5** Tell Claude your laptop specs (CPU/GPU/RAM), which decides which LLM runs where
@@ -26,15 +26,15 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **S-7** Serve `web/dist` at `/` from FastAPI; Alembic migrations; systemd user service
 
 ### Extension (Antigravity)
-- [ ] **E-1** Scaffold `extension/` with WXT + TypeScript (strict) + Vitest. Options page: server URL (default `http://<tailscale-host>:8000`), API token, gloss language (EN/DE), romaji on/off. Background worker exposes a typed `api.call(path, init)` proxy that adds the token. Popup shows `/health` status. Builds for Edge/Chrome **and** Firefox. Types generated from `docs/openapi.json`. deps: O-2
-- [ ] **E-2** Video detection + overlay: content script (`all_frames`) finds the largest visible `<video>`, mounts a Shadow-DOM overlay above it (fullscreen-safe). Renders the current line from `GET /episodes/{id}/lines` with `<ruby>` furigana (hide ruby when `status` is known/ignored), optional romaji line. Timing per ARCHITECTURE.md with `sub_offset_ms`; hotkeys `[` / `]` = ∓100 ms, `\` = "sync this line now"; persist via `PATCH /episodes/{id}`. Pure timing logic unit-tested. deps: E-1
-- [ ] **E-3** Hover/learn: unknown **content** tokens get a highlight (limit to the top N per line, ranked `common` first, N configurable, default 3). Hovering pauses the video and shows a popup from `GET /dictionary/lookup?q=<lemma>&reading=<lemma_reading>` (EN/DE per setting) with buttons Known / Ignore / Save. Known/Ignore → `POST /words/{id}/status`. Resume on mouse-leave. deps: E-2
+- [~] **E-1** Scaffold `extension/` with WXT + TypeScript (strict) + Vitest. Options page: server URL (default `http://<tailscale-host>:8000`), API token, gloss language (EN/DE), romaji on/off. Background worker exposes a typed `api.call(path, init)` proxy that adds the token. Popup shows `/health` status. Builds for Edge/Chrome **and** Firefox. Types generated from `docs/openapi.json`. deps: O-2 (antigravity, 2026-11-17)
+- [~] **E-2** Video detection + overlay: content script (`all_frames`) finds the largest visible `<video>`, mounts a Shadow-DOM overlay above it (fullscreen-safe). Renders the current line from `GET /episodes/{id}/lines` with `<ruby>` furigana (hide ruby when `status` is known/ignored), optional romaji line. Timing per ARCHITECTURE.md with `sub_offset_ms`; hotkeys `[` / `]` = ∓100 ms, `\` = "sync this line now"; persist via `PATCH /episodes/{id}`. Pure timing logic unit-tested. deps: E-1 (antigravity, 2026-11-17)
+- [~] **E-3** Hover/learn: unknown **content** tokens get a highlight (limit to the top N per line, ranked `common` first, N configurable, default 3). Hovering pauses the video and shows a popup from `GET /dictionary/lookup?q=<lemma>&reading=<lemma_reading>` (EN/DE per setting) with buttons Known / Ignore / Save. Known/Ignore → `POST /words/{id}/status`. Resume on mouse-leave. deps: E-2 (antigravity, 2026-11-17)
 - [ ] **E-4** Episode picker (popup): list episodes (`GET /episodes`), upload a JP subtitle file (`POST /episodes`), and remember a mapping *page URL pattern → episode id* in `storage.local`; later Jimaku search (S-1). deps: E-1
 - [ ] **E-5** Save with capture: on Save, capture a canvas screenshot (fallback `captureVisibleTab` + crop), rewind to `line.start_ms`, record the line via `captureStream()` + `MediaRecorder` (webm), resume; upload to `POST /media`, then `POST /cards`. deps: E-3, S-2, S-3
 - [ ] **E-6** AnkiConnect push (optional per settings) of saved cards using S-5's card JSON. deps: E-5, S-5
 
 ### Web app (Antigravity)
-- [ ] **W-1** Scaffold `web/`: Vite + React + TS + Tailwind + React Router + TanStack Query; API client generated from `docs/openapi.json`; settings page (token). Dark mode. deps: O-2
+- [~] **W-1** Scaffold `web/`: Vite + React + TS + Tailwind + React Router + TanStack Query; API client generated from `docs/openapi.json`; settings page (token). Dark mode. deps: O-2 (antigravity, 2026-11-17)
 - [ ] **W-2** Library: anime → episodes, upload subtitle, understanding % bar per episode, episode detail with the transcript (furigana, word status colours, click a word → lookup + status). deps: W-1
 - [ ] **W-3** Review: FSRS session with screenshot, play line audio/clip, reveal meaning + sentence, rate Again/Hard/Good/Easy (keys 1–4). deps: W-1, S-3
 - [ ] **W-4** Words: table filterable by status / anime, bulk mark known. deps: W-1
