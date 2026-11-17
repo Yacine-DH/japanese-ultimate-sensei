@@ -5,6 +5,13 @@ export interface VideoCandidate<T = HTMLVideoElement> {
   visible: boolean;
 }
 
+export interface OverlayBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export const MIN_VIDEO_WIDTH = 160;
 export const MIN_VIDEO_HEIGHT = 90;
 
@@ -45,4 +52,29 @@ export function findBestVideoInDocument(doc: Document): HTMLVideoElement | null 
     };
   });
   return pickLargestVisibleVideo(candidates);
+}
+
+export function resolveOverlayMountTarget(
+  doc: Pick<Document, 'documentElement' | 'fullscreenElement' | 'body'>,
+  video: Node,
+): Element {
+  const fs = doc.fullscreenElement;
+  if (fs && fs.contains(video)) {
+    return fs;
+  }
+  return doc.documentElement ?? doc.body;
+}
+
+export function computeOverlayBounds(
+  videoRect: OverlayBounds,
+  fullscreenContainerRect?: { left: number; top: number } | null,
+): OverlayBounds {
+  const offsetLeft = fullscreenContainerRect ? fullscreenContainerRect.left : 0;
+  const offsetTop = fullscreenContainerRect ? fullscreenContainerRect.top : 0;
+  return {
+    left: Math.round(videoRect.left - offsetLeft),
+    top: Math.round(videoRect.top - offsetTop),
+    width: Math.round(videoRect.width),
+    height: Math.round(videoRect.height),
+  };
 }
