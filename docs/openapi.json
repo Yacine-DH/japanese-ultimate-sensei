@@ -1,0 +1,1245 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Japanese Ultimate Sensei",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/episodes": {
+      "get": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "List Episodes",
+        "operationId": "list_episodes_episodes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EpisodeOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Episodes Episodes Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Create Episode",
+        "operationId": "create_episode_episodes_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_episode_episodes_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/episodes/{episode_id}": {
+      "get": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Read Episode",
+        "operationId": "read_episode_episodes__episode_id__get",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Patch Episode",
+        "operationId": "patch_episode_episodes__episode_id__patch",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EpisodePatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Delete Episode",
+        "operationId": "delete_episode_episodes__episode_id__delete",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/episodes/{episode_id}/lines": {
+      "get": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Read Lines",
+        "operationId": "read_lines_episodes__episode_id__lines_get",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LineOut"
+                  },
+                  "title": "Response Read Lines Episodes  Episode Id  Lines Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/episodes/{episode_id}/understanding": {
+      "get": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Read Understanding",
+        "operationId": "read_understanding_episodes__episode_id__understanding_get",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Understanding"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dictionary/lookup": {
+      "get": {
+        "tags": [
+          "dictionary"
+        ],
+        "summary": "Lookup",
+        "operationId": "lookup_dictionary_lookup_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "reading",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reading"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 5,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/words/{word_id}": {
+      "get": {
+        "tags": [
+          "words"
+        ],
+        "summary": "Read Word",
+        "operationId": "read_word_words__word_id__get",
+        "parameters": [
+          {
+            "name": "word_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Word Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WordOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/words/{word_id}/status": {
+      "post": {
+        "tags": [
+          "words"
+        ],
+        "summary": "Set Word Status",
+        "operationId": "set_word_status_words__word_id__status_post",
+        "parameters": [
+          {
+            "name": "word_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Word Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WordStatusIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WordOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_create_episode_episodes_post": {
+        "properties": {
+          "subtitle": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Subtitle",
+            "description": "Japanese .srt/.ass/.ssa/.vtt file"
+          },
+          "anime_title": {
+            "type": "string",
+            "title": "Anime Title"
+          },
+          "episode_number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Number"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subtitle",
+          "anime_title"
+        ],
+        "title": "Body_create_episode_episodes_post"
+      },
+      "DictEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "common": {
+            "type": "boolean",
+            "title": "Common"
+          },
+          "kanji": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kanji"
+          },
+          "kana": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kana"
+          },
+          "senses": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/Sense"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Senses",
+            "description": "Keyed by language: 'eng', 'ger'"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "common",
+          "kanji",
+          "kana",
+          "senses"
+        ],
+        "title": "DictEntry"
+      },
+      "EpisodeCreated": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "anime_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anime Id"
+          },
+          "anime_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anime Title"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
+          },
+          "sub_offset_ms": {
+            "type": "integer",
+            "title": "Sub Offset Ms"
+          },
+          "line_count": {
+            "type": "integer",
+            "title": "Line Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "understanding": {
+            "$ref": "#/components/schemas/Understanding"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "anime_id",
+          "anime_title",
+          "number",
+          "title",
+          "source",
+          "source_filename",
+          "sub_offset_ms",
+          "line_count",
+          "created_at",
+          "understanding"
+        ],
+        "title": "EpisodeCreated"
+      },
+      "EpisodeOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "anime_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anime Id"
+          },
+          "anime_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anime Title"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
+          },
+          "sub_offset_ms": {
+            "type": "integer",
+            "title": "Sub Offset Ms"
+          },
+          "line_count": {
+            "type": "integer",
+            "title": "Line Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "anime_id",
+          "anime_title",
+          "number",
+          "title",
+          "source",
+          "source_filename",
+          "sub_offset_ms",
+          "line_count",
+          "created_at"
+        ],
+        "title": "EpisodeOut"
+      },
+      "EpisodePatch": {
+        "properties": {
+          "sub_offset_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Offset Ms"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          }
+        },
+        "type": "object",
+        "title": "EpisodePatch"
+      },
+      "FuriganaSegment": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "ruby": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ruby",
+            "description": "Hiragana reading shown above `text`; null for kana"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "ruby"
+        ],
+        "title": "FuriganaSegment"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Health": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "ok"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "dictionary": {
+            "type": "boolean",
+            "title": "Dictionary",
+            "description": "True when data/jmdict.sqlite is available"
+          },
+          "auth": {
+            "type": "boolean",
+            "title": "Auth",
+            "description": "True when an API token is required"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "dictionary",
+          "auth"
+        ],
+        "title": "Health"
+      },
+      "LineOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "idx": {
+            "type": "integer",
+            "title": "Idx"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/TokenOut"
+            },
+            "type": "array",
+            "title": "Tokens"
+          },
+          "translation_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation En"
+          },
+          "translation_de": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation De"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "idx",
+          "start_ms",
+          "end_ms",
+          "text",
+          "tokens"
+        ],
+        "title": "LineOut"
+      },
+      "LookupResult": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "reading": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/DictEntry"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "reading",
+          "entries"
+        ],
+        "title": "LookupResult"
+      },
+      "Sense": {
+        "properties": {
+          "pos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Pos"
+          },
+          "misc": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Misc"
+          },
+          "glosses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Glosses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pos",
+          "misc",
+          "glosses"
+        ],
+        "title": "Sense"
+      },
+      "TokenOut": {
+        "properties": {
+          "surface": {
+            "type": "string",
+            "title": "Surface"
+          },
+          "lemma": {
+            "type": "string",
+            "title": "Lemma"
+          },
+          "reading": {
+            "type": "string",
+            "title": "Reading"
+          },
+          "lemma_reading": {
+            "type": "string",
+            "title": "Lemma Reading"
+          },
+          "pos": {
+            "type": "string",
+            "title": "Pos"
+          },
+          "pos_detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Pos Detail"
+          },
+          "furigana": {
+            "items": {
+              "$ref": "#/components/schemas/FuriganaSegment"
+            },
+            "type": "array",
+            "title": "Furigana"
+          },
+          "romaji": {
+            "type": "string",
+            "title": "Romaji"
+          },
+          "is_content": {
+            "type": "boolean",
+            "title": "Is Content",
+            "description": "True for vocabulary worth learning (not particles etc.)"
+          },
+          "word_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Word Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WordStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User's status for word_id; null if no word"
+          },
+          "common": {
+            "type": "boolean",
+            "title": "Common",
+            "description": "JMdict common word — highlight priority",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "surface",
+          "lemma",
+          "reading",
+          "lemma_reading",
+          "pos",
+          "pos_detail",
+          "furigana",
+          "romaji",
+          "is_content",
+          "word_id",
+          "status"
+        ],
+        "title": "TokenOut"
+      },
+      "Understanding": {
+        "properties": {
+          "episode_id": {
+            "type": "integer",
+            "title": "Episode Id"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "title": "Total Tokens"
+          },
+          "unique_words": {
+            "type": "integer",
+            "title": "Unique Words"
+          },
+          "known_tokens": {
+            "type": "integer",
+            "title": "Known Tokens"
+          },
+          "known_unique": {
+            "type": "integer",
+            "title": "Known Unique"
+          },
+          "learning_tokens": {
+            "type": "integer",
+            "title": "Learning Tokens"
+          },
+          "learning_unique": {
+            "type": "integer",
+            "title": "Learning Unique"
+          },
+          "token_pct": {
+            "type": "number",
+            "title": "Token Pct",
+            "description": "% of spoken content words you understand"
+          },
+          "unique_pct": {
+            "type": "number",
+            "title": "Unique Pct",
+            "description": "% of distinct content words you understand"
+          }
+        },
+        "type": "object",
+        "required": [
+          "episode_id",
+          "total_tokens",
+          "unique_words",
+          "known_tokens",
+          "known_unique",
+          "learning_tokens",
+          "learning_unique",
+          "token_pct",
+          "unique_pct"
+        ],
+        "title": "Understanding"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WordOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "lemma": {
+            "type": "string",
+            "title": "Lemma"
+          },
+          "reading": {
+            "type": "string",
+            "title": "Reading"
+          },
+          "pos": {
+            "type": "string",
+            "title": "Pos"
+          },
+          "jmdict_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jmdict Id"
+          },
+          "common": {
+            "type": "boolean",
+            "title": "Common"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WordStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "lemma",
+          "reading",
+          "pos",
+          "jmdict_id",
+          "common",
+          "status"
+        ],
+        "title": "WordOut"
+      },
+      "WordStatus": {
+        "type": "string",
+        "enum": [
+          "new",
+          "learning",
+          "known",
+          "ignored"
+        ],
+        "title": "WordStatus"
+      },
+      "WordStatusIn": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/WordStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "WordStatusIn"
+      }
+    }
+  }
+}

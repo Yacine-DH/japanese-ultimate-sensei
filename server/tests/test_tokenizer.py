@@ -27,3 +27,10 @@ def test_inflected_verb_lemma_and_reading():
 def test_punctuation_not_content():
     toks = tokenize("ありがとう！")
     assert not by_surface(toks)["！"].is_content
+
+
+def test_romaji_sokuon_and_particles():
+    toks = tokenize("旅は終わった")
+    romaji = " ".join(t.romaji for t in toks)
+    assert romaji == "tabi wa owat ta"  # 終わっ|た → owat + ta (reads "owatta")
+    assert by_surface(tokenize("魔王を倒した"))["を"].romaji == "o"

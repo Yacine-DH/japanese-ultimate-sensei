@@ -5,7 +5,7 @@ Areas: **S** = server (Claude) · **E** = extension (Antigravity) · **W** = web
 Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 
 ## Owner actions
-- [ ] **O-1** Install `uv` on the server: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- [x] **O-1** Install `uv` on the server: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - [ ] **O-2** Install Node.js 22 LTS on the server (e.g. `fnm install 22` or nvm), plus `pnpm` (`corepack enable`)
 - [ ] **O-3** Make a free [jimaku.cc](https://jimaku.cc) account and API key → `SENSEI_JIMAKU_API_KEY` in `server/.env`
 - [ ] **O-4** Set `SENSEI_API_TOKEN` in `server/.env` (any long random string: `openssl rand -hex 24`)
@@ -13,7 +13,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 
 ## Phase 0: Foundation
 - [x] **S-0** Repo, docs, agent conventions, server skeleton: subtitle ingest, Sudachi tokens + furigana + romaji, JMdict EN/DE, word status, understanding %, token auth, tests (claude, 2026-11-17)
-- [ ] **S-0b** Run the full test suite + build the real dictionary once uv is installed; export `docs/openapi.json` (claude). deps: O-1
+- [x] **S-0b** Tests green (29), real JMdict built (219k entries, EN+DE), `docs/openapi.json` exported; fixed romaji for small っ and particles (claude, 2026-11-17)
 
 ## Phase 1: v0.1 core loop
 ### Server (Claude)

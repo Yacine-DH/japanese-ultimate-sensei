@@ -39,7 +39,9 @@ def test_episode_flow(client):
     u = client.get(f"/episodes/{ep['id']}/understanding").json()
     assert u["known_unique"] == 1 and u["token_pct"] > 0
     lines = client.get(f"/episodes/{ep['id']}/lines").json()
-    assert {t["status"] for line in lines for t in line["tokens"] if t["surface"] == "食べ"} == {"known"}
+    assert {t["status"] for line in lines for t in line["tokens"] if t["surface"] == "食べ"} == {
+        "known"
+    }
 
     # same word in a second episode is shared vocabulary
     ep2 = upload(client, episode_number="2").json()

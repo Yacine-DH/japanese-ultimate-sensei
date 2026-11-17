@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session, func, select
+from sqlmodel import Session, delete, func, select
 
 from app import __version__
 from app.config import Settings, get_settings
@@ -32,7 +32,9 @@ from app.schemas import (
 from app.subtitles import parse_bytes
 
 MAX_SUBTITLE_BYTES = 5 * 1024 * 1024
-EXTENSION_ORIGINS = r"^(chrome-extension|moz-extension|extension)://.*$|^http://(localhost|127\.0\.0\.1)(:\d+)?$"
+EXTENSION_ORIGINS = (
+    r"^(chrome-extension|moz-extension|extension)://.*$|^http://(localhost|127\.0\.0\.1)(:\d+)?$"
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -64,7 +66,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def dictionary_dep() -> Dictionary:
         d = app.state.dictionary
         if d is None:
-            raise HTTPException(503, "dictionary not built — run: uv run python -m app.dictionary_setup")
+            raise HTTPException(
+                503, "dictionary not built — run: uv run python -m app.dictionary_setup"
+            )
         return d
 
     uid = settings.default_user_id
@@ -77,7 +81,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         count = session.exec(
             select(func.count()).select_from(SubtitleLine).where(SubtitleLine.episode_id == ep.id)
         ).one()
-        return {**ep.model_dump(), "anime_title": anime.title if anime else None, "line_count": count}
+        return {
+            **ep.model_dump(),
+            "anime_title": anime.title if anime else None,
+            "line_count": count,
+        }
 
     def get_episode(session: Session, episode_id: int) -> Episode:
         ep = session.get(Episode, episode_id)
@@ -95,7 +103,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             auth=bool(settings.api_token),
         )
 
-    @app.post("/episodes", response_model=EpisodeCreated, status_code=201, dependencies=auth, tags=["episodes"])
+    @app.post(
+        "/episodes",
+        response_model=EpisodeCreated,
+        status_code=201,
+        dependencies=auth,
+        tags=["episodes"],
+    )
     async def create_episode(
         subtitle: UploadFile = File(description="Japanese .srt/.ass/.ssa/.vtt file"),
         anime_title: str = Form(),
@@ -137,11 +151,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         eps = session.exec(select(Episode).order_by(Episode.created_at.desc())).all()  # type: ignore[attr-defined]
         return [episode_out(session, e) for e in eps]
 
-    @app.get("/episodes/{episode_id}", response_model=EpisodeOut, dependencies=auth, tags=["episodes"])
+    @app.get(
+        "/episodes/{episode_id}", response_model=EpisodeOut, dependencies=auth, tags=["episodes"]
+    )
     def read_episode(episode_id: int, session: Session = Depends(get_session)):
         return episode_out(session, get_episode(session, episode_id))
 
-    @app.patch("/episodes/{episode_id}", response_model=EpisodeOut, dependencies=auth, tags=["episodes"])
+    @app.patch(
+        "/episodes/{episode_id}", response_model=EpisodeOut, dependencies=auth, tags=["episodes"]
+    )
     def patch_episode(episode_id: int, body: EpisodePatch, session: Session = Depends(get_session)):
         ep = get_episode(session, episode_id)
         for k, v in body.model_dump(exclude_unset=True).items():
@@ -154,28 +172,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.delete("/episodes/{episode_id}", status_code=204, dependencies=auth, tags=["episodes"])
     def delete_episode(episode_id: int, session: Session = Depends(get_session)):
         ep = get_episode(session, episode_id)
-        for line in episode_lines(session, episode_id):
-            session.delete(line)
+        session.exec(delete(SubtitleLine).where(SubtitleLine.episode_id == episode_id))
         session.delete(ep)
         session.commit()
 
-    @app.get("/episodes/{episode_id}/lines", response_model=list[LineOut], dependencies=auth, tags=["episodes"])
+    @app.get(
+        "/episodes/{episode_id}/lines",
+        response_model=list[LineOut],
+        dependencies=auth,
+        tags=["episodes"],
+    )
     def read_lines(episode_id: int, session: Session = Depends(get_session)):
         get_episode(session, episode_id)
         lines = episode_lines(session, episode_id)
         parsed = [json.loads(line.tokens_json) for line in lines]
         word_ids = {t["word_id"] for toks in parsed for t in toks if t.get("word_id")}
         statuses = status_map(session, uid, word_ids)
-        common = {
-            w.id: w.common
-            for w in session.exec(select(Word).where(Word.id.in_(list(word_ids)))).all()  # type: ignore[union-attr]
-        } if word_ids else {}
+        common = (
+            {
+                w.id: w.common
+                for w in session.exec(select(Word).where(Word.id.in_(list(word_ids)))).all()  # type: ignore[union-attr]
+            }
+            if word_ids
+            else {}
+        )
         out = []
         for line, toks in zip(lines, parsed, strict=True):
             tokens = [
                 TokenOut(
-                    **{k: t[k] for k in TokenOut.model_fields if k in t and k not in ("status", "common")},
-                    status=(statuses.get(t["word_id"], WordStatus.new) if t.get("word_id") else None),
+                    **{
+                        k: t[k]
+                        for k in TokenOut.model_fields
+                        if k in t and k not in ("status", "common")
+                    },
+                    status=(
+                        statuses.get(t["word_id"], WordStatus.new) if t.get("word_id") else None
+                    ),
                     common=common.get(t.get("word_id"), False),
                 )
                 for t in toks
@@ -194,13 +226,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return out
 
-    @app.get("/episodes/{episode_id}/understanding", response_model=Understanding, dependencies=auth, tags=["episodes"])
+    @app.get(
+        "/episodes/{episode_id}/understanding",
+        response_model=Understanding,
+        dependencies=auth,
+        tags=["episodes"],
+    )
     def read_understanding(episode_id: int, session: Session = Depends(get_session)):
         get_episode(session, episode_id)
         return understanding(session, uid, episode_id)
 
-    @app.get("/dictionary/lookup", response_model=LookupResult, dependencies=auth, tags=["dictionary"])
-    def lookup(q: str, reading: str | None = None, limit: int = 5, d: Dictionary = Depends(dictionary_dep)):
+    @app.get(
+        "/dictionary/lookup", response_model=LookupResult, dependencies=auth, tags=["dictionary"]
+    )
+    def lookup(
+        q: str, reading: str | None = None, limit: int = 5, d: Dictionary = Depends(dictionary_dep)
+    ):
         return LookupResult(query=q, reading=reading, entries=d.lookup(q, reading, min(limit, 20)))
 
     def word_out(session: Session, w: Word) -> WordOut:
@@ -229,4 +270,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return word_out(session, w)
 
     return app
-

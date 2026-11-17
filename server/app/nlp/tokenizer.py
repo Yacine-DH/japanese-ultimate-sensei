@@ -34,7 +34,8 @@ def _sudachi():
     from sudachipy import dictionary
     from sudachipy import tokenizer as sudachi_tokenizer
 
-    tok = dictionary.Dictionary(dict="core").create()
+    d = dictionary.Dictionary(dict="core")
+    tok = d.tokenizer() if hasattr(d, "tokenizer") else d.create()
     return tok, sudachi_tokenizer.Tokenizer.SplitMode.B
 
 
@@ -58,9 +59,7 @@ def tokenize(text: str) -> list[Token]:
         pos = list(m.part_of_speech())
         reading = _reading_of(m)
         lemma = m.dictionary_form() or surface
-        is_content = (
-            pos[0] in CONTENT_POS and pos[1] not in SKIP_SUBPOS and has_japanese(surface)
-        )
+        is_content = pos[0] in CONTENT_POS and pos[1] not in SKIP_SUBPOS and has_japanese(surface)
         out.append(
             Token(
                 surface=surface,
@@ -71,8 +70,35 @@ def tokenize(text: str) -> list[Token]:
                 pos=pos[0],
                 pos_detail=[p for p in pos[1:] if p != "*"],
                 furigana=furigana(surface, reading),
-                romaji=to_romaji(reading) if has_japanese(surface) else surface,
+                romaji=_romaji(surface, reading, pos[0]),
                 is_content=is_content,
             )
         )
+    _fix_trailing_sokuon(out)
     return out
+
+
+# Particles are pronounced differently from how they're written.
+_PARTICLE_ROMAJI = {"は": "wa", "へ": "e", "を": "o"}
+
+
+def _romaji(surface: str, reading: str, pos: str) -> str:
+    if not has_japanese(surface):
+        return surface
+    if pos == "助詞" and surface in _PARTICLE_ROMAJI:
+        return _PARTICLE_ROMAJI[surface]
+    if reading.endswith("っ"):
+        return to_romaji(reading[:-1]) + "っ"  # placeholder, resolved by _fix_trailing_sokuon
+    return to_romaji(reading)
+
+
+def _fix_trailing_sokuon(tokens: list[Token]) -> None:
+    """A token ending in small っ (e.g. 終わっ|た) doubles the next token's first consonant."""
+    for i, t in enumerate(tokens):
+        if not t.romaji.endswith("っ"):
+            continue
+        nxt = tokens[i + 1].romaji if i + 1 < len(tokens) else ""
+        double = nxt[0] if nxt[:1].isalpha() and nxt[0] not in "aeiouy" else ""
+        if nxt.startswith("ch"):
+            double = "t"  # Hepburn: っち → tchi
+        t.romaji = t.romaji[:-1] + double
