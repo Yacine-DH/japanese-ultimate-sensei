@@ -1,0 +1,32 @@
+# Runtime data (dictionary DB, user DB, captured media)
+/data/
+/media/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Node / frontends
+node_modules/
+dist/
+.output/
+.wxt/
+*.local
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,6 @@
+{"version":"test","languages":["ger"],"dictDate":"2026-01-01","words":[
+ {"id":"1358280","kanji":[{"common":true,"text":"食べる","tags":[]}],"kana":[{"common":true,"text":"たべる","tags":[],"appliesToKanji":["*"]}],
+  "sense":[{"partOfSpeech":[],"misc":[],"gloss":[{"lang":"ger","text":"essen"},{"lang":"ger","text":"speisen"}]}]},
+ {"id":"1201230","kanji":[{"common":true,"text":"海賊","tags":[]}],"kana":[{"common":true,"text":"かいぞく","tags":[],"appliesToKanji":["*"]}],
+  "sense":[{"partOfSpeech":[],"misc":[],"gloss":[{"lang":"ger","text":"Pirat"}]}]}
+]}

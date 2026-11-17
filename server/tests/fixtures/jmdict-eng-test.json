@@ -1,0 +1,10 @@
+{"version":"test","languages":["eng"],"dictDate":"2026-01-01","words":[
+ {"id":"1358280","kanji":[{"common":true,"text":"食べる","tags":[]},{"common":false,"text":"喰べる","tags":[]}],"kana":[{"common":true,"text":"たべる","tags":[],"appliesToKanji":["*"]}],
+  "sense":[{"partOfSpeech":["v1","vt"],"misc":[],"gloss":[{"lang":"eng","text":"to eat"}]},{"partOfSpeech":["v1","vt"],"misc":[],"gloss":[{"lang":"eng","text":"to live on (e.g. a salary)"}]}]},
+ {"id":"1201230","kanji":[{"common":true,"text":"海賊","tags":[]}],"kana":[{"common":true,"text":"かいぞく","tags":[],"appliesToKanji":["*"]}],
+  "sense":[{"partOfSpeech":["n"],"misc":[],"gloss":[{"lang":"eng","text":"pirate"}]}]},
+ {"id":"1375610","kanji":[{"common":true,"text":"成る","tags":[]}],"kana":[{"common":true,"text":"なる","tags":[],"appliesToKanji":["*"]}],
+  "sense":[{"partOfSpeech":["v5r","vi"],"misc":["uk"],"gloss":[{"lang":"eng","text":"to become"}]}]},
+ {"id":"9999999","kanji":[],"kana":[{"common":false,"text":"たべる","tags":[],"appliesToKanji":["*"]}],
+  "sense":[{"partOfSpeech":["n"],"misc":[],"gloss":[{"lang":"eng","text":"rare homophone (test)"}]}]}
+]}
