@@ -1,57 +1,164 @@
-import { api } from '../../src/api/client';
-import { getSettings, saveSettings } from '../../src/lib/settings';
+import { api, type EpisodeOut } from '../../src/api/client';
+import { getSettings } from '../../src/lib/settings';
+import { filterEpisodes, resolveEpisodeForUrl } from '../../src/lib/url-mapping';
 
 const healthBadge = document.getElementById('health-badge') as HTMLSpanElement;
 const serverUrlText = document.getElementById('server-url-text') as HTMLSpanElement;
-const versionText = document.getElementById('version-text') as HTMLSpanElement;
 const dictText = document.getElementById('dict-text') as HTMLSpanElement;
-const authText = document.getElementById('auth-text') as HTMLSpanElement;
+const tabEnableToggle = document.getElementById('tab-enable-toggle') as HTMLInputElement;
+const pagePatternText = document.getElementById('page-pattern-text') as HTMLSpanElement;
+const suggestBanner = document.getElementById('suggest-banner') as HTMLDivElement;
+const suggestText = document.getElementById('suggest-text') as HTMLSpanElement;
+const applySuggestBtn = document.getElementById('apply-suggest-btn') as HTMLButtonElement;
+const episodeSearch = document.getElementById('episode-search') as HTMLInputElement;
 const episodeSelect = document.getElementById('episode-select') as HTMLSelectElement;
+const uploadForm = document.getElementById('upload-form') as HTMLFormElement;
+const uploadAnime = document.getElementById('upload-anime') as HTMLInputElement;
+const uploadEpNum = document.getElementById('upload-ep-num') as HTMLInputElement;
+const uploadFile = document.getElementById('upload-file') as HTMLInputElement;
+const uploadStatus = document.getElementById('upload-status') as HTMLDivElement;
 const openOptionsBtn = document.getElementById('open-options-btn') as HTMLButtonElement;
+
+let activeTabId: number | null = null;
+let activeTabUrl = '';
+let allEpisodes: EpisodeOut[] = [];
+let attachedEpisodeId: number | null = null;
+let suggestedEpisode: EpisodeOut | null = null;
+
+function formatEpisodeLabel(ep: EpisodeOut): string {
+  const anime = ep.anime_title ?? 'Anime';
+  const num = ep.number !== null ? ` Ep ${ep.number}` : '';
+  return `${anime}${num} (${ep.line_count} lines)`;
+}
+
+function renderEpisodeOptions(): void {
+  const filtered = filterEpisodes(allEpisodes, episodeSearch.value);
+  episodeSelect.innerHTML = '<option value="">None (detached)</option>';
+  for (const ep of filtered) {
+    const opt = document.createElement('option');
+    opt.value = String(ep.id);
+    opt.textContent = formatEpisodeLabel(ep);
+    if (attachedEpisodeId === ep.id) {
+      opt.selected = true;
+    }
+    episodeSelect.appendChild(opt);
+  }
+}
+
+async function applyTabSelection(episodeId: number | null, enabled: boolean): Promise<void> {
+  if (activeTabId === null) return;
+  attachedEpisodeId = episodeId;
+  tabEnableToggle.checked = enabled && episodeId !== null;
+  await api.setTabState({
+    tabId: activeTabId,
+    pageUrl: activeTabUrl,
+    episodeId,
+    enabled: enabled && episodeId !== null,
+  });
+  renderEpisodeOptions();
+}
 
 async function refreshPopup(): Promise<void> {
   const settings = await getSettings();
   serverUrlText.textContent = settings.serverUrl.replace(/^https?:\/\//, '');
 
+  const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+  const currentTab = tabs[0];
+  activeTabId = currentTab?.id ?? null;
+  activeTabUrl = currentTab?.url ?? '';
+
+  const tabState = await api.getTabState(activeTabId ?? undefined, activeTabUrl);
+  attachedEpisodeId = tabState.episodeId;
+  tabEnableToggle.checked = tabState.enabled;
+  pagePatternText.textContent = tabState.pattern ?? 'unsupported page';
+
   const healthRes = await api.getHealth();
   if (healthRes.ok && healthRes.data) {
     const h = healthRes.data;
-    healthBadge.textContent = h.status === 'ok' ? 'Online' : h.status;
+    healthBadge.textContent = h.status === 'ok' ? `Online v${h.version}` : h.status;
     healthBadge.className = 'badge online';
-    versionText.textContent = h.version;
     dictText.textContent = h.dictionary ? 'Ready' : 'Not built';
-    authText.textContent = h.auth ? 'Required' : 'Open';
   } else {
     healthBadge.textContent = 'Offline';
     healthBadge.className = 'badge offline';
-    versionText.textContent = healthRes.error ?? 'Unreachable';
-    dictText.textContent = '-';
-    authText.textContent = '-';
+    dictText.textContent = healthRes.error ?? 'Unreachable';
     return;
   }
 
   const episodesRes = await api.listEpisodes();
   if (episodesRes.ok && episodesRes.data) {
-    episodeSelect.innerHTML = '<option value="">None (overlay disabled)</option>';
-    for (const ep of episodesRes.data) {
-      const opt = document.createElement('option');
-      opt.value = String(ep.id);
-      const anime = ep.anime_title ?? 'Anime';
-      const num = ep.number !== null ? ` Ep ${ep.number}` : '';
-      opt.textContent = `${anime}${num} (${ep.line_count} lines)`;
-      if (settings.activeEpisodeId === ep.id) {
-        opt.selected = true;
-      }
-      episodeSelect.appendChild(opt);
+    allEpisodes = episodesRes.data;
+    renderEpisodeOptions();
+
+    const resolved = resolveEpisodeForUrl(
+      activeTabUrl,
+      settings.urlMappings,
+      allEpisodes,
+    );
+    if (attachedEpisodeId === null && resolved.suggestedEpisode) {
+      suggestedEpisode = resolved.suggestedEpisode;
+      suggestText.textContent = `Next up: ${formatEpisodeLabel(suggestedEpisode)}`;
+      suggestBanner.className = 'suggest-banner visible';
+    } else {
+      suggestedEpisode = null;
+      suggestBanner.className = 'suggest-banner';
     }
   }
 }
 
+episodeSearch.addEventListener('input', () => {
+  renderEpisodeOptions();
+});
+
 episodeSelect.addEventListener('change', async () => {
   const val = episodeSelect.value;
-  await saveSettings({
-    activeEpisodeId: val ? Number(val) : null,
+  const epId = val ? Number(val) : null;
+  await applyTabSelection(epId, epId !== null);
+});
+
+tabEnableToggle.addEventListener('change', async () => {
+  if (attachedEpisodeId === null) {
+    tabEnableToggle.checked = false;
+    return;
+  }
+  await applyTabSelection(attachedEpisodeId, tabEnableToggle.checked);
+});
+
+applySuggestBtn.addEventListener('click', async () => {
+  if (!suggestedEpisode) return;
+  suggestBanner.className = 'suggest-banner';
+  await applyTabSelection(suggestedEpisode.id, true);
+});
+
+uploadForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const file = uploadFile.files?.[0];
+  if (!file) return;
+
+  uploadStatus.textContent = 'Uploading & tokenizing...';
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  const contentBase64 = btoa(binary);
+
+  const res = await api.uploadSubtitle({
+    filename: file.name,
+    contentBase64,
+    animeTitle: uploadAnime.value.trim(),
+    episodeNumber: uploadEpNum.value ? Number(uploadEpNum.value) : null,
   });
+
+  if (res.ok && res.data) {
+    uploadStatus.textContent = `Uploaded (${res.data.line_count} lines, ${res.data.understanding.token_pct}% known)`;
+    allEpisodes = [res.data, ...allEpisodes];
+    await applyTabSelection(res.data.id, true);
+    uploadForm.reset();
+  } else {
+    uploadStatus.textContent = `Error: ${res.error ?? 'Upload failed'}`;
+  }
 });
 
 openOptionsBtn.addEventListener('click', () => {

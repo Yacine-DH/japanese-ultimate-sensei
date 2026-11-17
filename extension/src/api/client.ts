@@ -37,12 +37,84 @@ export interface ApiCallMessage {
   init?: ApiCallInit;
 }
 
+export interface TabEpisodeState {
+  tabId: number | null;
+  pageUrl: string;
+  pattern: string | null;
+  episodeId: number | null;
+  enabled: boolean;
+}
+
+export interface GetTabStateMessage {
+  type: 'SENSEI_GET_TAB_STATE';
+  tabId?: number;
+  pageUrl?: string;
+}
+
+export interface SetTabStateMessage {
+  type: 'SENSEI_SET_TAB_STATE';
+  tabId: number;
+  pageUrl: string;
+  episodeId: number | null;
+  enabled: boolean;
+}
+
+export interface UploadSubtitleMessage {
+  type: 'SENSEI_UPLOAD_SUBTITLE';
+  filename: string;
+  contentBase64: string;
+  animeTitle: string;
+  episodeNumber?: number | null;
+  title?: string | null;
+}
+
+export interface TabStateChangedMessage {
+  type: 'SENSEI_TAB_STATE_CHANGED';
+  state: TabEpisodeState;
+}
+
 export function isApiCallMessage(msg: unknown): msg is ApiCallMessage {
   return (
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_API_CALL' &&
     typeof (msg as { path?: unknown }).path === 'string'
+  );
+}
+
+export function isGetTabStateMessage(msg: unknown): msg is GetTabStateMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_GET_TAB_STATE'
+  );
+}
+
+export function isSetTabStateMessage(msg: unknown): msg is SetTabStateMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_SET_TAB_STATE' &&
+    typeof (msg as { tabId?: unknown }).tabId === 'number'
+  );
+}
+
+export function isUploadSubtitleMessage(msg: unknown): msg is UploadSubtitleMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_UPLOAD_SUBTITLE' &&
+    typeof (msg as { filename?: unknown }).filename === 'string' &&
+    typeof (msg as { contentBase64?: unknown }).contentBase64 === 'string' &&
+    typeof (msg as { animeTitle?: unknown }).animeTitle === 'string'
+  );
+}
+
+export function isTabStateChangedMessage(msg: unknown): msg is TabStateChangedMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_TAB_STATE_CHANGED'
   );
 }
 
@@ -123,6 +195,59 @@ export async function executeApiCall<T = unknown>(
   }
 }
 
+export async function executeSubtitleUpload(
+  settings: Pick<ExtensionSettings, 'serverUrl' | 'apiToken'>,
+  msg: UploadSubtitleMessage,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ApiCallResponse<EpisodeCreated>> {
+  const baseUrl = normalizeServerUrl(settings.serverUrl);
+  const url = `${baseUrl}/episodes`;
+  const headers = buildApiHeaders(settings);
+  delete headers['Content-Type'];
+
+  const binary = atob(msg.contentBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  const form = new FormData();
+  form.append('subtitle', new Blob([bytes]), msg.filename);
+  form.append('anime_title', msg.animeTitle);
+  if (msg.episodeNumber !== undefined && msg.episodeNumber !== null) {
+    form.append('episode_number', String(msg.episodeNumber));
+  }
+  if (msg.title) {
+    form.append('title', msg.title);
+  }
+
+  try {
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    const contentType = response.headers.get('content-type') ?? '';
+    const isJson = contentType.includes('application/json');
+    const parsed = isJson ? await response.json() : await response.text();
+
+    if (!response.ok) {
+      const detail =
+        typeof parsed === 'object' && parsed !== null && 'detail' in parsed
+          ? String((parsed as { detail: unknown }).detail)
+          : `HTTP ${response.status}`;
+      return { ok: false, status: response.status, error: detail };
+    }
+    return { ok: true, status: response.status, data: parsed as EpisodeCreated };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 interface RuntimeLike {
   sendMessage(message: unknown): Promise<unknown>;
 }
@@ -155,11 +280,63 @@ export const api = {
           return res;
         }
       } catch {
-        // Fallback to direct call if background worker isn't reachable in current context
+        // Fallback when called outside background in unit tests
       }
     }
     const settings = await getSettings();
     return executeApiCall<T>(settings, path, init);
+  },
+
+  async getTabState(tabId?: number, pageUrl?: string): Promise<TabEpisodeState> {
+    const runtime = getBrowserRuntime();
+    if (runtime?.sendMessage) {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_GET_TAB_STATE',
+        tabId,
+        pageUrl,
+      } satisfies GetTabStateMessage)) as TabEpisodeState | undefined;
+      if (res && typeof res.enabled === 'boolean') {
+        return res;
+      }
+    }
+    return { tabId: tabId ?? null, pageUrl: pageUrl ?? '', pattern: null, episodeId: null, enabled: false };
+  },
+
+  async setTabState(msg: Omit<SetTabStateMessage, 'type'>): Promise<TabEpisodeState> {
+    const runtime = getBrowserRuntime();
+    if (runtime?.sendMessage) {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_SET_TAB_STATE',
+        ...msg,
+      } satisfies SetTabStateMessage)) as TabEpisodeState | undefined;
+      if (res && typeof res.enabled === 'boolean') {
+        return res;
+      }
+    }
+    return {
+      tabId: msg.tabId,
+      pageUrl: msg.pageUrl,
+      pattern: null,
+      episodeId: msg.episodeId,
+      enabled: msg.enabled,
+    };
+  },
+
+  async uploadSubtitle(
+    msg: Omit<UploadSubtitleMessage, 'type'>,
+  ): Promise<ApiCallResponse<EpisodeCreated>> {
+    const runtime = getBrowserRuntime();
+    if (!isBackgroundContext && runtime?.sendMessage) {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_UPLOAD_SUBTITLE',
+        ...msg,
+      } satisfies UploadSubtitleMessage)) as ApiCallResponse<EpisodeCreated> | undefined;
+      if (res && typeof res.ok === 'boolean') {
+        return res;
+      }
+    }
+    const settings = await getSettings();
+    return executeSubtitleUpload(settings, { type: 'SENSEI_UPLOAD_SUBTITLE', ...msg });
   },
 
   getHealth(): Promise<ApiCallResponse<Health>> {
