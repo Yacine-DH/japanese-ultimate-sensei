@@ -21,6 +21,18 @@ The owner relays between agents when needed. **Files in the repo are how we comm
 - Merge to `master` only when the task's tests pass. Rebase on `master` before merging.
 - Don't commit secrets, `.env`, `data/`, `media/`, `node_modules/`, build output.
 
+## GitHub (from 2026-11-17)
+Repo: https://github.com/Yacine-DH/japanese-ultimate-sensei (private, default branch `master`). `gh` is
+logged in on the server.
+- **Issues hold the details** (bug reports, specs, acceptance criteria). Filter by label
+  `agent:claude` / `agent:antigravity`, `area:*`, milestone `v0.1 core loop` / `Phase 2` / `Phase 3`.
+  `docs/TASKS.md` stays the quick claim board; put the issue number next to a task (`E-4 (#20)`).
+- Claim = assign yourself on the issue **and** mark `[~]` in TASKS.md.
+- Every branch lands via a **pull request** to `master` whose description includes `Closes #N`,
+  plus test/lint/build output. The other agent reviews when the owner asks; otherwise self-merge once green.
+- Found a bug in the other agent's area? Open an issue with label `review-finding` and their
+  `agent:*` label. Don't fix it in their code.
+
 ## API contract rules
 - `server/app/schemas.py` is the single source of truth; `docs/openapi.json` is generated from it:
   `cd server && uv run python -m app.export_openapi`
