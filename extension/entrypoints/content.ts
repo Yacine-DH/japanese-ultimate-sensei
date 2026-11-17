@@ -17,8 +17,9 @@ import { type ExtensionSettings, getSettings, SETTINGS_STORAGE_KEY } from '../sr
 import {
   adjustOffsetMs,
   computeSyncOffsetMs,
-  findActiveLine,
+  findActiveLines,
   findReferenceLineForSync,
+  formatActiveLinesKey,
   resolveHotkeyAction,
 } from '../src/lib/timing';
 import {
@@ -38,7 +39,9 @@ export default defineContentScript({
     let lines: LineOut[] = [];
     let subOffsetMs = 0;
     let currentVideo: HTMLVideoElement | null = null;
-    let renderedLineId: number | null = null;
+    let renderedLinesKey: string | null = null;
+    let frameCallbackId: number | null = null;
+    let frameLoopMode: 'rvfc' | 'raf' | null = null;
     let hostEl: HTMLDivElement | null = null;
     let shadowRoot: ShadowRoot | null = null;
     let subBoxEl: HTMLDivElement | null = null;
@@ -106,6 +109,11 @@ export default defineContentScript({
           }
           .sensei-sub-box:empty {
             display: none;
+          }
+          .sensei-line-item + .sensei-line-item {
+            margin-top: 6px;
+            padding-top: 4px;
+            border-top: 1px solid rgba(148, 163, 184, 0.22);
           }
           .sensei-token {
             padding: 1px 2px;
@@ -321,7 +329,7 @@ export default defineContentScript({
       const res = await api.setWordStatus(token.word_id, status);
       if (res.ok) {
         lines = updateWordStatusInLines(lines, token.word_id, status);
-        renderedLineId = null;
+        renderedLinesKey = null;
         syncSubtitleFrame();
         showToast(
           status === 'known'
@@ -439,86 +447,139 @@ export default defineContentScript({
       }
     }
 
-    function renderLine(line: LineOut | null): void {
+    function renderLines(activeLines: readonly LineOut[]): void {
       if (!subBoxEl || !settings) return;
-      if (!line) {
+      if (activeLines.length === 0) {
         subBoxEl.innerHTML = '';
-        renderedLineId = null;
+        renderedLinesKey = '';
         return;
       }
 
       subBoxEl.innerHTML = '';
-      renderedLineId = line.id;
+      renderedLinesKey = formatActiveLinesKey(activeLines);
 
-      const highlightedIndices = rankHighlightedTokenIndices(
-        line.tokens,
-        settings.highlightLimit,
-      );
+      for (const line of activeLines) {
+        const lineContainer = document.createElement('div');
+        lineContainer.className = 'sensei-line-item';
 
-      const jpLine = document.createElement('div');
-      jpLine.className = 'sensei-jp-line';
+        const highlightedIndices = rankHighlightedTokenIndices(
+          line.tokens,
+          settings.highlightLimit,
+        );
 
-      line.tokens.forEach((token, idx) => {
-        const span = document.createElement('span');
-        const classes = ['sensei-token'];
-        if (token.is_content) {
-          classes.push('content');
-        }
-        if (highlightedIndices.has(idx)) {
-          classes.push('highlighted');
-        } else if (token.status === 'learning') {
-          classes.push('learning');
-        }
-        span.className = classes.join(' ');
+        const jpLine = document.createElement('div');
+        jpLine.className = 'sensei-jp-line';
 
-        const segments = renderTokenSegments(token);
-        for (const seg of segments) {
-          if (seg.ruby) {
-            const ruby = document.createElement('ruby');
-            ruby.appendChild(document.createTextNode(seg.text));
-            const rt = document.createElement('rt');
-            rt.textContent = seg.ruby;
-            ruby.appendChild(rt);
-            span.appendChild(ruby);
-          } else {
-            span.appendChild(document.createTextNode(seg.text));
+        line.tokens.forEach((token, idx) => {
+          const span = document.createElement('span');
+          const classes = ['sensei-token'];
+          if (token.is_content) {
+            classes.push('content');
+          }
+          if (highlightedIndices.has(idx)) {
+            classes.push('highlighted');
+          } else if (token.status === 'learning') {
+            classes.push('learning');
+          }
+          span.className = classes.join(' ');
+
+          const segments = renderTokenSegments(token);
+          for (const seg of segments) {
+            if (seg.ruby) {
+              const ruby = document.createElement('ruby');
+              ruby.appendChild(document.createTextNode(seg.text));
+              const rt = document.createElement('rt');
+              rt.textContent = seg.ruby;
+              ruby.appendChild(rt);
+              span.appendChild(ruby);
+            } else {
+              span.appendChild(document.createTextNode(seg.text));
+            }
+          }
+
+          if (token.is_content) {
+            span.addEventListener('mouseenter', () => {
+              void openHoverPopup(token);
+            });
+          }
+
+          jpLine.appendChild(span);
+        });
+
+        lineContainer.appendChild(jpLine);
+
+        if (settings.romaji) {
+          const romajiText = buildLineRomaji(line.tokens);
+          if (romajiText) {
+            const romajiDiv = document.createElement('div');
+            romajiDiv.className = 'sensei-romaji-line';
+            romajiDiv.textContent = romajiText;
+            lineContainer.appendChild(romajiDiv);
           }
         }
 
-        if (token.is_content) {
-          span.addEventListener('mouseenter', () => {
-            void openHoverPopup(token);
-          });
-        }
-
-        jpLine.appendChild(span);
-      });
-
-      subBoxEl.appendChild(jpLine);
-
-      if (settings.romaji) {
-        const romajiText = buildLineRomaji(line.tokens);
-        if (romajiText) {
-          const romajiDiv = document.createElement('div');
-          romajiDiv.className = 'sensei-romaji-line';
-          romajiDiv.textContent = romajiText;
-          subBoxEl.appendChild(romajiDiv);
-        }
+        subBoxEl.appendChild(lineContainer);
       }
     }
 
     function syncSubtitleFrame(): void {
       if (!currentVideo || !tabOverlayEnabled || !currentEpisodeId || lines.length === 0) {
-        if (renderedLineId !== null) {
-          renderLine(null);
+        if (renderedLinesKey !== null && renderedLinesKey !== '') {
+          renderLines([]);
         }
         return;
       }
       ensureOverlayMounted(currentVideo);
       const videoMs = currentVideo.currentTime * 1000;
-      const active = findActiveLine(lines, videoMs, subOffsetMs);
-      if ((active?.id ?? null) !== renderedLineId) {
-        renderLine(active);
+      const active = findActiveLines(lines, videoMs, subOffsetMs);
+      const nextKey = formatActiveLinesKey(active);
+      if (nextKey !== renderedLinesKey) {
+        renderLines(active);
+      }
+    }
+
+    function stopFrameLoop(): void {
+      if (frameCallbackId === null) return;
+      const v = currentVideo as (HTMLVideoElement & {
+        cancelVideoFrameCallback?: (id: number) => void;
+      }) | null;
+      if (frameLoopMode === 'rvfc' && v?.cancelVideoFrameCallback) {
+        v.cancelVideoFrameCallback(frameCallbackId);
+      } else {
+        window.cancelAnimationFrame(frameCallbackId);
+      }
+      frameCallbackId = null;
+      frameLoopMode = null;
+    }
+
+    function startFrameLoop(): void {
+      stopFrameLoop();
+      if (!currentVideo || currentVideo.paused || currentVideo.ended) {
+        return;
+      }
+      const v = currentVideo as HTMLVideoElement & {
+        requestVideoFrameCallback?: (cb: () => void) => number;
+      };
+      if (typeof v.requestVideoFrameCallback === 'function') {
+        frameLoopMode = 'rvfc';
+        const tick = () => {
+          frameCallbackId = null;
+          syncSubtitleFrame();
+          if (currentVideo && !currentVideo.paused && !currentVideo.ended) {
+            frameCallbackId = v.requestVideoFrameCallback!(tick);
+          }
+        };
+        frameCallbackId = v.requestVideoFrameCallback(tick);
+      } else {
+        frameLoopMode = 'raf';
+        const tick = () => {
+          frameCallbackId = null;
+          syncSubtitleFrame();
+          if (currentVideo && !currentVideo.paused && !currentVideo.ended) {
+            frameCallbackId = window.requestAnimationFrame(tick);
+          }
+        };
+        frameCallbackId = window.requestAnimationFrame(tick);
       }
     }
 
@@ -532,20 +593,20 @@ export default defineContentScript({
       if (!shouldLoad || currentEpisodeId === null) {
         lines = [];
         loadedEpisodeId = null;
-        renderedLineId = null;
-        renderLine(null);
+        renderedLinesKey = null;
+        renderLines([]);
         return;
       }
 
       if (loadedEpisodeId === currentEpisodeId && lines.length > 0) {
-        renderedLineId = null;
+        renderedLinesKey = null;
         syncSubtitleFrame();
         return;
       }
 
       const targetId = currentEpisodeId;
       loadedEpisodeId = targetId;
-      renderedLineId = null;
+      renderedLinesKey = null;
 
       const [epRes, linesRes] = await Promise.all([
         api.getEpisode(targetId),
@@ -561,6 +622,7 @@ export default defineContentScript({
         lines = linesRes.data;
       }
       syncSubtitleFrame();
+      startFrameLoop();
     }
 
     function applyTabState(episodeId: number | null, enabled: boolean): void {
@@ -572,12 +634,17 @@ export default defineContentScript({
     function scanForVideo(): void {
       const best = findBestVideoInDocument(document);
       if (best && best !== currentVideo) {
+        stopFrameLoop();
         if (videoResizeObserver) {
           videoResizeObserver.disconnect();
         }
         currentVideo = best;
         currentVideo.addEventListener('timeupdate', syncSubtitleFrame);
         currentVideo.addEventListener('seeked', syncSubtitleFrame);
+        currentVideo.addEventListener('play', startFrameLoop);
+        currentVideo.addEventListener('playing', startFrameLoop);
+        currentVideo.addEventListener('pause', stopFrameLoop);
+        currentVideo.addEventListener('ended', stopFrameLoop);
         if (typeof ResizeObserver !== 'undefined') {
           videoResizeObserver = new ResizeObserver(() => {
             scheduleOverlayPositionUpdate();
@@ -586,6 +653,7 @@ export default defineContentScript({
         }
         ensureOverlayMounted(currentVideo);
         void maybeLoadTranscript();
+        startFrameLoop();
       } else if (currentVideo) {
         updateOverlayPosition(currentVideo);
       }
@@ -619,7 +687,7 @@ export default defineContentScript({
 
       const sign = subOffsetMs >= 0 ? '+' : '';
       showToast(`Sub offset: ${sign}${subOffsetMs} ms`);
-      renderedLineId = null;
+      renderedLinesKey = null;
       syncSubtitleFrame();
       void api.patchEpisode(currentEpisodeId, { sub_offset_ms: subOffsetMs });
     });
@@ -644,7 +712,7 @@ export default defineContentScript({
       if (changes[SETTINGS_STORAGE_KEY]) {
         void Promise.all([getSettings(), api.getTabState()]).then(([next, tabState]) => {
           settings = next;
-          renderedLineId = null;
+          renderedLinesKey = null;
           applyTabState(tabState.episodeId, tabState.enabled);
         });
       }
