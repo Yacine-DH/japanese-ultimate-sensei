@@ -21,7 +21,11 @@ import {
   findReferenceLineForSync,
   resolveHotkeyAction,
 } from '../src/lib/timing';
-import { findBestVideoInDocument } from '../src/lib/video';
+import {
+  computeOverlayBounds,
+  findBestVideoInDocument,
+  resolveOverlayMountTarget,
+} from '../src/lib/video';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -43,14 +47,12 @@ export default defineContentScript({
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let pausedByHover = false;
     let hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
+    let positionRafId: number | null = null;
+    let videoResizeObserver: ResizeObserver | null = null;
     const lookupCache = new Map<string, LookupResult>();
 
     function ensureOverlayMounted(video: HTMLVideoElement): void {
-      const fullscreenEl = document.fullscreenElement as HTMLElement | null;
-      const container =
-        fullscreenEl && fullscreenEl.contains(video)
-          ? fullscreenEl
-          : (video.parentElement ?? document.body);
+      const container = resolveOverlayMountTarget(document, video);
 
       if (!hostEl) {
         hostEl = document.createElement('div');
@@ -250,11 +252,24 @@ export default defineContentScript({
       if (!shadowRoot) return;
       const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
       if (!root) return;
-      const rect = video.getBoundingClientRect();
-      root.style.left = `${rect.left}px`;
-      root.style.top = `${rect.top}px`;
-      root.style.width = `${rect.width}px`;
-      root.style.height = `${rect.height}px`;
+      const fs = document.fullscreenElement;
+      const fsRect =
+        fs && fs.contains(video) ? fs.getBoundingClientRect() : null;
+      const bounds = computeOverlayBounds(video.getBoundingClientRect(), fsRect);
+      root.style.left = `${bounds.left}px`;
+      root.style.top = `${bounds.top}px`;
+      root.style.width = `${bounds.width}px`;
+      root.style.height = `${bounds.height}px`;
+    }
+
+    function scheduleOverlayPositionUpdate(): void {
+      if (!currentVideo || positionRafId !== null) return;
+      positionRafId = window.requestAnimationFrame(() => {
+        positionRafId = null;
+        if (currentVideo) {
+          ensureOverlayMounted(currentVideo);
+        }
+      });
     }
 
     function showToast(text: string): void {
@@ -557,9 +572,18 @@ export default defineContentScript({
     function scanForVideo(): void {
       const best = findBestVideoInDocument(document);
       if (best && best !== currentVideo) {
+        if (videoResizeObserver) {
+          videoResizeObserver.disconnect();
+        }
         currentVideo = best;
         currentVideo.addEventListener('timeupdate', syncSubtitleFrame);
         currentVideo.addEventListener('seeked', syncSubtitleFrame);
+        if (typeof ResizeObserver !== 'undefined') {
+          videoResizeObserver = new ResizeObserver(() => {
+            scheduleOverlayPositionUpdate();
+          });
+          videoResizeObserver.observe(currentVideo);
+        }
         ensureOverlayMounted(currentVideo);
         void maybeLoadTranscript();
       } else if (currentVideo) {
@@ -601,15 +625,13 @@ export default defineContentScript({
     });
 
     document.addEventListener('fullscreenchange', () => {
-      if (currentVideo) {
-        ensureOverlayMounted(currentVideo);
-      }
+      scheduleOverlayPositionUpdate();
     });
 
-    window.addEventListener('resize', () => {
-      if (currentVideo) {
-        updateOverlayPosition(currentVideo);
-      }
+    window.addEventListener('resize', scheduleOverlayPositionUpdate, { passive: true });
+    window.addEventListener('scroll', scheduleOverlayPositionUpdate, {
+      capture: true,
+      passive: true,
     });
 
     browser.runtime.onMessage.addListener((msg: unknown) => {

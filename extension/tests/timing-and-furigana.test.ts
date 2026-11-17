@@ -9,7 +9,11 @@ import {
   isLineActive,
   resolveHotkeyAction,
 } from '../src/lib/timing';
-import { pickLargestVisibleVideo } from '../src/lib/video';
+import {
+  computeOverlayBounds,
+  pickLargestVisibleVideo,
+  resolveOverlayMountTarget,
+} from '../src/lib/video';
 
 function makeToken(overrides: Partial<TokenOut> = {}): TokenOut {
   return {
@@ -126,7 +130,7 @@ describe('furigana and romaji rendering (E-2)', () => {
   });
 });
 
-describe('video detection (E-2)', () => {
+describe('video detection and overlay positioning (E-2, #1)', () => {
   it('picks the largest visible video above minimum dimensions', () => {
     const picked = pickLargestVisibleVideo([
       { element: 'small-ad', width: 120, height: 60, visible: true },
@@ -135,5 +139,44 @@ describe('video detection (E-2)', () => {
       { element: 'preview', width: 320, height: 180, visible: true },
     ]);
     expect(picked).toBe('player-720p');
+  });
+
+  it('mounts on documentElement by default so transformed player wrappers never break position:fixed', () => {
+    const playerWrapper = document.createElement('div');
+    playerWrapper.style.transform = 'translateZ(0)';
+    const video = document.createElement('video');
+    playerWrapper.appendChild(video);
+    document.body.appendChild(playerWrapper);
+
+    expect(
+      resolveOverlayMountTarget(
+        {
+          documentElement: document.documentElement,
+          fullscreenElement: null,
+          body: document.body,
+        },
+        video,
+      ),
+    ).toBe(document.documentElement);
+
+    expect(
+      resolveOverlayMountTarget(
+        {
+          documentElement: document.documentElement,
+          fullscreenElement: playerWrapper,
+          body: document.body,
+        },
+        video,
+      ),
+    ).toBe(playerWrapper);
+
+    expect(
+      computeOverlayBounds({ left: 100.4, top: 240.2, width: 1280, height: 720 }, null),
+    ).toEqual({
+      left: 100,
+      top: 240,
+      width: 1280,
+      height: 720,
+    });
   });
 });
