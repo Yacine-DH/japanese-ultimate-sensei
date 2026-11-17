@@ -12,17 +12,55 @@ export function isLineActive(
   return videoMs >= start && videoMs < end;
 }
 
+export function findActiveLines(
+  lines: readonly LineOut[],
+  videoMs: number,
+  subOffsetMs: number,
+): LineOut[] {
+  if (lines.length === 0) {
+    return [];
+  }
+
+  // Binary search for the last line with start_ms + subOffsetMs <= videoMs
+  let lo = 0;
+  let hi = lines.length - 1;
+  let upperIdx = -1;
+
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const line = lines[mid]!;
+    if (line.start_ms + subOffsetMs <= videoMs) {
+      upperIdx = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  if (upperIdx < 0) {
+    return [];
+  }
+
+  const active: LineOut[] = [];
+  for (let i = 0; i <= upperIdx; i++) {
+    const line = lines[i]!;
+    if (isLineActive(line, videoMs, subOffsetMs)) {
+      active.push(line);
+    }
+  }
+  return active;
+}
+
 export function findActiveLine(
   lines: readonly LineOut[],
   videoMs: number,
   subOffsetMs: number,
 ): LineOut | null {
-  for (const line of lines) {
-    if (isLineActive(line, videoMs, subOffsetMs)) {
-      return line;
-    }
-  }
-  return null;
+  return findActiveLines(lines, videoMs, subOffsetMs)[0] ?? null;
+}
+
+export function formatActiveLinesKey(lines: readonly Pick<LineOut, 'id'>[]): string {
+  return lines.map((l) => l.id).join(',');
 }
 
 export function findReferenceLineForSync(

@@ -5,7 +5,9 @@ import {
   adjustOffsetMs,
   computeSyncOffsetMs,
   findActiveLine,
+  findActiveLines,
   findReferenceLineForSync,
+  formatActiveLinesKey,
   isLineActive,
   resolveHotkeyAction,
 } from '../src/lib/timing';
@@ -103,6 +105,25 @@ describe('subtitle timing logic (E-2)', () => {
     const syncedOffset = computeSyncOffsetMs(3450, ref!);
     expect(syncedOffset).toBe(450);
     expect(isLineActive(ref!, 3450, syncedOffset)).toBe(true);
+  });
+
+  it('returns all overlapping active lines ordered by idx (#6)', () => {
+    const lines = [
+      makeLine({ id: 10, idx: 0, start_ms: 1000, end_ms: 4000, text: 'フリーレン！' }),
+      makeLine({ id: 11, idx: 1, start_ms: 2000, end_ms: 3500, text: 'フェルン、伏せて！' }),
+      makeLine({ id: 12, idx: 2, start_ms: 4000, end_ms: 5500, text: '撃つよ' }),
+    ];
+
+    // At 1500ms only line 10 is active
+    expect(findActiveLines(lines, 1500, 0).map((l) => l.id)).toEqual([10]);
+
+    // At 2500ms both line 10 and line 11 overlap
+    const both = findActiveLines(lines, 2500, 0);
+    expect(both.map((l) => l.id)).toEqual([10, 11]);
+    expect(formatActiveLinesKey(both)).toBe('10,11');
+
+    // At exact boundary 4000ms, line 10 and 11 have ended and line 12 begins
+    expect(findActiveLines(lines, 4000, 0).map((l) => l.id)).toEqual([12]);
   });
 });
 
