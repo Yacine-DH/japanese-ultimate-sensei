@@ -12,6 +12,7 @@ import {
   selectSensesForLanguage,
   updateWordStatusInLines,
 } from '../src/lib/highlight';
+import { shouldLoadTranscriptForFrame } from '../src/lib/line-cache';
 import { type ExtensionSettings, getSettings, SETTINGS_STORAGE_KEY } from '../src/lib/settings';
 import {
   adjustOffsetMs,
@@ -28,6 +29,7 @@ export default defineContentScript({
   main() {
     let settings: ExtensionSettings | null = null;
     let currentEpisodeId: number | null = null;
+    let loadedEpisodeId: number | null = null;
     let tabOverlayEnabled = false;
     let lines: LineOut[] = [];
     let subOffsetMs = 0;
@@ -505,26 +507,38 @@ export default defineContentScript({
       }
     }
 
-    async function loadEpisodeData(episodeId: number | null, enabled: boolean): Promise<void> {
-      tabOverlayEnabled = enabled && episodeId !== null;
-      if (!tabOverlayEnabled || !episodeId) {
-        currentEpisodeId = episodeId;
+    async function maybeLoadTranscript(): Promise<void> {
+      const shouldLoad = shouldLoadTranscriptForFrame({
+        hasQualifyingVideo: currentVideo !== null,
+        tabEnabled: tabOverlayEnabled,
+        episodeId: currentEpisodeId,
+      });
+
+      if (!shouldLoad || currentEpisodeId === null) {
         lines = [];
+        loadedEpisodeId = null;
         renderedLineId = null;
         renderLine(null);
         return;
       }
-      if (currentEpisodeId === episodeId && lines.length > 0) {
+
+      if (loadedEpisodeId === currentEpisodeId && lines.length > 0) {
         renderedLineId = null;
         syncSubtitleFrame();
         return;
       }
-      currentEpisodeId = episodeId;
+
+      const targetId = currentEpisodeId;
+      loadedEpisodeId = targetId;
       renderedLineId = null;
+
       const [epRes, linesRes] = await Promise.all([
-        api.getEpisode(episodeId),
-        api.getEpisodeLines(episodeId),
+        api.getEpisode(targetId),
+        api.getEpisodeLines(targetId),
       ]);
+      if (currentEpisodeId !== targetId) {
+        return;
+      }
       if (epRes.ok && epRes.data) {
         subOffsetMs = epRes.data.sub_offset_ms;
       }
@@ -534,6 +548,12 @@ export default defineContentScript({
       syncSubtitleFrame();
     }
 
+    function applyTabState(episodeId: number | null, enabled: boolean): void {
+      currentEpisodeId = episodeId;
+      tabOverlayEnabled = enabled && episodeId !== null;
+      void maybeLoadTranscript();
+    }
+
     function scanForVideo(): void {
       const best = findBestVideoInDocument(document);
       if (best && best !== currentVideo) {
@@ -541,7 +561,7 @@ export default defineContentScript({
         currentVideo.addEventListener('timeupdate', syncSubtitleFrame);
         currentVideo.addEventListener('seeked', syncSubtitleFrame);
         ensureOverlayMounted(currentVideo);
-        syncSubtitleFrame();
+        void maybeLoadTranscript();
       } else if (currentVideo) {
         updateOverlayPosition(currentVideo);
       }
@@ -594,7 +614,7 @@ export default defineContentScript({
 
     browser.runtime.onMessage.addListener((msg: unknown) => {
       if (isTabStateChangedMessage(msg)) {
-        void loadEpisodeData(msg.state.episodeId, msg.state.enabled);
+        applyTabState(msg.state.episodeId, msg.state.enabled);
       }
     });
 
@@ -603,7 +623,7 @@ export default defineContentScript({
         void Promise.all([getSettings(), api.getTabState()]).then(([next, tabState]) => {
           settings = next;
           renderedLineId = null;
-          void loadEpisodeData(tabState.episodeId, tabState.enabled);
+          applyTabState(tabState.episodeId, tabState.enabled);
         });
       }
     });
@@ -611,7 +631,7 @@ export default defineContentScript({
     void Promise.all([getSettings(), api.getTabState()]).then(([initial, tabState]) => {
       settings = initial;
       scanForVideo();
-      void loadEpisodeData(tabState.episodeId, tabState.enabled);
+      applyTabState(tabState.episodeId, tabState.enabled);
       setInterval(scanForVideo, 1500);
     });
   },
