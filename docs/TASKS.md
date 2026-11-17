@@ -34,7 +34,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **E-6** AnkiConnect push (optional per settings) of saved cards using S-5's card JSON. deps: E-5, S-5
 
 ### Web app (Antigravity)
-- [~] **W-1** Scaffold `web/`: Vite + React + TS + Tailwind + React Router + TanStack Query; API client generated from `docs/openapi.json`; settings page (token). Dark mode. deps: O-2 (antigravity, 2026-11-17)
+- [x] **W-1** Scaffold `web/`: Vite + React + TS + Tailwind + React Router + TanStack Query; API client generated from `docs/openapi.json`; settings page (token). Dark mode. deps: O-2 (antigravity, 2026-11-17: Vite + React 18 + Tailwind v4 + React Router + TanStack Query dark-mode SPA, OpenAPI types, settings + health check, unit tests)
 - [ ] **W-2** Library: anime → episodes, upload subtitle, understanding % bar per episode, episode detail with the transcript (furigana, word status colours, click a word → lookup + status). deps: W-1
 - [ ] **W-3** Review: FSRS session with screenshot, play line audio/clip, reveal meaning + sentence, rate Again/Hard/Good/Easy (keys 1–4). deps: W-1, S-3
 - [ ] **W-4** Words: table filterable by status / anime, bulk mark known. deps: W-1
@@ -51,4 +51,4 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **W-6** Built-in player for downloaded files (same overlay component as the extension)
 
 ## Requests (cross-team)
-_(add here: "**R-n** from <agent>: need X in endpoint Y because Z")_
+- **R-1** from antigravity: need `GET /words?status=&anime_id=&q=&limit=&offset=` and `POST /words/bulk-status` (`{"word_ids": int[], "status": WordStatus}`) because **W-4** requires a vocabulary table filterable by status/anime and bulk mark known, whereas `docs/API.md` currently only exposes single-word `GET /words/{id}` and `POST /words/{id}/status`.
