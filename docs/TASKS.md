@@ -19,7 +19,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 ### Server (Claude)
 - [ ] **S-1** Jimaku integration: `GET /subs/search?q=` (AniList/Jimaku), `POST /episodes/from-jimaku` (download + ingest). deps: O-3
 - [ ] **S-2** Media: `POST /media` (multipart screenshot/audio/clip upload) → ffmpeg transcode (WebP/Opus/VP9 360p) → `GET /media/{id}`
-- [ ] **S-3** Cards + FSRS: `POST /cards` (word + line + media ids), `GET /reviews/due`, `POST /reviews` (rating), sets UserWord → learning/known
+- [~] **S-3** (#15) Cards + FSRS: `POST /cards` (word + line + media ids), `GET /reviews/due`, `POST /reviews` (rating), sets UserWord → learning/known
 - [ ] **S-4** Known-words import: from Anki (.apkg/.txt export, choose field) and plain word lists
 - [ ] **S-5** Anki export: `.apkg` (genanki) with media; card JSON for AnkiConnect push
 - [ ] **S-6** Activity tracking: `POST /activity/watch` (minutes), auto-count reviews/words; `GET /activity?from=&to=` for heatmap
@@ -40,6 +40,13 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **W-4** Words: table filterable by status / anime, bulk mark known. deps: W-1
 - [ ] **W-5** Stats: GitHub-style activity heatmap + understanding % trend per anime. deps: W-1, S-6
 
+### Server fixes (Claude)
+- [x] **#8** line-level `LineOut.romaji` with grouped words (claude, 2026-11-19)
+- [x] **#9** `TokenOut.is_proper_noun`; names excluded from understanding % (claude, 2026-11-19)
+- [x] **#10** `POST /episodes/{id}/reprocess` + `python -m app.reprocess` (claude, 2026-11-19)
+- [~] **#11** require an API token by default (claude, 2026-11-19)
+- [~] **S-3** (#15) cards + FSRS (claude, 2026-11-19)
+
 ## Phase 2
 - [ ] **S-8** "Words you missed": `GET /episodes/{id}/missed` ranked by frequency (add a real frequency list)
 - [ ] **S-9** LLM layer (OpenAI-compatible; Ollama on server by default): batch line translations EN/DE + grammar notes, cached per line. deps: O-5
@@ -51,4 +58,4 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **W-6** Built-in player for downloaded files (same overlay component as the extension)
 
 ## Requests (cross-team)
-- **R-1** from antigravity: need `GET /words?status=&anime_id=&q=&limit=&offset=` and `POST /words/bulk-status` (`{"word_ids": int[], "status": WordStatus}`) because **W-4** requires a vocabulary table filterable by status/anime and bulk mark known, whereas `docs/API.md` currently only exposes single-word `GET /words/{id}` and `POST /words/{id}/status`.
+- [x] **R-1** (#12) (claude, 2026-11-19: `GET /words` + `POST /words/bulk-status`, see API.md) from antigravity: need `GET /words?status=&anime_id=&q=&limit=&offset=` and `POST /words/bulk-status` (`{"word_ids": int[], "status": WordStatus}`) because **W-4** requires a vocabulary table filterable by status/anime and bulk mark known, whereas `docs/API.md` currently only exposes single-word `GET /words/{id}` and `POST /words/{id}/status`.

@@ -261,6 +261,48 @@
         }
       }
     },
+    "/episodes/{episode_id}/reprocess": {
+      "post": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Re-tokenize stored lines (after tokenizer or dictionary updates)",
+        "operationId": "reprocess_episodes__episode_id__reprocess_post",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/episodes/{episode_id}/understanding": {
       "get": {
         "tags": [
@@ -354,6 +396,170 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LookupResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/words": {
+      "get": {
+        "tags": [
+          "words"
+        ],
+        "summary": "List Words",
+        "description": "Vocabulary table. With `anime_id`/`episode_id`: only words spoken there, most\nfrequent first, with `occurrences`. Otherwise newest first.",
+        "operationId": "list_words_words_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/WordStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "anime_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Anime Id"
+            }
+          },
+          {
+            "name": "episode_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Episode Id"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Substring of lemma or reading",
+              "title": "Q"
+            },
+            "description": "Substring of lemma or reading"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WordPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/words/bulk-status": {
+      "post": {
+        "tags": [
+          "words"
+        ],
+        "summary": "Bulk Status",
+        "operationId": "bulk_status_words_bulk_status_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkStatusIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkStatusOut"
                 }
               }
             }
@@ -509,6 +715,50 @@
           "anime_title"
         ],
         "title": "Body_create_episode_episodes_post"
+      },
+      "BulkStatusIn": {
+        "properties": {
+          "word_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 5000,
+            "minItems": 1,
+            "title": "Word Ids"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WordStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "word_ids",
+          "status"
+        ],
+        "title": "BulkStatusIn"
+      },
+      "BulkStatusOut": {
+        "properties": {
+          "updated": {
+            "type": "integer",
+            "title": "Updated"
+          },
+          "missing": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Missing",
+            "description": "Requested ids that don't exist"
+          }
+        },
+        "type": "object",
+        "required": [
+          "updated",
+          "missing"
+        ],
+        "title": "BulkStatusOut"
       },
       "DictEntry": {
         "properties": {
@@ -885,6 +1135,12 @@
             "type": "array",
             "title": "Tokens"
           },
+          "romaji": {
+            "type": "string",
+            "title": "Romaji",
+            "description": "Whole-line romaji, words grouped ('tabi wa owatta')",
+            "default": ""
+          },
           "translation_en": {
             "anyOf": [
               {
@@ -1027,7 +1283,13 @@
           "is_content": {
             "type": "boolean",
             "title": "Is Content",
-            "description": "True for vocabulary worth learning (not particles etc.)"
+            "description": "True for vocabulary worth learning (not particles, numbers or names)"
+          },
+          "is_proper_noun": {
+            "type": "boolean",
+            "title": "Is Proper Noun",
+            "description": "Character/place name. Not counted in understanding; don't highlight as unknown",
+            "default": false
           },
           "word_id": {
             "anyOf": [
@@ -1169,6 +1431,67 @@
         ],
         "title": "ValidationError"
       },
+      "WordListItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "lemma": {
+            "type": "string",
+            "title": "Lemma"
+          },
+          "reading": {
+            "type": "string",
+            "title": "Reading"
+          },
+          "pos": {
+            "type": "string",
+            "title": "Pos"
+          },
+          "jmdict_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jmdict Id"
+          },
+          "common": {
+            "type": "boolean",
+            "title": "Common"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WordStatus"
+          },
+          "occurrences": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrences",
+            "description": "How often the word is spoken in the filtered anime/episode (null without one)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "lemma",
+          "reading",
+          "pos",
+          "jmdict_id",
+          "common",
+          "status"
+        ],
+        "title": "WordListItem"
+      },
       "WordOut": {
         "properties": {
           "id": {
@@ -1217,6 +1540,28 @@
           "status"
         ],
         "title": "WordOut"
+      },
+      "WordPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WordListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Matches before limit/offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "WordPage"
       },
       "WordStatus": {
         "type": "string",

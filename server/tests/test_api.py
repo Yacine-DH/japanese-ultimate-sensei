@@ -79,3 +79,76 @@ def test_auth(make_client):
     assert c.get("/episodes", headers={"Authorization": "Bearer nope"}).status_code == 401
     assert c.get("/episodes", headers={"Authorization": "Bearer s3cret"}).status_code == 200
     assert c.get("/episodes", headers={"X-Sensei-Token": "s3cret"}).status_code == 200
+
+
+def test_line_romaji_and_proper_nouns_in_lines(client):
+    ep = upload(client).json()
+    lines = client.get(f"/episodes/{ep['id']}/lines").json()
+    assert lines[1]["romaji"].startswith("onaka suita")
+    assert all("is_proper_noun" in t for line in lines for t in line["tokens"])
+
+
+def test_words_list_and_bulk_status(client):
+    ep = upload(client).json()
+    page = client.get("/words", params={"episode_id": ep["id"]}).json()
+    assert page["total"] == ep["understanding"]["unique_words"]
+    assert all(w["status"] == "new" and w["occurrences"] >= 1 for w in page["items"])
+    ids = [w["id"] for w in page["items"]]
+
+    r = client.post("/words/bulk-status", json={"word_ids": [*ids[:2], 99999], "status": "known"})
+    assert r.json() == {"updated": 2, "missing": [99999]}
+    assert client.get("/words", params={"status": "known"}).json()["total"] == 2
+    assert (
+        client.get("/words", params={"status": "new", "anime_id": ep["anime_id"]}).json()["total"]
+        == len(ids) - 2
+    )
+    assert client.get(f"/episodes/{ep['id']}/understanding").json()["known_unique"] == 2
+
+    hit = client.get("/words", params={"q": "たべ"}).json()
+    assert [w["lemma"] for w in hit["items"]] == ["食べる"] and hit["items"][0][
+        "occurrences"
+    ] is None
+    newest_first = [w["id"] for w in client.get("/words", params={"limit": 500}).json()["items"]]
+    assert newest_first == sorted(newest_first, reverse=True)
+    second = client.get("/words", params={"limit": 1, "offset": 1}).json()
+    assert [w["id"] for w in second["items"]] == newest_first[1:2]
+    assert (
+        client.post("/words/bulk-status", json={"word_ids": [], "status": "known"}).status_code
+        == 422
+    )
+
+
+def test_reprocess_keeps_line_ids_and_statuses(client):
+    import json
+
+    from sqlmodel import Session, select
+
+    from app.models import SubtitleLine
+
+    ep = upload(client).json()
+    before = client.get(f"/episodes/{ep['id']}/lines").json()
+    wid = next(t["word_id"] for t in before[1]["tokens"] if t["surface"] == "食べ")
+    client.post(f"/words/{wid}/status", json={"status": "known"})
+
+    # simulate tokens stored by an older tokenizer
+    engine = client.app.state.engine
+    with Session(engine) as s:
+        for line in s.exec(select(SubtitleLine)).all():
+            line.tokens_json = json.dumps([{"surface": line.text, "pos": "名詞", "romaji": "x"}])
+            s.add(line)
+        s.commit()
+
+    r = client.post(f"/episodes/{ep['id']}/reprocess")
+    assert r.status_code == 200 and r.json()["understanding"]["known_unique"] == 1
+    after = client.get(f"/episodes/{ep['id']}/lines").json()
+    assert [line["id"] for line in after] == [line["id"] for line in before]
+    assert after == before[:1] + [
+        {
+            **before[1],
+            "tokens": [
+                {**t, "status": "known" if t["word_id"] == wid else t["status"]}
+                for t in before[1]["tokens"]
+            ],
+        }
+    ]
+    assert client.post("/episodes/9999/reprocess").status_code == 404

@@ -1,4 +1,4 @@
-from app.nlp.tokenizer import tokenize
+from app.nlp.tokenizer import line_romaji, tokenize
 
 
 def by_surface(tokens):
@@ -34,3 +34,33 @@ def test_romaji_sokuon_and_particles():
     romaji = " ".join(t.romaji for t in toks)
     assert romaji == "tabi wa owat ta"  # 終わっ|た → owat + ta (reads "owatta")
     assert by_surface(tokenize("魔王を倒した"))["を"].romaji == "o"
+
+
+def line(text):
+    return line_romaji([t.to_dict() for t in tokenize(text)])
+
+
+def test_line_romaji_groups_words():
+    assert line("魔王を倒した勇者一行の旅は終わった。") == (
+        "maou o taoshita yuusha ikkou no tabi wa owatta."
+    )
+    assert line("食べたいです。") == "tabetai desu."  # aux glues, copula stays a word
+    assert line("勇者だった") == "yuusha datta"
+    assert line("「行ってきます」と言った。") == '"itte kimasu" to itta.'
+    assert line("寒くなかった") == "samuku nakatta"
+
+
+def test_line_romaji_handles_legacy_tokens_without_new_fields():
+    toks = [t.to_dict() for t in tokenize("旅は終わった")]
+    for t in toks:
+        t.pop("is_proper_noun")
+    assert line_romaji(toks) == "tabi wa owatta"
+
+
+def test_proper_nouns():
+    toks = by_surface(tokenize("フリーレン様、東京へ行こう"))
+    assert toks["フリーレン"].is_proper_noun  # out-of-vocabulary katakana → a name
+    assert toks["東京"].is_proper_noun  # Sudachi 固有名詞
+    assert not toks["フリーレン"].is_content and not toks["東京"].is_content
+    assert line("フリーレン様、ヒンメルは勇者だった。") == "furiiren-sama, hinmeru wa yuusha datta."
+    assert not by_surface(tokenize("テレビを見た"))["テレビ"].is_proper_noun  # known loanword

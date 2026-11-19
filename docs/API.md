@@ -34,20 +34,32 @@ Display rule for clients: line is active when
 ### `GET /episodes/{id}/lines` → `LineOut[]` (ordered by `idx`)
 ```json
 {"id":10,"idx":0,"start_ms":1000,"end_ms":3500,"text":"何か食べたい",
- "translation_en":null,"translation_de":null,
+ "romaji":"nanika tabetai","translation_en":null,"translation_de":null,
  "tokens":[
   {"surface":"食べ","lemma":"食べる","reading":"たべ","lemma_reading":"たべる",
    "pos":"動詞","pos_detail":["一般","下一段-バ行","連用形-一般"],
    "furigana":[{"text":"食","ruby":"た"},{"text":"べ","ruby":null}],
-   "romaji":"tabe","is_content":true,"word_id":42,"status":"new","common":true},
+   "romaji":"tabe","is_content":true,"is_proper_noun":false,"word_id":42,"status":"new","common":true},
   {"surface":"たい","lemma":"たい","reading":"たい","lemma_reading":"たい","pos":"助動詞",
    "pos_detail":["助動詞-タイ","終止形-一般"],"furigana":[{"text":"たい","ruby":null}],"romaji":"tai",
-   "is_content":false,"word_id":null,"status":null,"common":false}]}
+   "is_content":false,"is_proper_noun":false,"word_id":null,"status":null,"common":false}]}
 ```
 - Concatenating `surface` reproduces `text` exactly (spaces included).
-- `is_content` = vocabulary worth learning; only those have `word_id`/`status`.
+- `romaji` (line) = the whole line with words grouped for reading (`tabi wa owatta`,
+  `furiiren-sama`). **Show this, not joined `token.romaji`** (per-token romaji splits
+  inflections: `owat` + `ta`).
+- `is_content` = vocabulary worth learning (not particles, numbers or names).
+- `is_proper_noun` = character/place name (Sudachi 固有名詞, or katakana Sudachi doesn't know,
+  e.g. フリーレン). Never highlight as unknown and render neutrally; not counted in understanding.
+  Names still carry `word_id`/`status`, so they can be looked up.
+- Only content words and names have `word_id`/`status`.
 - `status` ∈ `new | learning | known | ignored`. For highlighting, treat `known`/`ignored` as understood.
 - `common` = JMdict common word, the current priority signal for "which unknown words to highlight".
+
+### `POST /episodes/{id}/reprocess` → `EpisodeCreated`
+Re-tokenizes the stored lines with the current tokenizer + dictionary (needed after server
+updates such as name detection). Line ids and word statuses are kept. CLI for all episodes:
+`cd server && uv run python -m app.reprocess`.
 
 ### `GET /episodes/{id}/understanding` → `Understanding`
 ```json
@@ -68,6 +80,19 @@ Use the token's `lemma` + `lemma_reading`. Matches kanji or kana forms. Best ent
 `pos`/`misc` use JMdict tag codes (`v1`, `n`, `uk` = usually written in kana, …). 503 if not built.
 
 ## Words
+### `GET /words?status=&anime_id=&episode_id=&q=&limit=50&offset=0` → `WordPage`
+```json
+{"total":420,"items":[{"id":42,"lemma":"食べる","reading":"たべる","pos":"動詞",
+ "jmdict_id":"1358280","common":true,"status":"new","occurrences":7}]}
+```
+- `status=new` includes words with no decision yet. `q` = substring of lemma or reading.
+- With `anime_id` and/or `episode_id`: only words spoken there, **most frequent first**, and
+  `occurrences` = times spoken there (names excluded). Without them: newest first, `occurrences: null`.
+- `limit` 1–500. `total` = matches before paging.
+
+### `POST /words/bulk-status` body `{"word_ids":[1,2,3],"status":"known"}` → `{"updated":3,"missing":[]}`
+1–5000 ids; ids that don't exist are reported in `missing` and skipped.
+
 ### `GET /words/{id}` → `WordOut`
 `{"id":42,"lemma":"食べる","reading":"たべる","pos":"動詞","jmdict_id":"1358280","common":true,"status":"new"}`
 ### `POST /words/{id}/status` body `{"status":"known"}` → `WordOut`
