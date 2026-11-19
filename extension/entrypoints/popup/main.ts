@@ -1,4 +1,6 @@
 import { api, type EpisodeOut } from '../../src/api/client';
+import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
+import { getKeyboardLayoutMap } from '../../src/lib/keyboard-layout';
 import { getSettings } from '../../src/lib/settings';
 import { filterEpisodes, resolveEpisodeForUrl } from '../../src/lib/url-mapping';
 
@@ -18,6 +20,7 @@ const uploadEpNum = document.getElementById('upload-ep-num') as HTMLInputElement
 const uploadFile = document.getElementById('upload-file') as HTMLInputElement;
 const uploadStatus = document.getElementById('upload-status') as HTMLDivElement;
 const openOptionsBtn = document.getElementById('open-options-btn') as HTMLButtonElement;
+const hotkeySummary = document.getElementById('hotkey-summary') as HTMLDivElement;
 
 let activeTabId: number | null = null;
 let activeTabUrl = '';
@@ -61,6 +64,22 @@ async function applyTabSelection(episodeId: number | null, enabled: boolean): Pr
 async function refreshPopup(): Promise<void> {
   const settings = await getSettings();
   serverUrlText.textContent = settings.serverUrl.replace(/^https?:\/\//, '');
+  void getKeyboardLayoutMap().then((layoutMap) => {
+    hotkeySummary.innerHTML = '';
+    for (const action of HOTKEY_ACTIONS) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = document.createElement('span');
+      label.className = 'muted';
+      label.textContent = HOTKEY_LABELS[action];
+      const keyEl = document.createElement('span');
+      keyEl.className = 'pattern-pill';
+      keyEl.textContent = formatBinding(settings.hotkeys[action], layoutMap);
+      row.appendChild(label);
+      row.appendChild(keyEl);
+      hotkeySummary.appendChild(row);
+    }
+  });
 
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   const currentTab = tabs[0];

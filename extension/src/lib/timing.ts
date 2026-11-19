@@ -101,19 +101,14 @@ export function computeSyncOffsetMs(
   return Math.round(videoMs) - line.start_ms;
 }
 
-export type HotkeyAction =
-  | { type: 'step'; deltaMs: number }
-  | { type: 'sync_now' };
-
-export function resolveHotkeyAction(key: string): HotkeyAction | null {
-  if (key === '[') {
-    return { type: 'step', deltaMs: -OFFSET_STEP_MS };
-  }
-  if (key === ']') {
-    return { type: 'step', deltaMs: OFFSET_STEP_MS };
-  }
-  if (key === '\\') {
-    return { type: 'sync_now' };
-  }
-  return null;
+/** Debounce helper for persisting offset changes (one PATCH after a burst of key presses). */
+export function createDebouncer(delayMs: number): (fn: () => void) => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return (fn) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn();
+    }, delayMs);
+  };
 }

@@ -18,10 +18,12 @@ import {
   adjustOffsetMs,
   computeSyncOffsetMs,
   findActiveLines,
+  createDebouncer,
   findReferenceLineForSync,
   formatActiveLinesKey,
-  resolveHotkeyAction,
+  OFFSET_STEP_MS,
 } from '../src/lib/timing';
+import { isEditableTarget, matchHotkey } from '../src/lib/hotkeys';
 import {
   computeOverlayBounds,
   findBestVideoInDocument,
@@ -659,38 +661,56 @@ export default defineContentScript({
       }
     }
 
-    window.addEventListener('keydown', (event) => {
-      const target = event.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-      if (!currentVideo || !tabOverlayEnabled || !currentEpisodeId || lines.length === 0) {
-        return;
-      }
+    const persistOffset = createDebouncer(400);
 
-      const action = resolveHotkeyAction(event.key);
-      if (!action) return;
+    // Capture phase so we run before the player's own key handlers; we stop the event
+    // only when it matches one of our bindings (#4).
+    window.addEventListener(
+      'keydown',
+      (event) => {
+        if (event.isComposing || isEditableTarget(event.target)) {
+          return;
+        }
+        if (
+          !settings ||
+          !currentVideo ||
+          !tabOverlayEnabled ||
+          !currentEpisodeId ||
+          lines.length === 0
+        ) {
+          return;
+        }
 
-      if (action.type === 'step') {
-        subOffsetMs = adjustOffsetMs(subOffsetMs, action.deltaMs);
-      } else {
-        const videoMs = currentVideo.currentTime * 1000;
-        const refLine = findReferenceLineForSync(lines, videoMs, subOffsetMs);
-        if (!refLine) return;
-        subOffsetMs = computeSyncOffsetMs(videoMs, refLine);
-      }
+        const action = matchHotkey(settings.hotkeys, event);
+        if (!action) return;
 
-      const sign = subOffsetMs >= 0 ? '+' : '';
-      showToast(`Sub offset: ${sign}${subOffsetMs} ms`);
-      renderedLinesKey = null;
-      syncSubtitleFrame();
-      void api.patchEpisode(currentEpisodeId, { sub_offset_ms: subOffsetMs });
-    });
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+
+        if (action === 'offsetBack') {
+          subOffsetMs = adjustOffsetMs(subOffsetMs, -OFFSET_STEP_MS);
+        } else if (action === 'offsetForward') {
+          subOffsetMs = adjustOffsetMs(subOffsetMs, OFFSET_STEP_MS);
+        } else {
+          const videoMs = currentVideo.currentTime * 1000;
+          const refLine = findReferenceLineForSync(lines, videoMs, subOffsetMs);
+          if (!refLine) return;
+          subOffsetMs = computeSyncOffsetMs(videoMs, refLine);
+        }
+
+        const sign = subOffsetMs >= 0 ? '+' : '';
+        showToast(`Sub offset: ${sign}${subOffsetMs} ms`);
+        renderedLinesKey = null;
+        syncSubtitleFrame();
+        const episodeId = currentEpisodeId;
+        const offset = subOffsetMs;
+        persistOffset(() => {
+          void api.patchEpisode(episodeId, { sub_offset_ms: offset });
+        });
+      },
+      { capture: true },
+    );
 
     document.addEventListener('fullscreenchange', () => {
       scheduleOverlayPositionUpdate();
