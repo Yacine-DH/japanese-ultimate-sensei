@@ -114,6 +114,11 @@
     <div class="card">
       <h1>Japanese Ultimate Sensei</h1>
       <p class="sub">Extension Options — Server, Dictionary &amp; Subtitle Preferences</p>
+      <div id="first-run-banner" class="status" style="margin: 0 0 16px">
+        Connect to your Sensei server: enter its Tailscale URL (e.g.
+        <code>http://homeserver:8000</code>) and <code>SENSEI_API_TOKEN</code> below, then click
+        <strong>Test Connection</strong>.
+      </div>
       <form id="settings-form">
         <div class="field">
           <label for="server-url">Server URL</label>
@@ -173,7 +178,7 @@
         </div>
         <div class="actions">
           <button type="submit" class="primary">Save Settings</button>
-          <button type="button" id="test-btn" class="secondary">Test /health</button>
+          <button type="button" id="test-btn" class="secondary">Test Connection</button>
         </div>
         <div id="status-box" class="status"></div>
       </form>

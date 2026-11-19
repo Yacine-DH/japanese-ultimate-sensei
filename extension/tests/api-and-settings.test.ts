@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { api, buildApiHeaders, executeApiCall, isApiCallMessage } from '../src/api/client';
+import {
+  api,
+  buildApiHeaders,
+  executeApiCall,
+  isApiCallMessage,
+  verifyServerConnection,
+} from '../src/api/client';
 import { DEFAULT_HOTKEYS } from '../src/lib/hotkeys';
 import {
   DEFAULT_SERVER_URL,
@@ -133,5 +139,29 @@ describe('API background proxy', () => {
     expect(res.ok).toBe(false);
     expect(res.status).toBe(401);
     expect(res.error).toBe('Invalid or missing API token');
+  });
+
+  it('distinguishes 401 wrong/missing token from server unreachable (#7, #11)', async () => {
+    const unauthorized = await verifyServerConnection(
+      {
+        getHealth: async () => ({
+          ok: true,
+          status: 200,
+          data: { status: 'ok', version: '0.1.0', dictionary: true, auth: true },
+        }),
+        listEpisodes: async () => ({ ok: false, status: 401, error: 'Unauthorized' }),
+      },
+      'http://homeserver:8000',
+    );
+    expect(unauthorized.state).toBe('unauthorized');
+
+    const unreachable = await verifyServerConnection(
+      {
+        getHealth: async () => ({ ok: false, status: 0, error: 'Failed to fetch' }),
+        listEpisodes: async () => ({ ok: false, status: 0, error: 'Failed to fetch' }),
+      },
+      'http://homeserver:8000',
+    );
+    expect(unreachable.state).toBe('unreachable');
   });
 });

@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, type EpisodeOut } from '../api/client';
+import { apiClient, type EpisodeOut, SenseiApiError } from '../api/client';
 import { computeBarSegments, groupEpisodesByAnime } from '../lib/transcript';
 
 function EpisodeUnderstandingBar({ episodeId }: { episodeId: number }) {
@@ -285,13 +285,31 @@ export function LibraryPage() {
           Loading episodes...
         </div>
       ) : episodesQuery.isError ? (
-        <div className="bg-slate-900 border border-rose-900/60 rounded-xl p-6 text-sm text-rose-300">
-          Could not load episodes: {(episodesQuery.error as Error)?.message ?? 'Error'}. Check your
-          Server URL and API Token in{' '}
-          <Link to="/settings" className="underline text-sky-300">
-            Settings
-          </Link>
-          .
+        <div
+          className={`bg-slate-900 rounded-xl p-6 text-sm ${
+            episodesQuery.error instanceof SenseiApiError && episodesQuery.error.status === 401
+              ? 'border border-amber-500/40 text-amber-300'
+              : 'border border-rose-900/60 text-rose-300'
+          }`}
+        >
+          {episodesQuery.error instanceof SenseiApiError && episodesQuery.error.status === 401 ? (
+            <>
+              API token is missing or wrong (401). Set <code>SENSEI_API_TOKEN</code> in{' '}
+              <Link to="/settings" className="underline text-sky-300">
+                Settings
+              </Link>
+              .
+            </>
+          ) : (
+            <>
+              Server unreachable: {(episodesQuery.error as Error)?.message ?? 'Error'}. Check your
+              Server URL in{' '}
+              <Link to="/settings" className="underline text-sky-300">
+                Settings
+              </Link>
+              .
+            </>
+          )}
         </div>
       ) : visibleGroups.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">

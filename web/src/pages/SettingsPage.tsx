@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient, type Health } from '../api/client';
+import { verifyWebConnection, type WebConnectionCheck } from '../api/client';
 import {
   type GlossLanguage,
   loadWebSettings,
@@ -15,17 +15,14 @@ export function SettingsPage() {
   const [romaji, setRomaji] = useState(savedSettings.romaji);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<
-    | { state: 'idle' }
-    | { state: 'testing' }
-    | { state: 'ok'; health: Health }
-    | { state: 'error'; message: string }
+    { state: 'idle' } | { state: 'testing' } | WebConnectionCheck
   >({ state: 'idle' });
 
   // Only queries against saved settings — never re-fires on form keystrokes (#7).
   const healthQuery = useQuery({
-    queryKey: ['health', savedSettings.serverUrl, savedSettings.apiToken],
+    queryKey: ['connection', savedSettings.serverUrl, savedSettings.apiToken],
     queryFn: () =>
-      apiClient.getHealth({
+      verifyWebConnection({
         serverUrl: savedSettings.serverUrl,
         apiToken: savedSettings.apiToken,
       }),
@@ -34,15 +31,8 @@ export function SettingsPage() {
 
   async function handleTestConnection() {
     setTestResult({ state: 'testing' });
-    try {
-      const health = await apiClient.getHealth({ serverUrl, apiToken });
-      setTestResult({ state: 'ok', health });
-    } catch (err) {
-      setTestResult({
-        state: 'error',
-        message: err instanceof Error ? err.message : 'Connection failed',
-      });
-    }
+    const res = await verifyWebConnection({ serverUrl, apiToken });
+    setTestResult(res);
   }
 
   function handleSubmit(event: FormEvent) {
@@ -73,15 +63,17 @@ export function SettingsPage() {
           <div className="text-sm font-medium text-slate-300">Server Status (/health)</div>
           {healthQuery.isLoading ? (
             <div className="text-xs text-slate-400 mt-1">Checking connection...</div>
-          ) : healthQuery.isError ? (
-            <div className="text-xs text-rose-400 mt-1">
-              Offline: {(healthQuery.error as Error)?.message ?? 'Unreachable'}
-            </div>
-          ) : healthQuery.data ? (
+          ) : healthQuery.data?.state === 'connected' ? (
             <div className="text-xs text-emerald-400 mt-1">
-              v{healthQuery.data.version} · JMdict:{' '}
-              {healthQuery.data.dictionary ? 'Ready' : 'Missing'} · Auth:{' '}
-              {healthQuery.data.auth ? 'Required' : 'Open'}
+              v{healthQuery.data.health.version} · JMdict:{' '}
+              {healthQuery.data.health.dictionary ? 'Ready' : 'Missing'} · Auth:{' '}
+              {healthQuery.data.health.auth ? 'Verified' : 'Open'}
+            </div>
+          ) : healthQuery.data?.state === 'unauthorized' ? (
+            <div className="text-xs text-amber-400 mt-1">{healthQuery.data.message}</div>
+          ) : healthQuery.data?.state === 'unreachable' ? (
+            <div className="text-xs text-rose-400 mt-1">
+              Server unreachable: {healthQuery.data.message}
             </div>
           ) : null}
         </div>
@@ -188,15 +180,18 @@ export function SettingsPage() {
         {testResult.state === 'testing' && (
           <div className="text-xs text-slate-400">Testing connection...</div>
         )}
-        {testResult.state === 'ok' && (
+        {testResult.state === 'connected' && (
           <div className="text-xs text-emerald-400">
             Connected: v{testResult.health.version} · JMdict:{' '}
             {testResult.health.dictionary ? 'Ready' : 'Missing'} · Auth:{' '}
-            {testResult.health.auth ? 'Required' : 'Open'}
+            {testResult.health.auth ? 'Verified' : 'Open'}
           </div>
         )}
-        {testResult.state === 'error' && (
-          <div className="text-xs text-rose-400">Test failed: {testResult.message}</div>
+        {testResult.state === 'unauthorized' && (
+          <div className="text-xs text-amber-400">{testResult.message}</div>
+        )}
+        {testResult.state === 'unreachable' && (
+          <div className="text-xs text-rose-400">Server unreachable: {testResult.message}</div>
         )}
       </form>
     </div>

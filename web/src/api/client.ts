@@ -145,3 +145,43 @@ export const apiClient = {
       json: { status },
     }),
 };
+
+export type WebConnectionCheck =
+  | { state: 'connected'; health: Health }
+  | { state: 'unauthorized'; health: Health; message: string }
+  | { state: 'unreachable'; message: string };
+
+export async function verifyWebConnection(
+  settings: Pick<WebSettings, 'serverUrl' | 'apiToken'>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<WebConnectionCheck> {
+  let health: Health;
+  try {
+    health = await apiRequest<Health>('/health', { settings, fetchImpl });
+  } catch (err) {
+    return {
+      state: 'unreachable',
+      message: err instanceof Error ? err.message : 'Server unreachable',
+    };
+  }
+
+  if (health.auth) {
+    try {
+      await apiRequest<EpisodeOut[]>('/episodes', { settings, fetchImpl });
+    } catch (err) {
+      if (err instanceof SenseiApiError && err.status === 401) {
+        return {
+          state: 'unauthorized',
+          health,
+          message: 'Server reachable, but API token is missing or wrong (401).',
+        };
+      }
+      return {
+        state: 'unreachable',
+        message: err instanceof Error ? err.message : 'Server error',
+      };
+    }
+  }
+
+  return { state: 'connected', health };
+}

@@ -1,4 +1,4 @@
-import { api } from '../../src/api/client';
+import { api, verifyServerConnection } from '../../src/api/client';
 import {
   bindingFromEvent,
   DEFAULT_HOTKEYS,
@@ -9,7 +9,12 @@ import {
   type HotkeyAction,
 } from '../../src/lib/hotkeys';
 import { getKeyboardLayoutMap, type LayoutMap } from '../../src/lib/keyboard-layout';
-import { type GlossLanguage, getSettings, saveSettings } from '../../src/lib/settings';
+import {
+  type GlossLanguage,
+  getSettings,
+  isServerUrlConfigured,
+  saveSettings,
+} from '../../src/lib/settings';
 
 const form = document.getElementById('settings-form') as HTMLFormElement;
 const serverUrlInput = document.getElementById('server-url') as HTMLInputElement;
@@ -23,6 +28,15 @@ const autoPauseToggle = document.getElementById('auto-pause-toggle') as HTMLInpu
 const romajiToggle = document.getElementById('romaji-toggle') as HTMLInputElement;
 const testBtn = document.getElementById('test-btn') as HTMLButtonElement;
 const statusBox = document.getElementById('status-box') as HTMLDivElement;
+const firstRunBanner = document.getElementById('first-run-banner') as HTMLDivElement;
+
+function updateFirstRunBanner(url: string): void {
+  if (!isServerUrlConfigured(url)) {
+    firstRunBanner.className = 'status err';
+  } else {
+    firstRunBanner.className = 'status';
+  }
+}
 
 function showStatus(message: string, ok: boolean): void {
   statusBox.textContent = message;
@@ -40,6 +54,7 @@ async function init(): Promise<void> {
   shiftHoverToggle.checked = settings.requireShiftForHover;
   autoPauseToggle.checked = settings.autoPauseEachLine;
   romajiToggle.checked = settings.romaji;
+  updateFirstRunBanner(settings.serverUrl);
 }
 
 form.addEventListener('submit', async (event) => {
@@ -58,11 +73,12 @@ form.addEventListener('submit', async (event) => {
   serverUrlInput.value = saved.serverUrl;
   highlightLimitInput.value = String(saved.highlightLimit);
   hoverDelayInput.value = String(saved.hoverDelayMs);
+  updateFirstRunBanner(saved.serverUrl);
   showStatus('Settings saved.', true);
 });
 
 testBtn.addEventListener('click', async () => {
-  await saveSettings({
+  const saved = await saveSettings({
     serverUrl: serverUrlInput.value,
     apiToken: apiTokenInput.value,
     glossLang: glossLangSelect.value as GlossLanguage,
@@ -73,16 +89,19 @@ testBtn.addEventListener('click', async () => {
     autoPauseEachLine: autoPauseToggle.checked,
     romaji: romajiToggle.checked,
   });
+  updateFirstRunBanner(saved.serverUrl);
 
-  const res = await api.getHealth();
-  if (res.ok && res.data) {
-    const h = res.data;
+  const check = await verifyServerConnection(api, saved.serverUrl);
+  if (check.state === 'connected') {
+    const h = check.health;
     showStatus(
-      `Connected: v${h.version} · dictionary: ${h.dictionary ? 'ready' : 'missing'} · auth: ${h.auth ? 'on' : 'off'}`,
+      `Connected: v${h.version} · dictionary: ${h.dictionary ? 'ready' : 'missing'} · auth: ${h.auth ? 'verified' : 'off'}`,
       true,
     );
+  } else if (check.state === 'unauthorized') {
+    showStatus(check.message, false);
   } else {
-    showStatus(`Connection failed: ${res.error ?? 'Unknown error'}`, false);
+    showStatus(`Server unreachable: ${check.message}`, false);
   }
 });
 
