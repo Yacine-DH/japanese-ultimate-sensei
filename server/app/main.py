@@ -7,17 +7,28 @@ import hmac
 import json
 from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session, delete, func, select
+from sqlmodel import Session, delete, func, or_, select
 
 from app import __version__
 from app.config import Settings, get_settings
 from app.db import get_session, make_engine
 from app.dictionary import Dictionary, load_dictionary
-from app.ingest import episode_lines, ingest_lines, status_map, understanding
+from app.ingest import (
+    episode_lines,
+    ingest_lines,
+    reprocess_episode,
+    status_map,
+    token_is_proper,
+    understanding,
+    word_counts,
+)
 from app.models import Anime, Episode, SubtitleLine, UserWord, Word, WordStatus
+from app.nlp.tokenizer import line_romaji
 from app.schemas import (
+    BulkStatusIn,
+    BulkStatusOut,
     EpisodeCreated,
     EpisodeOut,
     EpisodePatch,
@@ -26,7 +37,9 @@ from app.schemas import (
     LookupResult,
     TokenOut,
     Understanding,
+    WordListItem,
     WordOut,
+    WordPage,
     WordStatusIn,
 )
 from app.subtitles import parse_bytes
@@ -203,8 +216,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     **{
                         k: t[k]
                         for k in TokenOut.model_fields
-                        if k in t and k not in ("status", "common")
+                        if k in t and k not in ("status", "common", "is_proper_noun")
                     },
+                    is_proper_noun=token_is_proper(t),
                     status=(
                         statuses.get(t["word_id"], WordStatus.new) if t.get("word_id") else None
                     ),
@@ -220,11 +234,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     end_ms=line.end_ms,
                     text=line.text,
                     tokens=tokens,
+                    romaji=line_romaji(toks),
                     translation_en=line.translation_en,
                     translation_de=line.translation_de,
                 )
             )
         return out
+
+    @app.post(
+        "/episodes/{episode_id}/reprocess",
+        response_model=EpisodeCreated,
+        dependencies=auth,
+        tags=["episodes"],
+        summary="Re-tokenize stored lines (after tokenizer or dictionary updates)",
+    )
+    def reprocess(episode_id: int, session: Session = Depends(get_session)):
+        ep = get_episode(session, episode_id)
+        reprocess_episode(session, episode_id, app.state.dictionary)
+        session.commit()
+        return {**episode_out(session, ep), "understanding": understanding(session, uid, ep.id)}
 
     @app.get(
         "/episodes/{episode_id}/understanding",
@@ -248,6 +276,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         st = status_map(session, uid, [w.id]).get(w.id, WordStatus.new)
         return WordOut(**w.model_dump(), status=st)
 
+    def set_statuses(session: Session, word_ids: list[int], status: WordStatus) -> None:
+        existing = {
+            uw.word_id: uw
+            for uw in session.exec(
+                select(UserWord).where(UserWord.user_id == uid, UserWord.word_id.in_(word_ids))  # type: ignore[attr-defined]
+            ).all()
+        }
+        now = datetime.now(UTC)
+        for wid in word_ids:
+            uw = existing.get(wid) or UserWord(user_id=uid, word_id=wid)
+            uw.status = status
+            uw.updated_at = now
+            session.add(uw)
+
+    @app.get("/words", response_model=WordPage, dependencies=auth, tags=["words"])
+    def list_words(
+        status: WordStatus | None = None,
+        anime_id: int | None = None,
+        episode_id: int | None = None,
+        q: str | None = Query(None, description="Substring of lemma or reading"),
+        limit: int = Query(50, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        session: Session = Depends(get_session),
+    ):
+        """Vocabulary table. With `anime_id`/`episode_id`: only words spoken there, most
+        frequent first, with `occurrences`. Otherwise newest first."""
+        stmt = select(Word, UserWord.status).join(
+            UserWord,
+            (UserWord.word_id == Word.id) & (UserWord.user_id == uid),  # type: ignore[arg-type]
+            isouter=True,
+        )
+        counts: dict[int, int] | None = None
+        if anime_id is not None or episode_id is not None:
+            ep_stmt = select(Episode.id)
+            if anime_id is not None:
+                ep_stmt = ep_stmt.where(Episode.anime_id == anime_id)
+            if episode_id is not None:
+                ep_stmt = ep_stmt.where(Episode.id == episode_id)
+            counts = word_counts(session, [e for e in session.exec(ep_stmt).all() if e])
+            stmt = stmt.where(Word.id.in_(list(counts)))  # type: ignore[union-attr]
+        if status == WordStatus.new:
+            stmt = stmt.where(or_(UserWord.status.is_(None), UserWord.status == WordStatus.new))  # type: ignore[union-attr]
+        elif status is not None:
+            stmt = stmt.where(UserWord.status == status)
+        if q:
+            stmt = stmt.where(or_(Word.lemma.contains(q), Word.reading.contains(q)))  # type: ignore[attr-defined]
+        rows = session.exec(stmt).all()
+        if counts is not None:
+            rows = sorted(rows, key=lambda r: (-counts.get(r[0].id, 0), r[0].id))
+        else:
+            rows = sorted(rows, key=lambda r: -(r[0].id or 0))
+        page = rows[offset : offset + limit]
+        return WordPage(
+            total=len(rows),
+            items=[
+                WordListItem(
+                    **w.model_dump(),
+                    status=st or WordStatus.new,
+                    occurrences=counts.get(w.id, 0) if counts is not None else None,
+                )
+                for w, st in page
+            ],
+        )
+
+    @app.post("/words/bulk-status", response_model=BulkStatusOut, dependencies=auth, tags=["words"])
+    def bulk_status(body: BulkStatusIn, session: Session = Depends(get_session)):
+        ids = list(dict.fromkeys(body.word_ids))
+        found = set(session.exec(select(Word.id).where(Word.id.in_(ids))).all())  # type: ignore[union-attr]
+        set_statuses(session, [i for i in ids if i in found], body.status)
+        session.commit()
+        return BulkStatusOut(updated=len(found), missing=[i for i in ids if i not in found])
+
     @app.get("/words/{word_id}", response_model=WordOut, dependencies=auth, tags=["words"])
     def read_word(word_id: int, session: Session = Depends(get_session)):
         w = session.get(Word, word_id)
@@ -260,12 +360,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         w = session.get(Word, word_id)
         if not w:
             raise HTTPException(404, "word not found")
-        uw = session.exec(
-            select(UserWord).where(UserWord.user_id == uid, UserWord.word_id == word_id)
-        ).first() or UserWord(user_id=uid, word_id=word_id)
-        uw.status = body.status
-        uw.updated_at = datetime.now(UTC)
-        session.add(uw)
+        set_statuses(session, [word_id], body.status)
         session.commit()
         return word_out(session, w)
 

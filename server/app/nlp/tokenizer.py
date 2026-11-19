@@ -22,7 +22,8 @@ class Token:
     pos_detail: list[str] = field(default_factory=list)
     furigana: list[dict] = field(default_factory=list)
     romaji: str = ""
-    is_content: bool = False
+    is_content: bool = False  # learnable vocabulary (not particles, numbers or names)
+    is_proper_noun: bool = False  # character/place names: never "unknown", not counted
     word_id: int | None = None  # filled in by ingest
 
     def to_dict(self) -> dict:
@@ -59,23 +60,44 @@ def tokenize(text: str) -> list[Token]:
         pos = list(m.part_of_speech())
         reading = _reading_of(m)
         lemma = m.dictionary_form() or surface
-        is_content = pos[0] in CONTENT_POS and pos[1] not in SKIP_SUBPOS and has_japanese(surface)
+        proper = is_proper_noun(pos, surface, m.is_oov())
+        is_content = (
+            pos[0] in CONTENT_POS
+            and pos[1] not in SKIP_SUBPOS
+            and has_japanese(surface)
+            and not proper
+        )
         out.append(
             Token(
                 surface=surface,
                 lemma=lemma,
                 reading=reading,
-                lemma_reading=lemma_reading(lemma) if is_content else reading,
+                lemma_reading=lemma_reading(lemma) if is_content or proper else reading,
                 normalized=m.normalized_form(),
                 pos=pos[0],
                 pos_detail=[p for p in pos[1:] if p != "*"],
                 furigana=furigana(surface, reading),
                 romaji=_romaji(surface, reading, pos[0]),
                 is_content=is_content,
+                is_proper_noun=proper,
             )
         )
     _fix_trailing_sokuon(out)
     return out
+
+
+def is_proper_noun(pos: list[str] | tuple[str, ...], surface: str, oov: bool = False) -> bool:
+    """Names: Sudachi's 固有名詞, or katakana words Sudachi doesn't know (anime character
+    names like フリーレン are out-of-vocabulary and get tagged as plain nouns)."""
+    if pos[0] != "名詞":
+        return False
+    if len(pos) > 1 and pos[1] == "固有名詞":
+        return True
+    return oov and is_katakana_word(surface)
+
+
+def is_katakana_word(s: str) -> bool:
+    return bool(s) and all("\u30a0" <= c <= "\u30ff" for c in s)
 
 
 # Particles are pronounced differently from how they're written.
@@ -102,3 +124,59 @@ def _fix_trailing_sokuon(tokens: list[Token]) -> None:
         if nxt.startswith("ch"):
             double = "t"  # Hepburn: っち → tchi
         t.romaji = t.romaji[:-1] + double
+
+
+# ---- whole-line romaji -------------------------------------------------------------------
+
+_PUNCT = {
+    "。": ".", "、": ",", "！": "!", "？": "?", "!": "!", "?": "?", "…": "...", "‥": "..",
+    "・": " ", "～": "~", "〜": "~", "ー": "-", "」": "\"", "』": "\"", "）": ")", ")": ")",
+}  # fmt: skip
+_OPEN = {"「": '"', "『": '"', "（": "(", "(": "("}
+# Conjunctive particles written together with the verb in Hepburn (食べて → tabete).
+_GLUE_PARTICLES = {"て", "で", "ば", "ちゃ", "じゃ"}
+# Auxiliaries glue only onto things that inflect; the copula after a noun stays a word.
+_INFLECTING = {"動詞", "形容詞", "助動詞"}
+_COPULA = {"だ", "です"}
+
+
+def line_romaji(tokens: list[dict]) -> str:
+    """Romaji for a whole line with words grouped the way learners read them.
+
+    Inflections stick to their stem (食べ|たい → tabetai, 終わっ|た → owatta), honorific
+    suffixes get a hyphen (フリーレン|様 → furiiren-sama), particles stay separate (wa, o).
+    Works on stored token dicts so old episodes get it without reprocessing.
+    """
+    out = ""
+    glue_next = True  # no space before the first word or after an opening bracket
+    prev_pos = ""
+    for t in tokens:
+        surface, pos = t.get("surface", ""), t.get("pos", "")
+        detail = t.get("pos_detail") or []
+        if surface in _OPEN:
+            out += ("" if glue_next else " ") + _OPEN[surface]
+            glue_next = True
+            continue
+        if pos == "補助記号" or surface in _PUNCT:
+            out += _PUNCT.get(surface, "" if has_japanese(surface) else surface)
+            continue
+        rom = (t.get("romaji") or "").strip()
+        if not rom:
+            continue
+        if pos == "空白":
+            glue_next = True
+            continue
+        glue = (pos == "助動詞" and prev_pos in _INFLECTING and t.get("lemma") not in _COPULA) or (
+            pos == "助詞" and detail[:1] == ["接続助詞"] and surface in _GLUE_PARTICLES
+        )
+        if glue_next or not out:
+            out += rom
+        elif pos == "接尾辞":
+            out += "-" + rom
+        elif glue:
+            out += rom
+        else:
+            out += " " + rom
+        glue_next = False
+        prev_pos = pos
+    return out.strip()

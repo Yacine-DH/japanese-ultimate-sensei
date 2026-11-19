@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.dictionary import Dictionary
 from app.models import Episode, SubtitleLine, UserWord, Word, WordStatus
-from app.nlp.tokenizer import Token, tokenize
+from app.nlp.tokenizer import Token, is_proper_noun, tokenize
 from app.subtitles import ParsedLine
 
 UNDERSTOOD = {WordStatus.known, WordStatus.ignored}
@@ -28,6 +28,9 @@ class WordResolver:
         word = self.session.exec(
             select(Word).where(Word.lemma == tok.lemma, Word.reading == tok.lemma_reading)
         ).first()
+        if word is not None and word.jmdict_id is None and (hit := self._jmdict(tok)):
+            word.jmdict_id, word.common = hit  # dictionary was missing/older at first ingest
+            self.session.add(word)
         if word is None:
             word = Word(lemma=tok.lemma, reading=tok.lemma_reading, pos=tok.pos)
             hit = self._jmdict(tok)
@@ -47,16 +50,20 @@ class WordResolver:
         return None
 
 
+def tokens_json(text: str, resolver: WordResolver) -> str:
+    tokens = tokenize(text)
+    for tok in tokens:
+        if tok.is_content or tok.is_proper_noun:  # names get a word so they can be looked up
+            tok.word_id = resolver.resolve(tok).id
+    return json.dumps([t.to_dict() for t in tokens], ensure_ascii=False)
+
+
 def ingest_lines(
     session: Session, episode: Episode, lines: Iterable[ParsedLine], dictionary: Dictionary | None
 ) -> int:
     resolver = WordResolver(session, dictionary)
     n = 0
     for idx, line in enumerate(lines):
-        tokens = tokenize(line.text)
-        for tok in tokens:
-            if tok.is_content:
-                tok.word_id = resolver.resolve(tok).id
         session.add(
             SubtitleLine(
                 episode_id=episode.id,
@@ -64,11 +71,43 @@ def ingest_lines(
                 start_ms=line.start_ms,
                 end_ms=line.end_ms,
                 text=line.text,
-                tokens_json=json.dumps([t.to_dict() for t in tokens], ensure_ascii=False),
+                tokens_json=tokens_json(line.text, resolver),
             )
         )
         n += 1
     return n
+
+
+def reprocess_episode(session: Session, episode_id: int, dictionary: Dictionary | None) -> int:
+    """Re-tokenize an episode's stored lines after tokenizer/dictionary changes.
+
+    Rows are updated in place so line ids (referenced by cards) stay stable; word statuses
+    are untouched because words are keyed by lemma + reading.
+    """
+    resolver = WordResolver(session, dictionary)
+    lines = episode_lines(session, episode_id)
+    for line in lines:
+        line.tokens_json = tokens_json(line.text, resolver)
+        session.add(line)
+    return len(lines)
+
+
+def token_is_proper(t: dict) -> bool:
+    """Stored tokens from before `is_proper_noun` existed fall back to the POS tags."""
+    if "is_proper_noun" in t:
+        return bool(t["is_proper_noun"])
+    return is_proper_noun([t.get("pos", ""), *(t.get("pos_detail") or [])], t.get("surface", ""))
+
+
+def word_counts(session: Session, episode_ids: Iterable[int]) -> dict[int, int]:
+    """word_id → how often it's spoken (content words only) across the given episodes."""
+    counts: dict[int, int] = {}
+    for ep_id in episode_ids:
+        for line in episode_lines(session, ep_id):
+            for t in json.loads(line.tokens_json):
+                if t.get("is_content") and t.get("word_id") and not token_is_proper(t):
+                    counts[t["word_id"]] = counts.get(t["word_id"], 0) + 1
+    return counts
 
 
 def status_map(session: Session, user_id: int, word_ids: Iterable[int]) -> dict[int, WordStatus]:
@@ -97,11 +136,7 @@ def understanding(session: Session, user_id: int, episode_id: int) -> dict:
     `token_pct` weighs words by how often they're spoken (what you actually experience
     watching); `unique_pct` counts each distinct word once.
     """
-    counts: dict[int, int] = {}
-    for line in episode_lines(session, episode_id):
-        for t in json.loads(line.tokens_json):
-            if t.get("is_content") and t.get("word_id"):
-                counts[t["word_id"]] = counts.get(t["word_id"], 0) + 1
+    counts = word_counts(session, [episode_id])
     statuses = status_map(session, user_id, counts)
     total_tokens = sum(counts.values())
     known_tokens = sum(c for w, c in counts.items() if statuses.get(w) in UNDERSTOOD)

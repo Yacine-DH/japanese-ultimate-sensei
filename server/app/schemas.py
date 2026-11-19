@@ -29,7 +29,13 @@ class TokenOut(BaseModel):
     pos_detail: list[str]
     furigana: list[FuriganaSegment]
     romaji: str
-    is_content: bool = Field(description="True for vocabulary worth learning (not particles etc.)")
+    is_content: bool = Field(
+        description="True for vocabulary worth learning (not particles, numbers or names)"
+    )
+    is_proper_noun: bool = Field(
+        default=False,
+        description="Character/place name. Not counted in understanding; don't highlight as unknown",
+    )
     word_id: int | None
     status: WordStatus | None = Field(description="User's status for word_id; null if no word")
     common: bool = Field(default=False, description="JMdict common word — highlight priority")
@@ -42,6 +48,9 @@ class LineOut(BaseModel):
     end_ms: int
     text: str
     tokens: list[TokenOut]
+    romaji: str = Field(
+        default="", description="Whole-line romaji, words grouped ('tabi wa owatta')"
+    )
     translation_en: str | None = None
     translation_de: str | None = None
 
@@ -91,8 +100,30 @@ class WordOut(BaseModel):
     status: WordStatus
 
 
+class WordListItem(WordOut):
+    occurrences: int | None = Field(
+        default=None,
+        description="How often the word is spoken in the filtered anime/episode (null without one)",
+    )
+
+
+class WordPage(BaseModel):
+    items: list[WordListItem]
+    total: int = Field(description="Matches before limit/offset")
+
+
 class WordStatusIn(BaseModel):
     status: WordStatus
+
+
+class BulkStatusIn(BaseModel):
+    word_ids: list[int] = Field(min_length=1, max_length=5000)
+    status: WordStatus
+
+
+class BulkStatusOut(BaseModel):
+    updated: int
+    missing: list[int] = Field(description="Requested ids that don't exist")
 
 
 class Sense(BaseModel):
