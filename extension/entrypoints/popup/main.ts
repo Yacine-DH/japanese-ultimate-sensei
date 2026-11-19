@@ -1,4 +1,4 @@
-import { api, type EpisodeOut } from '../../src/api/client';
+import { api, type EpisodeOut, verifyServerConnection } from '../../src/api/client';
 import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
 import { getKeyboardLayoutMap } from '../../src/lib/keyboard-layout';
 import { getSettings, isServerUrlConfigured, saveSettings } from '../../src/lib/settings';
@@ -170,14 +170,19 @@ setupForm.addEventListener('submit', async (event) => {
     apiToken: setupApiToken.value.trim(),
   });
 
-  const healthRes = await api.getHealth();
-  if (!healthRes.ok || !healthRes.data) {
-    setupStatus.textContent = `Connection failed: ${healthRes.error ?? 'Unreachable'}`;
+  const check = await verifyServerConnection(api, nextUrl);
+  if (check.state === 'unreachable' || check.state === 'unconfigured') {
+    setupStatus.textContent = `Server unreachable: ${check.message}`;
+    setupStatus.className = 'setup-status err';
+    return;
+  }
+  if (check.state === 'unauthorized') {
+    setupStatus.textContent = check.message;
     setupStatus.className = 'setup-status err';
     return;
   }
 
-  setupStatus.textContent = `Connected (v${healthRes.data.version}).`;
+  setupStatus.textContent = `Connected & authenticated (v${check.health.version}).`;
   setupStatus.className = 'setup-status ok';
   await refreshPopup();
 });

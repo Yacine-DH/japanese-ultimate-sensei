@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiRequest, buildAuthHeaders, SenseiApiError } from '../src/api/client';
+import {
+  apiRequest,
+  buildAuthHeaders,
+  SenseiApiError,
+  verifyWebConnection,
+} from '../src/api/client';
 import {
   DEFAULT_WEB_SETTINGS,
   loadWebSettings,
@@ -75,5 +80,28 @@ describe('web settings and API client (W-1, #7)', () => {
         fetchImpl: mockFetch as unknown as typeof fetch,
       }),
     ).rejects.toThrowError(new SenseiApiError(404, 'Episode not found'));
+  });
+
+  it('distinguishes 401 token error from unreachable server (#7, #11)', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ status: 'ok', version: '0.1.0', dictionary: true, auth: true }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: 'Invalid token' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+    const res = await verifyWebConnection(
+      { serverUrl: 'http://sensei:8000', apiToken: 'bad' },
+      mockFetch as unknown as typeof fetch,
+    );
+    expect(res.state).toBe('unauthorized');
   });
 });

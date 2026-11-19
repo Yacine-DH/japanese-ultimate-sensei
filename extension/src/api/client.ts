@@ -446,3 +446,37 @@ export const api = {
     });
   },
 };
+
+export type ConnectionCheckResult =
+  | { state: 'unconfigured'; message: string }
+  | { state: 'unreachable'; message: string }
+  | { state: 'unauthorized'; health: Health; message: string }
+  | { state: 'connected'; health: Health };
+
+export async function verifyServerConnection(
+  client: Pick<typeof api, 'getHealth' | 'listEpisodes'> = api,
+  configuredServerUrl?: string,
+): Promise<ConnectionCheckResult> {
+  if (configuredServerUrl !== undefined && !isServerUrlConfigured(configuredServerUrl)) {
+    return { state: 'unconfigured', message: 'Server URL is not configured yet.' };
+  }
+  const healthRes = await client.getHealth();
+  if (!healthRes.ok || !healthRes.data) {
+    return {
+      state: 'unreachable',
+      message: healthRes.error ?? 'Server unreachable',
+    };
+  }
+  const health = healthRes.data;
+  if (health.auth) {
+    const authProbe = await client.listEpisodes();
+    if (authProbe.status === 401) {
+      return {
+        state: 'unauthorized',
+        health,
+        message: 'Server reachable, but API token is missing or wrong (401).',
+      };
+    }
+  }
+  return { state: 'connected', health };
+}
