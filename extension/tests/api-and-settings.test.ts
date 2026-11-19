@@ -1,18 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildApiHeaders, executeApiCall, isApiCallMessage } from '../src/api/client';
+import { api, buildApiHeaders, executeApiCall, isApiCallMessage } from '../src/api/client';
 import { DEFAULT_HOTKEYS } from '../src/lib/hotkeys';
 import {
   DEFAULT_SERVER_URL,
+  isServerUrlConfigured,
   normalizeServerUrl,
   sanitizeSettings,
 } from '../src/lib/settings';
 
 describe('settings utilities', () => {
-  it('normalizes server URLs and falls back to default', () => {
+  it('normalizes server URLs and treats empty or placeholder URLs as unconfigured (#7)', () => {
+    expect(DEFAULT_SERVER_URL).toBe('');
     expect(normalizeServerUrl('  http://sensei.tailnet:8000/// ')).toBe(
       'http://sensei.tailnet:8000',
     );
-    expect(normalizeServerUrl('   ')).toBe(DEFAULT_SERVER_URL);
+    expect(normalizeServerUrl('   ')).toBe('');
+    expect(normalizeServerUrl('http://<tailscale-host>:8000')).toBe('');
+    expect(isServerUrlConfigured('')).toBe(false);
+    expect(isServerUrlConfigured('http://<tailscale-host>:8000')).toBe(false);
+    expect(isServerUrlConfigured('http://homeserver:8000')).toBe(true);
   });
 
   it('sanitizes settings with safe defaults, bounds, and URL mappings', () => {
@@ -44,6 +50,26 @@ describe('API background proxy', () => {
     expect(isApiCallMessage({ type: 'SENSEI_API_CALL', path: '/health' })).toBe(true);
     expect(isApiCallMessage({ type: 'OTHER' })).toBe(false);
     expect(isApiCallMessage(null)).toBe(false);
+  });
+
+  it('returns clear error when server URL is unconfigured without calling fetch (#7)', async () => {
+    const mockFetch = vi.fn();
+    const res = await executeApiCall(
+      { serverUrl: '', apiToken: '' },
+      '/health',
+      undefined,
+      mockFetch as unknown as typeof fetch,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/not configured/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('returns clear error instead of falling back to direct fetch when background runtime is unavailable (#7)', async () => {
+    const res = await api.call('/health');
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(0);
+    expect(res.error).toMatch(/background worker unavailable/i);
   });
 
   it('builds auth headers when token is present', () => {

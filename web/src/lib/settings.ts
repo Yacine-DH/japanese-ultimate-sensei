@@ -10,11 +10,23 @@ export interface WebSettings {
 export const SETTINGS_STORAGE_KEY = 'sensei_web_settings';
 
 export const DEFAULT_WEB_SETTINGS: WebSettings = {
-  serverUrl: 'http://localhost:8000',
+  serverUrl: '',
   apiToken: '',
   glossLang: 'eng',
   romaji: false,
 };
+
+export function resolveApiBaseUrl(configuredServerUrl: string): string {
+  const normalized = normalizeServerUrl(configuredServerUrl);
+  if (normalized) {
+    return normalized;
+  }
+  const origin = globalThis.window?.location?.origin;
+  if (origin && /^https?:\/\//.test(origin)) {
+    return origin.replace(/\/+$/, '');
+  }
+  return '';
+}
 
 export function normalizeServerUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '');

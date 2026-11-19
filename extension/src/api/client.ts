@@ -1,5 +1,10 @@
 import type { components, paths } from './schema';
-import { type ExtensionSettings, getSettings, normalizeServerUrl } from '../lib/settings';
+import {
+  type ExtensionSettings,
+  getSettings,
+  isServerUrlConfigured,
+  normalizeServerUrl,
+} from '../lib/settings';
 
 export type { components, paths };
 
@@ -147,6 +152,13 @@ export async function executeApiCall<T = unknown>(
   fetchImpl: typeof fetch = fetch,
 ): Promise<ApiCallResponse<T>> {
   const baseUrl = normalizeServerUrl(settings.serverUrl);
+  if (!isServerUrlConfigured(baseUrl)) {
+    return {
+      ok: false,
+      status: 0,
+      error: 'Server URL not configured',
+    };
+  }
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const url = `${baseUrl}${normalizedPath}`;
   const headers = buildApiHeaders(settings, init);
@@ -201,6 +213,13 @@ export async function executeSubtitleUpload(
   fetchImpl: typeof fetch = fetch,
 ): Promise<ApiCallResponse<EpisodeCreated>> {
   const baseUrl = normalizeServerUrl(settings.serverUrl);
+  if (!isServerUrlConfigured(baseUrl)) {
+    return {
+      ok: false,
+      status: 0,
+      error: 'Server URL not configured',
+    };
+  }
   const url = `${baseUrl}/episodes`;
   const headers = buildApiHeaders(settings);
   delete headers['Content-Type'];
@@ -268,23 +287,42 @@ export function markAsBackgroundContext(): void {
 
 export const api = {
   async call<T = unknown>(path: string, init?: ApiCallInit): Promise<ApiCallResponse<T>> {
-    const runtime = getBrowserRuntime();
-    if (!isBackgroundContext && runtime?.sendMessage) {
-      try {
-        const res = (await runtime.sendMessage({
-          type: 'SENSEI_API_CALL',
-          path,
-          init,
-        } satisfies ApiCallMessage)) as ApiCallResponse<T> | undefined;
-        if (res && typeof res.ok === 'boolean') {
-          return res;
-        }
-      } catch {
-        // Fallback when called outside background in unit tests
-      }
+    if (isBackgroundContext) {
+      const settings = await getSettings();
+      return executeApiCall<T>(settings, path, init);
     }
-    const settings = await getSettings();
-    return executeApiCall<T>(settings, path, init);
+
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return {
+        ok: false,
+        status: 0,
+        error: 'Extension background worker unavailable',
+      };
+    }
+
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_API_CALL',
+        path,
+        init,
+      } satisfies ApiCallMessage)) as ApiCallResponse<T> | undefined;
+      if (res && typeof res.ok === 'boolean') {
+        return res;
+      }
+      return {
+        ok: false,
+        status: 0,
+        error: 'Extension background worker returned an invalid response',
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        status: 0,
+        error: `Extension background worker unavailable: ${detail}`,
+      };
+    }
   },
 
   async getTabState(tabId?: number, pageUrl?: string): Promise<TabEpisodeState> {
@@ -325,8 +363,21 @@ export const api = {
   async uploadSubtitle(
     msg: Omit<UploadSubtitleMessage, 'type'>,
   ): Promise<ApiCallResponse<EpisodeCreated>> {
+    if (isBackgroundContext) {
+      const settings = await getSettings();
+      return executeSubtitleUpload(settings, { type: 'SENSEI_UPLOAD_SUBTITLE', ...msg });
+    }
+
     const runtime = getBrowserRuntime();
-    if (!isBackgroundContext && runtime?.sendMessage) {
+    if (!runtime?.sendMessage) {
+      return {
+        ok: false,
+        status: 0,
+        error: 'Extension background worker unavailable',
+      };
+    }
+
+    try {
       const res = (await runtime.sendMessage({
         type: 'SENSEI_UPLOAD_SUBTITLE',
         ...msg,
@@ -334,9 +385,19 @@ export const api = {
       if (res && typeof res.ok === 'boolean') {
         return res;
       }
+      return {
+        ok: false,
+        status: 0,
+        error: 'Extension background worker returned an invalid response',
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        status: 0,
+        error: `Extension background worker unavailable: ${detail}`,
+      };
     }
-    const settings = await getSettings();
-    return executeSubtitleUpload(settings, { type: 'SENSEI_UPLOAD_SUBTITLE', ...msg });
   },
 
   getHealth(): Promise<ApiCallResponse<Health>> {

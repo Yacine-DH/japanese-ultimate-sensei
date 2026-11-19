@@ -1,10 +1,15 @@
 import { api, type EpisodeOut } from '../../src/api/client';
 import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
 import { getKeyboardLayoutMap } from '../../src/lib/keyboard-layout';
-import { getSettings } from '../../src/lib/settings';
+import { getSettings, isServerUrlConfigured, saveSettings } from '../../src/lib/settings';
 import { filterEpisodes, resolveEpisodeForUrl } from '../../src/lib/url-mapping';
 
 const healthBadge = document.getElementById('health-badge') as HTMLSpanElement;
+const setupCard = document.getElementById('setup-card') as HTMLDivElement;
+const setupForm = document.getElementById('setup-form') as HTMLFormElement;
+const setupServerUrl = document.getElementById('setup-server-url') as HTMLInputElement;
+const setupApiToken = document.getElementById('setup-api-token') as HTMLInputElement;
+const setupStatus = document.getElementById('setup-status') as HTMLDivElement;
 const serverUrlText = document.getElementById('server-url-text') as HTMLSpanElement;
 const dictText = document.getElementById('dict-text') as HTMLSpanElement;
 const tabEnableToggle = document.getElementById('tab-enable-toggle') as HTMLInputElement;
@@ -63,7 +68,13 @@ async function applyTabSelection(episodeId: number | null, enabled: boolean): Pr
 
 async function refreshPopup(): Promise<void> {
   const settings = await getSettings();
-  serverUrlText.textContent = settings.serverUrl.replace(/^https?:\/\//, '');
+  const configured = isServerUrlConfigured(settings.serverUrl);
+  serverUrlText.textContent = configured
+    ? settings.serverUrl.replace(/^https?:\/\//, '')
+    : 'Not configured';
+  setupServerUrl.value = settings.serverUrl;
+  setupApiToken.value = settings.apiToken;
+
   void getKeyboardLayoutMap().then((layoutMap) => {
     hotkeySummary.innerHTML = '';
     for (const action of HOTKEY_ACTIONS) {
@@ -91,16 +102,28 @@ async function refreshPopup(): Promise<void> {
   tabEnableToggle.checked = tabState.enabled;
   pagePatternText.textContent = tabState.pattern ?? 'unsupported page';
 
+  if (!configured) {
+    healthBadge.textContent = 'Setup needed';
+    healthBadge.className = 'badge offline';
+    dictText.textContent = '-';
+    setupCard.classList.add('visible');
+    return;
+  }
+
   const healthRes = await api.getHealth();
   if (healthRes.ok && healthRes.data) {
     const h = healthRes.data;
     healthBadge.textContent = h.status === 'ok' ? `Online v${h.version}` : h.status;
     healthBadge.className = 'badge online';
     dictText.textContent = h.dictionary ? 'Ready' : 'Not built';
+    setupCard.classList.remove('visible');
   } else {
     healthBadge.textContent = 'Offline';
     healthBadge.className = 'badge offline';
     dictText.textContent = healthRes.error ?? 'Unreachable';
+    setupCard.classList.add('visible');
+    setupStatus.textContent = healthRes.error ?? 'Could not reach server';
+    setupStatus.className = 'setup-status err';
     return;
   }
 
@@ -122,8 +145,40 @@ async function refreshPopup(): Promise<void> {
       suggestedEpisode = null;
       suggestBanner.className = 'suggest-banner';
     }
+  } else if (episodesRes.status === 401) {
+    setupCard.classList.add('visible');
+    setupStatus.textContent = 'Connected to server, but API token is missing or invalid (401).';
+    setupStatus.className = 'setup-status err';
   }
 }
+
+setupForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const nextUrl = setupServerUrl.value.trim();
+  if (!isServerUrlConfigured(nextUrl)) {
+    setupStatus.textContent = 'Please enter a valid http:// or https:// server URL.';
+    setupStatus.className = 'setup-status err';
+    return;
+  }
+  setupStatus.textContent = 'Testing connection...';
+  setupStatus.className = 'setup-status';
+
+  await saveSettings({
+    serverUrl: nextUrl,
+    apiToken: setupApiToken.value.trim(),
+  });
+
+  const healthRes = await api.getHealth();
+  if (!healthRes.ok || !healthRes.data) {
+    setupStatus.textContent = `Connection failed: ${healthRes.error ?? 'Unreachable'}`;
+    setupStatus.className = 'setup-status err';
+    return;
+  }
+
+  setupStatus.textContent = `Connected (v${healthRes.data.version}).`;
+  setupStatus.className = 'setup-status ok';
+  await refreshPopup();
+});
 
 episodeSearch.addEventListener('input', () => {
   renderEpisodeOptions();

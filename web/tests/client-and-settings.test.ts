@@ -1,14 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiRequest, buildAuthHeaders, SenseiApiError } from '../src/api/client';
 import {
+  DEFAULT_WEB_SETTINGS,
   loadWebSettings,
   normalizeServerUrl,
+  resolveApiBaseUrl,
   saveWebSettings,
 } from '../src/lib/settings';
 
-describe('web settings and API client (W-1)', () => {
+describe('web settings and API client (W-1, #7)', () => {
   beforeEach(() => {
     globalThis.localStorage?.clear();
+  });
+
+  it('defaults serverUrl to empty (same origin) and resolves explicit or same-origin URLs (#7)', () => {
+    expect(DEFAULT_WEB_SETTINGS.serverUrl).toBe('');
+    expect(loadWebSettings().serverUrl).toBe('');
+    expect(resolveApiBaseUrl('http://100.64.0.2:8000/')).toBe('http://100.64.0.2:8000');
+    // When empty, resolves to window.location.origin (if http/https) or relative ''
+    const base = resolveApiBaseUrl('');
+    expect(base === '' || /^https?:\/\//.test(base)).toBe(true);
   });
 
   it('persists and loads web settings from localStorage', () => {

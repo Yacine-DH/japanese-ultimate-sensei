@@ -16,7 +16,7 @@ export interface ExtensionSettings {
   hotkeys: HotkeyBindings;
 }
 
-export const DEFAULT_SERVER_URL = 'http://<tailscale-host>:8000';
+export const DEFAULT_SERVER_URL = '';
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   serverUrl: DEFAULT_SERVER_URL,
@@ -35,7 +35,15 @@ export const SETTINGS_STORAGE_KEY = 'sensei_settings';
 
 export function normalizeServerUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, '');
-  return trimmed || DEFAULT_SERVER_URL;
+  if (!trimmed || trimmed.includes('<') || trimmed.includes('>')) {
+    return '';
+  }
+  return trimmed;
+}
+
+export function isServerUrlConfigured(raw: string): boolean {
+  const url = normalizeServerUrl(raw);
+  return /^https?:\/\/.+/.test(url);
 }
 
 export function sanitizeUrlMappings(raw: unknown): Record<string, number> {
