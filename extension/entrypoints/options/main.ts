@@ -16,6 +16,9 @@ const serverUrlInput = document.getElementById('server-url') as HTMLInputElement
 const apiTokenInput = document.getElementById('api-token') as HTMLInputElement;
 const glossLangSelect = document.getElementById('gloss-lang') as HTMLSelectElement;
 const highlightLimitInput = document.getElementById('highlight-limit') as HTMLInputElement;
+const hoverDelayInput = document.getElementById('hover-delay') as HTMLInputElement;
+const pauseOnHoverToggle = document.getElementById('pause-on-hover-toggle') as HTMLInputElement;
+const shiftHoverToggle = document.getElementById('shift-hover-toggle') as HTMLInputElement;
 const romajiToggle = document.getElementById('romaji-toggle') as HTMLInputElement;
 const testBtn = document.getElementById('test-btn') as HTMLButtonElement;
 const statusBox = document.getElementById('status-box') as HTMLDivElement;
@@ -31,6 +34,9 @@ async function init(): Promise<void> {
   apiTokenInput.value = settings.apiToken;
   glossLangSelect.value = settings.glossLang;
   highlightLimitInput.value = String(settings.highlightLimit);
+  hoverDelayInput.value = String(settings.hoverDelayMs);
+  pauseOnHoverToggle.checked = settings.pauseOnHover;
+  shiftHoverToggle.checked = settings.requireShiftForHover;
   romajiToggle.checked = settings.romaji;
 }
 
@@ -41,10 +47,14 @@ form.addEventListener('submit', async (event) => {
     apiToken: apiTokenInput.value,
     glossLang: glossLangSelect.value as GlossLanguage,
     highlightLimit: Number(highlightLimitInput.value),
+    hoverDelayMs: Number(hoverDelayInput.value),
+    pauseOnHover: pauseOnHoverToggle.checked,
+    requireShiftForHover: shiftHoverToggle.checked,
     romaji: romajiToggle.checked,
   });
   serverUrlInput.value = saved.serverUrl;
   highlightLimitInput.value = String(saved.highlightLimit);
+  hoverDelayInput.value = String(saved.hoverDelayMs);
   showStatus('Settings saved.', true);
 });
 
@@ -54,6 +64,9 @@ testBtn.addEventListener('click', async () => {
     apiToken: apiTokenInput.value,
     glossLang: glossLangSelect.value as GlossLanguage,
     highlightLimit: Number(highlightLimitInput.value),
+    hoverDelayMs: Number(hoverDelayInput.value),
+    pauseOnHover: pauseOnHoverToggle.checked,
+    requireShiftForHover: shiftHoverToggle.checked,
     romaji: romajiToggle.checked,
   });
 

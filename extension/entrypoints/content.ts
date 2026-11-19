@@ -25,6 +25,11 @@ import {
 } from '../src/lib/timing';
 import { isEditableTarget, matchHotkey } from '../src/lib/hotkeys';
 import {
+  DEFAULT_HOVER_CONFIG,
+  HoverIntentController,
+  resolvePopupWordAction,
+} from '../src/lib/hover-intent';
+import {
   computeOverlayBounds,
   findBestVideoInDocument,
   resolveOverlayMountTarget,
@@ -52,9 +57,16 @@ export default defineContentScript({
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let pausedByHover = false;
     let hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
+    let activePopupToken: TokenOut | null = null;
     let positionRafId: number | null = null;
     let videoResizeObserver: ResizeObserver | null = null;
     const lookupCache = new Map<string, LookupResult>();
+    const hoverIntent = new HoverIntentController<TokenOut>(() => ({
+      hoverDelayMs: settings?.hoverDelayMs ?? DEFAULT_HOVER_CONFIG.hoverDelayMs,
+      pauseOnHover: settings?.pauseOnHover ?? DEFAULT_HOVER_CONFIG.pauseOnHover,
+      requireShiftForHover:
+        settings?.requireShiftForHover ?? DEFAULT_HOVER_CONFIG.requireShiftForHover,
+    }));
 
     function ensureOverlayMounted(video: HTMLVideoElement): void {
       const container = resolveOverlayMountTarget(document, video);
@@ -293,6 +305,9 @@ export default defineContentScript({
     }
 
     function pauseVideoOnHover(): void {
+      if (settings && !settings.pauseOnHover) {
+        return;
+      }
       if (currentVideo && !currentVideo.paused) {
         currentVideo.pause();
         pausedByHover = true;
@@ -308,6 +323,14 @@ export default defineContentScript({
       }
     }
 
+    function closeHoverPopup(): void {
+      hoverIntent.leave();
+      cancelHoverClose();
+      activePopupToken = null;
+      popupEl?.classList.remove('visible');
+      resumeVideoAfterHover();
+    }
+
     function cancelHoverClose(): void {
       if (hoverLeaveTimer) {
         clearTimeout(hoverLeaveTimer);
@@ -318,6 +341,7 @@ export default defineContentScript({
     function scheduleHoverClose(): void {
       cancelHoverClose();
       hoverLeaveTimer = setTimeout(() => {
+        activePopupToken = null;
         popupEl?.classList.remove('visible');
         resumeVideoAfterHover();
       }, 180);
@@ -348,6 +372,7 @@ export default defineContentScript({
     async function openHoverPopup(token: TokenOut): Promise<void> {
       if (!popupEl || !settings) return;
       cancelHoverClose();
+      activePopupToken = token;
       pauseVideoOnHover();
 
       popupEl.innerHTML = '';
@@ -390,18 +415,18 @@ export default defineContentScript({
       const knownBtn = document.createElement('button');
       knownBtn.type = 'button';
       knownBtn.className = 'known';
-      knownBtn.textContent = 'Known';
+      knownBtn.textContent = 'Known (K)';
       knownBtn.addEventListener('click', () => void handleStatusChange(token, 'known'));
 
       const ignoreBtn = document.createElement('button');
       ignoreBtn.type = 'button';
-      ignoreBtn.textContent = 'Ignore';
+      ignoreBtn.textContent = 'Ignore (I)';
       ignoreBtn.addEventListener('click', () => void handleStatusChange(token, 'ignored'));
 
       const saveBtn = document.createElement('button');
       saveBtn.type = 'button';
       saveBtn.className = 'save';
-      saveBtn.textContent = 'Save';
+      saveBtn.textContent = 'Save (S)';
       saveBtn.addEventListener('click', () => void handleStatusChange(token, 'learning'));
 
       actions.appendChild(knownBtn);
@@ -500,8 +525,14 @@ export default defineContentScript({
           }
 
           if (token.is_content) {
-            span.addEventListener('mouseenter', () => {
-              void openHoverPopup(token);
+            span.addEventListener('mouseenter', (ev) => {
+              cancelHoverClose();
+              hoverIntent.enter(token, ev.shiftKey, (t) => {
+                void openHoverPopup(t);
+              });
+            });
+            span.addEventListener('mouseleave', () => {
+              hoverIntent.leave();
             });
           }
 
@@ -664,7 +695,7 @@ export default defineContentScript({
     const persistOffset = createDebouncer(400);
 
     // Capture phase so we run before the player's own key handlers; we stop the event
-    // only when it matches one of our bindings (#4).
+    // only when it matches one of our bindings (#4) or hovered-word shortcuts (#5).
     window.addEventListener(
       'keydown',
       (event) => {
@@ -679,6 +710,33 @@ export default defineContentScript({
           lines.length === 0
         ) {
           return;
+        }
+
+        // Yomitan-style Shift trigger while already resting on a content token (#5)
+        if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+          hoverIntent.triggerWithShift((token) => {
+            void openHoverPopup(token);
+          });
+          return;
+        }
+
+        // Keyboard actions on the currently open word popup: K (Known), I (Ignore), S (Save), Esc (Close)
+        if (activePopupToken) {
+          if (event.code === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            closeHoverPopup();
+            return;
+          }
+          const wordStatus = resolvePopupWordAction(event);
+          if (wordStatus) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            void handleStatusChange(activePopupToken, wordStatus);
+            return;
+          }
         }
 
         const action = matchHotkey(settings.hotkeys, event);
