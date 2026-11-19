@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildApiHeaders, executeApiCall, isApiCallMessage } from '../src/api/client';
+import { DEFAULT_HOTKEYS } from '../src/lib/hotkeys';
 import {
   DEFAULT_SERVER_URL,
   normalizeServerUrl,
@@ -30,6 +31,7 @@ describe('settings utilities', () => {
       romaji: true,
       highlightLimit: 20,
       urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
+      hotkeys: DEFAULT_HOTKEYS,
     });
   });
 });

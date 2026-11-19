@@ -1,3 +1,5 @@
+import { DEFAULT_HOTKEYS, type HotkeyBindings, sanitizeHotkeys } from './hotkeys';
+
 export type GlossLanguage = 'eng' | 'ger';
 
 export interface ExtensionSettings {
@@ -7,6 +9,7 @@ export interface ExtensionSettings {
   romaji: boolean;
   highlightLimit: number;
   urlMappings: Record<string, number>;
+  hotkeys: HotkeyBindings;
 }
 
 export const DEFAULT_SERVER_URL = 'http://<tailscale-host>:8000';
@@ -18,6 +21,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   romaji: false,
   highlightLimit: 3,
   urlMappings: {},
+  hotkeys: DEFAULT_HOTKEYS,
 };
 
 export const SETTINGS_STORAGE_KEY = 'sensei_settings';
@@ -55,6 +59,7 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     romaji: Boolean(merged.romaji),
     highlightLimit,
     urlMappings: sanitizeUrlMappings(merged.urlMappings),
+    hotkeys: sanitizeHotkeys(merged.hotkeys),
   };
 }
 

@@ -156,6 +156,43 @@
         <div id="status-box" class="status"></div>
       </form>
     </div>
+    <div class="card" style="margin-top: 20px">
+      <h1 style="font-size: 1.1rem">Hotkeys</h1>
+      <p class="sub">
+        Keys are matched by physical position, so they work the same on QWERTZ and QWERTY.
+        Click a key, then press the new combination (Esc cancels). Saved immediately.
+      </p>
+      <div id="hotkey-list"></div>
+      <div class="actions">
+        <button type="button" id="hotkey-reset-btn" class="secondary">Reset to defaults</button>
+      </div>
+      <div id="hotkey-status" class="status"></div>
+    </div>
+    <style>
+      .hotkey-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #334155;
+        font-size: 0.9rem;
+      }
+      .hotkey-row button {
+        min-width: 110px;
+        font-family: ui-monospace, monospace;
+        background: #0f172a;
+        color: #7dd3fc;
+        border: 1px solid #475569;
+      }
+      .hotkey-row button.recording {
+        border-color: #f59e0b;
+        color: #fbbf24;
+      }
+      .hotkey-row button.conflict {
+        border-color: #ef4444;
+        color: #fca5a5;
+      }
+    </style>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

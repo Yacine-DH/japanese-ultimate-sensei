@@ -9,7 +9,6 @@ import {
   findReferenceLineForSync,
   formatActiveLinesKey,
   isLineActive,
-  resolveHotkeyAction,
 } from '../src/lib/timing';
 import {
   computeOverlayBounds,
@@ -91,10 +90,6 @@ describe('subtitle timing logic (E-2)', () => {
     expect(findActiveLine(lines, 2700, 0)).toBeNull();
     expect(findActiveLine(lines, 3200, 0)?.id).toBe(2);
 
-    expect(resolveHotkeyAction('[')).toEqual({ type: 'step', deltaMs: -100 });
-    expect(resolveHotkeyAction(']')).toEqual({ type: 'step', deltaMs: 100 });
-    expect(resolveHotkeyAction('\\')).toEqual({ type: 'sync_now' });
-    expect(resolveHotkeyAction('a')).toBeNull();
 
     expect(adjustOffsetMs(0, -100)).toBe(-100);
     expect(adjustOffsetMs(-100, 100)).toBe(0);
