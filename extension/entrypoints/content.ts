@@ -13,7 +13,21 @@ import {
   updateWordStatusInLines,
 } from '../src/lib/highlight';
 import { shouldLoadTranscriptForFrame } from '../src/lib/line-cache';
-import { type ExtensionSettings, getSettings, SETTINGS_STORAGE_KEY } from '../src/lib/settings';
+import {
+  type ExtensionSettings,
+  getSettings,
+  saveSettings,
+  SETTINGS_STORAGE_KEY,
+} from '../src/lib/settings';
+import {
+  computeReplaySeekSeconds,
+  createSlowReplayState,
+  findLineToReplay,
+  shouldAutoPauseAfterLine,
+  shouldRestorePlaybackRate,
+  SLOW_REPLAY_RATE,
+  type SlowReplayState,
+} from '../src/lib/replay';
 import {
   adjustOffsetMs,
   computeSyncOffsetMs,
@@ -47,6 +61,9 @@ export default defineContentScript({
     let subOffsetMs = 0;
     let currentVideo: HTMLVideoElement | null = null;
     let renderedLinesKey: string | null = null;
+    let prevActiveLineIds: number[] = [];
+    let slowReplayState: SlowReplayState | null = null;
+    let skipAutoPauseOnce = false;
     let frameCallbackId: number | null = null;
     let frameLoopMode: 'rvfc' | 'raf' | null = null;
     let hostEl: HTMLDivElement | null = null;
@@ -555,16 +572,72 @@ export default defineContentScript({
       }
     }
 
+    function restoreSlowReplayIfNeeded(videoMs: number, force = false): void {
+      if (!currentVideo || !slowReplayState) return;
+      if (force || shouldRestorePlaybackRate(slowReplayState, videoMs)) {
+        const rate = slowReplayState.originalRate;
+        slowReplayState = null;
+        currentVideo.playbackRate = rate;
+      }
+    }
+
+    function replayCurrentOrLastLine(slow: boolean): void {
+      if (!currentVideo || lines.length === 0) return;
+      const videoMs = currentVideo.currentTime * 1000;
+      const target = findLineToReplay(lines, videoMs, subOffsetMs);
+      if (!target) {
+        showToast('No line to replay');
+        return;
+      }
+
+      if (slow) {
+        const originalRate = slowReplayState?.originalRate ?? currentVideo.playbackRate;
+        slowReplayState = createSlowReplayState(target, subOffsetMs, originalRate);
+        currentVideo.playbackRate = SLOW_REPLAY_RATE;
+        showToast(`Slow replay (${SLOW_REPLAY_RATE}×)`);
+      } else {
+        restoreSlowReplayIfNeeded(videoMs, true);
+        showToast('Replay line');
+      }
+
+      skipAutoPauseOnce = true;
+      currentVideo.currentTime = computeReplaySeekSeconds(target, subOffsetMs);
+      pausedByHover = false;
+      void currentVideo.play().catch(() => {
+        // Ignore autoplay restrictions
+      });
+    }
+
     function syncSubtitleFrame(): void {
       if (!currentVideo || !tabOverlayEnabled || !currentEpisodeId || lines.length === 0) {
         if (renderedLinesKey !== null && renderedLinesKey !== '') {
           renderLines([]);
         }
+        prevActiveLineIds = [];
         return;
       }
       ensureOverlayMounted(currentVideo);
       const videoMs = currentVideo.currentTime * 1000;
+      restoreSlowReplayIfNeeded(videoMs);
+
       const active = findActiveLines(lines, videoMs, subOffsetMs);
+      const activeIds = active.map((l) => l.id);
+
+      if (
+        !currentVideo.paused &&
+        !skipAutoPauseOnce &&
+        shouldAutoPauseAfterLine(
+          prevActiveLineIds,
+          activeIds,
+          Boolean(settings?.autoPauseEachLine),
+        )
+      ) {
+        currentVideo.pause();
+        showToast('Paused at end of line (study mode)');
+      }
+      skipAutoPauseOnce = false;
+      prevActiveLineIds = activeIds;
+
       const nextKey = formatActiveLinesKey(active);
       if (nextKey !== renderedLinesKey) {
         renderLines(active);
@@ -745,6 +818,22 @@ export default defineContentScript({
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
+
+        if (action === 'replayLine') {
+          replayCurrentOrLastLine(false);
+          return;
+        }
+        if (action === 'slowReplayLine') {
+          replayCurrentOrLastLine(true);
+          return;
+        }
+        if (action === 'toggleAutoPause') {
+          const next = !settings.autoPauseEachLine;
+          settings = { ...settings, autoPauseEachLine: next };
+          void saveSettings({ autoPauseEachLine: next });
+          showToast(`Study auto-pause: ${next ? 'ON' : 'OFF'}`);
+          return;
+        }
 
         if (action === 'offsetBack') {
           subOffsetMs = adjustOffsetMs(subOffsetMs, -OFFSET_STEP_MS);

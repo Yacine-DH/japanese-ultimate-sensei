@@ -19,6 +19,7 @@ const highlightLimitInput = document.getElementById('highlight-limit') as HTMLIn
 const hoverDelayInput = document.getElementById('hover-delay') as HTMLInputElement;
 const pauseOnHoverToggle = document.getElementById('pause-on-hover-toggle') as HTMLInputElement;
 const shiftHoverToggle = document.getElementById('shift-hover-toggle') as HTMLInputElement;
+const autoPauseToggle = document.getElementById('auto-pause-toggle') as HTMLInputElement;
 const romajiToggle = document.getElementById('romaji-toggle') as HTMLInputElement;
 const testBtn = document.getElementById('test-btn') as HTMLButtonElement;
 const statusBox = document.getElementById('status-box') as HTMLDivElement;
@@ -37,6 +38,7 @@ async function init(): Promise<void> {
   hoverDelayInput.value = String(settings.hoverDelayMs);
   pauseOnHoverToggle.checked = settings.pauseOnHover;
   shiftHoverToggle.checked = settings.requireShiftForHover;
+  autoPauseToggle.checked = settings.autoPauseEachLine;
   romajiToggle.checked = settings.romaji;
 }
 
@@ -50,6 +52,7 @@ form.addEventListener('submit', async (event) => {
     hoverDelayMs: Number(hoverDelayInput.value),
     pauseOnHover: pauseOnHoverToggle.checked,
     requireShiftForHover: shiftHoverToggle.checked,
+    autoPauseEachLine: autoPauseToggle.checked,
     romaji: romajiToggle.checked,
   });
   serverUrlInput.value = saved.serverUrl;
@@ -67,6 +70,7 @@ testBtn.addEventListener('click', async () => {
     hoverDelayMs: Number(hoverDelayInput.value),
     pauseOnHover: pauseOnHoverToggle.checked,
     requireShiftForHover: shiftHoverToggle.checked,
+    autoPauseEachLine: autoPauseToggle.checked,
     romaji: romajiToggle.checked,
   });
 

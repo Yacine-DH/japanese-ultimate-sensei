@@ -39,6 +39,7 @@ describe('settings utilities', () => {
       hoverDelayMs: 200,
       pauseOnHover: true,
       requireShiftForHover: false,
+      autoPauseEachLine: false,
       urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
       hotkeys: DEFAULT_HOTKEYS,
     });
