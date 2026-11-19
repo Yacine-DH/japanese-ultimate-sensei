@@ -1,6 +1,7 @@
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LibraryPage } from './pages/LibraryPage';
+import { EpisodeDetailPage } from './pages/EpisodeDetailPage';
 import { ReviewPage } from './pages/ReviewPage';
 import { WordsPage } from './pages/WordsPage';
 import { StatsPage } from './pages/StatsPage';
@@ -50,6 +51,7 @@ export function App() {
           <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8">
             <Routes>
               <Route path="/" element={<LibraryPage />} />
+              <Route path="/episodes/:id" element={<EpisodeDetailPage />} />
               <Route path="/review" element={<ReviewPage />} />
               <Route path="/words" element={<WordsPage />} />
               <Route path="/stats" element={<StatsPage />} />

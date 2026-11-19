@@ -35,7 +35,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 
 ### Web app (Antigravity)
 - [x] **W-1** Scaffold `web/`: Vite + React + TS + Tailwind + React Router + TanStack Query; API client generated from `docs/openapi.json`; settings page (token). Dark mode. deps: O-2 (antigravity, 2026-11-17: Vite + React 18 + Tailwind v4 + React Router + TanStack Query dark-mode SPA, OpenAPI types, settings + health check, unit tests)
-- [ ] **W-2** Library: anime → episodes, upload subtitle, understanding % bar per episode, episode detail with the transcript (furigana, word status colours, click a word → lookup + status). deps: W-1
+- [x] **W-2** (#23) Library: anime → episodes, upload subtitle, understanding % bar per episode, episode detail with the transcript (furigana, word status colours, click a word → lookup + status). deps: W-1 (antigravity, 2026-11-19: grouped anime library, subtitle upload, per-episode understanding % bar, full interactive transcript with EN/DE dictionary inspector & pre-study filter, unit tests)
 - [ ] **W-3** Review: FSRS session with screenshot, play line audio/clip, reveal meaning + sentence, rate Again/Hard/Good/Easy (keys 1–4). deps: W-1, S-3
 - [ ] **W-4** Words: table filterable by status / anime, bulk mark known. deps: W-1
 - [ ] **W-5** Stats: GitHub-style activity heatmap + understanding % trend per anime. deps: W-1, S-6
