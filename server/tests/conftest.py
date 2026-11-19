@@ -27,7 +27,9 @@ def _make_client(tmp_path: Path, dict_path: Path, token: str = "") -> TestClient
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "jmdict.sqlite").symlink_to(dict_path)
-    return TestClient(create_app(Settings(data_dir=data_dir, api_token=token)))
+    return TestClient(
+        create_app(Settings(data_dir=data_dir, api_token=token, allow_no_auth=not token))
+    )
 
 
 @pytest.fixture

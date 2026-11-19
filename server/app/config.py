@@ -11,8 +11,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="SENSEI_", env_file=".env", extra="ignore")
 
-    # Empty token = auth disabled (only acceptable on a trusted network during dev).
+    # Required: the server refuses to start without one (generate: openssl rand -hex 24).
     api_token: str = ""
+    # Escape hatch for local development / tests only: run with auth disabled.
+    allow_no_auth: bool = False
     data_dir: Path = REPO_ROOT / "data"
     # Additional allowed CORS origins (extension origins + localhost are always allowed).
     cors_origins: list[str] = []
@@ -30,6 +32,27 @@ class Settings(BaseSettings):
     @property
     def media_dir(self) -> Path:
         return self.data_dir / "media"
+
+
+MIN_TOKEN_LENGTH = 16
+
+
+def check_auth_settings(settings: Settings) -> None:
+    """Fail fast instead of silently serving the vocabulary DB to anyone on the network."""
+    token = settings.api_token.strip()
+    if not token:
+        if settings.allow_no_auth:
+            return
+        raise RuntimeError(
+            "SENSEI_API_TOKEN is not set. Generate one with `openssl rand -hex 24`, put "
+            "SENSEI_API_TOKEN=<token> in server/.env and paste the same token into the "
+            "extension/web settings. (Local dev only: SENSEI_ALLOW_NO_AUTH=true disables auth.)"
+        )
+    if len(token) < MIN_TOKEN_LENGTH:
+        raise RuntimeError(
+            f"SENSEI_API_TOKEN is too short ({len(token)} chars, need ≥ {MIN_TOKEN_LENGTH}). "
+            "Generate one with `openssl rand -hex 24`."
+        )
 
 
 @lru_cache

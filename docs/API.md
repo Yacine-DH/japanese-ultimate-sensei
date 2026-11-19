@@ -4,7 +4,9 @@ Base URL: `http://<server-tailscale-name>:8000`. Interactive docs at `/docs`; ma
 spec in [`openapi.json`](openapi.json) (regenerate with `cd server && uv run python -m app.export_openapi`).
 
 **Auth:** every endpoint except `/health` requires `Authorization: Bearer <token>` (or
-`X-Sensei-Token: <token>`) when the server has `SENSEI_API_TOKEN` set. `401` otherwise.
+`X-Sensei-Token: <token>`); `401` otherwise. The server refuses to start without a
+`SENSEI_API_TOKEN` (≥ 16 chars) unless `SENSEI_ALLOW_NO_AUTH=true` (local dev only), in which
+case `/health` reports `"auth": false`.
 **Times** are integer milliseconds. **Readings** are hiragana. **Errors** are `{"detail": "..."}`.
 
 ## Meta

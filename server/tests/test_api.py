@@ -73,12 +73,15 @@ def test_rejects_non_japanese_subtitles(client, tmp_path):
 
 
 def test_auth(make_client):
-    c = make_client(token="s3cret")
+    c = make_client(token="s3cret-s3cret-s3cret")
     assert c.get("/health").status_code == 200  # public
     assert c.get("/episodes").status_code == 401
     assert c.get("/episodes", headers={"Authorization": "Bearer nope"}).status_code == 401
-    assert c.get("/episodes", headers={"Authorization": "Bearer s3cret"}).status_code == 200
-    assert c.get("/episodes", headers={"X-Sensei-Token": "s3cret"}).status_code == 200
+    assert (
+        c.get("/episodes", headers={"Authorization": "Bearer s3cret-s3cret-s3cret"}).status_code
+        == 200
+    )
+    assert c.get("/episodes", headers={"X-Sensei-Token": "s3cret-s3cret-s3cret"}).status_code == 200
 
 
 def test_line_romaji_and_proper_nouns_in_lines(client):
@@ -152,3 +155,17 @@ def test_reprocess_keeps_line_ids_and_statuses(client):
         }
     ]
     assert client.post("/episodes/9999/reprocess").status_code == 404
+
+
+def test_refuses_to_start_without_token(tmp_path):
+    import pytest
+
+    from app.config import Settings
+    from app.main import create_app
+
+    with pytest.raises(RuntimeError, match="SENSEI_API_TOKEN is not set"):
+        create_app(Settings(data_dir=tmp_path))
+    with pytest.raises(RuntimeError, match="too short"):
+        create_app(Settings(data_dir=tmp_path, api_token="short"))
+    app = create_app(Settings(data_dir=tmp_path, allow_no_auth=True))  # explicit dev opt-out
+    assert app.state.settings.allow_no_auth

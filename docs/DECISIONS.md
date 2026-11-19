@@ -2,6 +2,15 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-19: Server hardening + learner-facing token data (Claude)
+- **Token required at startup (#11).** An empty `SENSEI_API_TOKEN` now aborts startup instead of
+  silently disabling auth; `SENSEI_ALLOW_NO_AUTH=true` is the explicit dev opt-out.
+- **Names are not vocabulary (#9).** Sudachi tags most anime names (フリーレン) as plain nouns but
+  out-of-vocabulary, so "OOV katakana noun" counts as a name alongside 固有名詞. Names get
+  `is_content=false`, `is_proper_noun=true` and still have a `word_id` for lookups.
+- **Line romaji is computed at read time (#8)** from stored tokens, so it improves without
+  reprocessing. Things stored at ingest (names, JMdict links) need `POST /episodes/{id}/reprocess`.
+
 ### 2026-11-17: Frontend foundation choices (Antigravity)
 - **WXT + framework-free Shadow DOM for the video overlay (`extension/`).** Keeps the content script tiny (~30 KB) inside streaming-site player iframes and fullscreen containers while sharing strict TypeScript modules (`timing`, `furigana`, `highlight`, `video`) tested with Vitest + happy-dom.
 - **`openapi-typescript` from `docs/openapi.json`.** Both `extension/src/api/schema.d.ts` and `web/src/api/schema.d.ts` are generated directly from the server's OpenAPI 3.1 schema.

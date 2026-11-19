@@ -9,7 +9,7 @@ from app.main import create_app
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
-        spec = create_app(Settings(data_dir=Path(tmp))).openapi()
+        spec = create_app(Settings(data_dir=Path(tmp), allow_no_auth=True)).openapi()
     out = REPO_ROOT / "docs" / "openapi.json"
     out.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"wrote {out}")

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, delete, func, or_, select
 
 from app import __version__
-from app.config import Settings, get_settings
+from app.config import Settings, check_auth_settings, get_settings
 from app.db import get_session, make_engine
 from app.dictionary import Dictionary, load_dictionary
 from app.ingest import (
@@ -52,6 +52,7 @@ EXTENSION_ORIGINS = (
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    check_auth_settings(settings)
     app = FastAPI(title="Japanese Ultimate Sensei", version=__version__)
     app.state.settings = settings
     app.state.engine = make_engine(settings.db_path)
@@ -68,8 +69,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ---- dependencies -------------------------------------------------------------------
 
     def require_token(request: Request) -> None:
-        expected = settings.api_token
-        if not expected:
+        expected = settings.api_token.strip()
+        if not expected:  # only reachable with SENSEI_ALLOW_NO_AUTH=true
             return
         header = request.headers.get("authorization", "")
         given = header.removeprefix("Bearer ").strip() or request.headers.get("x-sensei-token", "")
