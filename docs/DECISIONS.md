@@ -8,6 +8,9 @@ Newest first. One entry per decision that would surprise someone later.
 - **Names are not vocabulary (#9).** Sudachi tags most anime names (フリーレン) as plain nouns but
   out-of-vocabulary, so "OOV katakana noun" counts as a name alongside 固有名詞. Names get
   `is_content=false`, `is_proper_noun=true` and still have a `word_id` for lookups.
+- **FSRS via `fsrs` (py-fsrs 6) (#15).** One card per word; FSRS state as JSON on `Card.fsrs_json`.
+  A word auto-graduates to `known` at stability ≥ 21 days (≈ Anki "mature") and returns to
+  `learning` on a lapse.
 - **Line romaji is computed at read time (#8)** from stored tokens, so it improves without
   reprocessing. Things stored at ingest (names, JMdict links) need `POST /episodes/{id}/reprocess`.
 

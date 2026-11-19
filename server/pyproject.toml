@@ -14,6 +14,7 @@ dependencies = [
   "sudachidict-core>=20240716",
   "pykakasi>=2.3",
   "httpx>=0.27",
+  "fsrs>=6.3.3",
 ]
 
 [dependency-groups]

@@ -19,7 +19,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 ### Server (Claude)
 - [ ] **S-1** Jimaku integration: `GET /subs/search?q=` (AniList/Jimaku), `POST /episodes/from-jimaku` (download + ingest). deps: O-3
 - [ ] **S-2** Media: `POST /media` (multipart screenshot/audio/clip upload) → ffmpeg transcode (WebP/Opus/VP9 360p) → `GET /media/{id}`
-- [~] **S-3** (#15) Cards + FSRS: `POST /cards` (word + line + media ids), `GET /reviews/due`, `POST /reviews` (rating), sets UserWord → learning/known
+- [x] **S-3** (#15) Cards + FSRS: `POST /cards` (word + line + media ids), `GET /reviews/due`, `POST /reviews` (rating), sets UserWord → learning/known (claude, 2026-11-19: py-fsrs, one card per word, auto-known at stability ≥ 21 d, `next_due` per rating, activity counters)
 - [ ] **S-4** Known-words import: from Anki (.apkg/.txt export, choose field) and plain word lists
 - [ ] **S-5** Anki export: `.apkg` (genanki) with media; card JSON for AnkiConnect push
 - [ ] **S-6** Activity tracking: `POST /activity/watch` (minutes), auto-count reviews/words; `GET /activity?from=&to=` for heatmap
@@ -45,7 +45,6 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **#9** `TokenOut.is_proper_noun`; names excluded from understanding % (claude, 2026-11-19)
 - [x] **#10** `POST /episodes/{id}/reprocess` + `python -m app.reprocess` (claude, 2026-11-19)
 - [x] **#11** server refuses to start without a ≥16-char token; `SENSEI_ALLOW_NO_AUTH=true` dev opt-out (claude, 2026-11-19)
-- [~] **S-3** (#15) cards + FSRS (claude, 2026-11-19)
 
 ## Phase 2
 - [ ] **S-8** "Words you missed": `GET /episodes/{id}/missed` ranked by frequency (add a real frequency list)
