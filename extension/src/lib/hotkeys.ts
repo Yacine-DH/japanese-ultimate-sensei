@@ -4,7 +4,13 @@
  * need AltGr.
  */
 
-export type HotkeyAction = 'offsetBack' | 'offsetForward' | 'syncNow';
+export type HotkeyAction =
+  | 'offsetBack'
+  | 'offsetForward'
+  | 'syncNow'
+  | 'replayLine'
+  | 'slowReplayLine'
+  | 'toggleAutoPause';
 
 export interface HotkeyBinding {
   code: string;
@@ -16,23 +22,36 @@ export interface HotkeyBinding {
 
 export type HotkeyBindings = Record<HotkeyAction, HotkeyBinding>;
 
-export const HOTKEY_ACTIONS: readonly HotkeyAction[] = ['offsetBack', 'offsetForward', 'syncNow'];
+export const HOTKEY_ACTIONS: readonly HotkeyAction[] = [
+  'offsetBack',
+  'offsetForward',
+  'syncNow',
+  'replayLine',
+  'slowReplayLine',
+  'toggleAutoPause',
+];
 
 export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
   offsetBack: 'Subtitles earlier (−100 ms)',
   offsetForward: 'Subtitles later (+100 ms)',
   syncNow: 'Sync: current line starts now',
+  replayLine: 'Replay current / last line',
+  slowReplayLine: 'Slow replay line (0.75×)',
+  toggleAutoPause: 'Toggle auto-pause after line',
 };
 
 function key(code: string, mods: Partial<Omit<HotkeyBinding, 'code'>> = {}): HotkeyBinding {
   return { code, alt: false, ctrl: false, shift: false, meta: false, ...mods };
 }
 
-/** `,` `.` and the key right of them (`-` on QWERTZ, `/` on QWERTY), all without AltGr. */
+/** Layout-independent defaults on physical keys (all work on QWERTZ & QWERTY without AltGr). */
 export const DEFAULT_HOTKEYS: HotkeyBindings = {
   offsetBack: key('Comma'),
   offsetForward: key('Period'),
   syncNow: key('Slash'),
+  replayLine: key('KeyR'),
+  slowReplayLine: key('KeyR', { shift: true }),
+  toggleAutoPause: key('KeyP', { alt: true }),
 };
 
 export interface KeyEventLike {

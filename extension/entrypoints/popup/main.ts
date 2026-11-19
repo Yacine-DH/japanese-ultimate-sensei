@@ -13,6 +13,7 @@ const setupStatus = document.getElementById('setup-status') as HTMLDivElement;
 const serverUrlText = document.getElementById('server-url-text') as HTMLSpanElement;
 const dictText = document.getElementById('dict-text') as HTMLSpanElement;
 const tabEnableToggle = document.getElementById('tab-enable-toggle') as HTMLInputElement;
+const autoPauseToggle = document.getElementById('auto-pause-toggle') as HTMLInputElement;
 const pagePatternText = document.getElementById('page-pattern-text') as HTMLSpanElement;
 const suggestBanner = document.getElementById('suggest-banner') as HTMLDivElement;
 const suggestText = document.getElementById('suggest-text') as HTMLSpanElement;
@@ -74,6 +75,7 @@ async function refreshPopup(): Promise<void> {
     : 'Not configured';
   setupServerUrl.value = settings.serverUrl;
   setupApiToken.value = settings.apiToken;
+  autoPauseToggle.checked = settings.autoPauseEachLine;
 
   void getKeyboardLayoutMap().then((layoutMap) => {
     hotkeySummary.innerHTML = '';
@@ -196,6 +198,10 @@ tabEnableToggle.addEventListener('change', async () => {
     return;
   }
   await applyTabSelection(attachedEpisodeId, tabEnableToggle.checked);
+});
+
+autoPauseToggle.addEventListener('change', async () => {
+  await saveSettings({ autoPauseEachLine: autoPauseToggle.checked });
 });
 
 applySuggestBtn.addEventListener('click', async () => {

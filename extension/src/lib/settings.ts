@@ -12,6 +12,7 @@ export interface ExtensionSettings {
   hoverDelayMs: number;
   pauseOnHover: boolean;
   requireShiftForHover: boolean;
+  autoPauseEachLine: boolean;
   urlMappings: Record<string, number>;
   hotkeys: HotkeyBindings;
 }
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   hoverDelayMs: DEFAULT_HOVER_CONFIG.hoverDelayMs,
   pauseOnHover: DEFAULT_HOVER_CONFIG.pauseOnHover,
   requireShiftForHover: DEFAULT_HOVER_CONFIG.requireShiftForHover,
+  autoPauseEachLine: false,
   urlMappings: {},
   hotkeys: DEFAULT_HOTKEYS,
 };
@@ -76,6 +78,7 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     hoverDelayMs: sanitizeHoverDelayMs(merged.hoverDelayMs),
     pauseOnHover: Boolean(merged.pauseOnHover),
     requireShiftForHover: Boolean(merged.requireShiftForHover),
+    autoPauseEachLine: Boolean(merged.autoPauseEachLine),
     urlMappings: sanitizeUrlMappings(merged.urlMappings),
     hotkeys: sanitizeHotkeys(merged.hotkeys),
   };
