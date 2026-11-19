@@ -24,7 +24,8 @@ cd server
 uv sync                                               # installs Python 3.12 + deps
 uv run python -m app.dictionary_setup                 # downloads JMdict EN+DE → data/jmdict.sqlite
 uv run pytest                                         # tests
-cp .env.example .env && $EDITOR .env                  # set SENSEI_API_TOKEN
+cp .env.example .env
+echo "SENSEI_API_TOKEN=$(openssl rand -hex 24)" >> .env  # required: server refuses to start without it
 uv run uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
 ```
 Then from the laptop (Tailscale): `curl http://<server-tailscale-name>:8000/health`.

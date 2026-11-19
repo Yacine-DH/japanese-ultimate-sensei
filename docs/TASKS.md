@@ -8,7 +8,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **O-1** Install `uv` on the server: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - [x] **O-2** Install Node.js 22 LTS on the server (e.g. `fnm install 22` or nvm), plus `pnpm` (`corepack enable`) (antigravity, 2026-11-17: Node v22.23.5 + pnpm 12.21.0 installed in `~/.local/bin`)
 - [ ] **O-3** Make a free [jimaku.cc](https://jimaku.cc) account and API key → `SENSEI_JIMAKU_API_KEY` in `server/.env`
-- [ ] **O-4** Set `SENSEI_API_TOKEN` in `server/.env` (any long random string: `openssl rand -hex 24`)
+- [ ] **O-4** Set `SENSEI_API_TOKEN` in `server/.env` (**required since #11**: `cd server && cp .env.example .env && echo "SENSEI_API_TOKEN=$(openssl rand -hex 24)" >> .env`)
 - [ ] **O-5** Tell Claude your laptop specs (CPU/GPU/RAM), which decides which LLM runs where
 
 ## Phase 0: Foundation
@@ -44,7 +44,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **#8** line-level `LineOut.romaji` with grouped words (claude, 2026-11-19)
 - [x] **#9** `TokenOut.is_proper_noun`; names excluded from understanding % (claude, 2026-11-19)
 - [x] **#10** `POST /episodes/{id}/reprocess` + `python -m app.reprocess` (claude, 2026-11-19)
-- [~] **#11** require an API token by default (claude, 2026-11-19)
+- [x] **#11** server refuses to start without a ≥16-char token; `SENSEI_ALLOW_NO_AUTH=true` dev opt-out (claude, 2026-11-19)
 - [~] **S-3** (#15) cards + FSRS (claude, 2026-11-19)
 
 ## Phase 2
