@@ -3,40 +3,75 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="manifest.open_in_tab" content="true" />
     <title>Japanese Ultimate Sensei — Settings</title>
     <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
       :root {
         color-scheme: dark;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       }
+      html,
       body {
         margin: 0;
-        padding: 32px 16px;
+        padding: 0;
         background: #0f172a;
         color: #f8fafc;
+        overflow-x: hidden;
+      }
+      body {
+        padding: 20px 14px 32px;
         display: flex;
         justify-content: center;
       }
+      .options-layout {
+        width: 100%;
+        max-width: 560px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      @media (min-width: 960px) {
+        body {
+          padding: 32px 24px;
+        }
+        .options-layout {
+          max-width: 1040px;
+          flex-direction: row;
+          align-items: flex-start;
+        }
+      }
       .card {
         width: 100%;
-        max-width: 540px;
+        min-width: 0;
+        flex: 1 1 0;
         background: #1e293b;
         border: 1px solid #334155;
         border-radius: 12px;
-        padding: 24px;
+        padding: 20px;
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+        overflow-wrap: break-word;
       }
       h1 {
         margin: 0 0 6px;
-        font-size: 1.35rem;
+        font-size: 1.3rem;
+      }
+      h2 {
+        margin: 0 0 6px;
+        font-size: 1.1rem;
       }
       p.sub {
-        margin: 0 0 20px;
+        margin: 0 0 18px;
         color: #94a3b8;
-        font-size: 0.9rem;
+        font-size: 0.875rem;
+        line-height: 1.45;
       }
       .field {
-        margin-bottom: 16px;
+        margin-bottom: 15px;
       }
       label {
         display: block;
@@ -50,7 +85,7 @@
       input[type='number'],
       select {
         width: 100%;
-        box-sizing: border-box;
+        min-width: 0;
         padding: 9px 12px;
         border-radius: 8px;
         border: 1px solid #475569;
@@ -60,26 +95,32 @@
       }
       .checkbox-row {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 10px;
         cursor: pointer;
+        font-weight: 500;
+        line-height: 1.35;
       }
       .checkbox-row input {
         width: 18px;
         height: 18px;
+        margin-top: 1px;
+        flex-shrink: 0;
       }
       .actions {
         display: flex;
-        gap: 12px;
-        margin-top: 20px;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
       }
       button {
-        padding: 10px 16px;
+        padding: 9px 14px;
         border-radius: 8px;
         border: none;
         font-weight: 600;
         cursor: pointer;
-        font-size: 0.9rem;
+        font-size: 0.875rem;
+        max-width: 100%;
       }
       button.primary {
         background: #38bdf8;
@@ -91,10 +132,12 @@
       }
       .status {
         margin-top: 14px;
-        font-size: 0.875rem;
+        font-size: 0.85rem;
         padding: 10px 12px;
         border-radius: 8px;
         display: none;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
       }
       .status.ok {
         display: block;
@@ -108,108 +151,29 @@
         border: 1px solid #ef4444;
         color: #fca5a5;
       }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1>Japanese Ultimate Sensei</h1>
-      <p class="sub">Extension Options — Server, Dictionary &amp; Subtitle Preferences</p>
-      <div id="first-run-banner" class="status" style="margin: 0 0 16px">
-        Connect to your Sensei server: enter its Tailscale URL (e.g.
-        <code>http://homeserver:8000</code>) and <code>SENSEI_API_TOKEN</code> below, then click
-        <strong>Test Connection</strong>.
-      </div>
-      <form id="settings-form">
-        <div class="field">
-          <label for="server-url">Server URL</label>
-          <input
-            id="server-url"
-            type="text"
-            placeholder="http://<tailscale-host>:8000"
-            required
-          />
-        </div>
-        <div class="field">
-          <label for="api-token">API Token (SENSEI_API_TOKEN)</label>
-          <input
-            id="api-token"
-            type="password"
-            placeholder="Leave empty if server auth is disabled"
-          />
-        </div>
-        <div class="field">
-          <label for="gloss-lang">Dictionary Gloss Language</label>
-          <select id="gloss-lang">
-            <option value="eng">English (EN)</option>
-            <option value="ger">German (DE)</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="highlight-limit">Highlighted Unknown Words per Line</label>
-          <input id="highlight-limit" type="number" min="0" max="20" step="1" />
-        </div>
-        <div class="field">
-          <label for="hover-delay">Hover Intent Delay (ms)</label>
-          <input id="hover-delay" type="number" min="0" max="2000" step="25" />
-        </div>
-        <div class="field">
-          <label class="checkbox-row">
-            <input id="pause-on-hover-toggle" type="checkbox" />
-            <span>Pause video while hovering a word</span>
-          </label>
-        </div>
-        <div class="field">
-          <label class="checkbox-row">
-            <input id="shift-hover-toggle" type="checkbox" />
-            <span>Require holding Shift to open dictionary on hover (Yomitan-style)</span>
-          </label>
-        </div>
-        <div class="field">
-          <label class="checkbox-row">
-            <input id="auto-pause-toggle" type="checkbox" />
-            <span>Auto-pause at the end of each subtitle line (study / rewatch mode)</span>
-          </label>
-        </div>
-        <div class="field">
-          <label class="checkbox-row">
-            <input id="romaji-toggle" type="checkbox" />
-            <span>Show Romaji line below Japanese subtitles</span>
-          </label>
-        </div>
-        <div class="actions">
-          <button type="submit" class="primary">Save Settings</button>
-          <button type="button" id="test-btn" class="secondary">Test Connection</button>
-        </div>
-        <div id="status-box" class="status"></div>
-      </form>
-    </div>
-    <div class="card" style="margin-top: 20px">
-      <h1 style="font-size: 1.1rem">Hotkeys</h1>
-      <p class="sub">
-        Keys are matched by physical position, so they work the same on QWERTZ and QWERTY.
-        Click a key, then press the new combination (Esc cancels). Saved immediately.
-      </p>
-      <div id="hotkey-list"></div>
-      <div class="actions">
-        <button type="button" id="hotkey-reset-btn" class="secondary">Reset to defaults</button>
-      </div>
-      <div id="hotkey-status" class="status"></div>
-    </div>
-    <style>
       .hotkey-row {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
-        justify-content: space-between;
-        padding: 8px 0;
+        gap: 8px 12px;
+        padding: 9px 0;
         border-bottom: 1px solid #334155;
-        font-size: 0.9rem;
+        font-size: 0.875rem;
+      }
+      .hotkey-row:last-child {
+        border-bottom: none;
+      }
+      .hotkey-row span {
+        min-width: 0;
+        overflow-wrap: break-word;
       }
       .hotkey-row button {
-        min-width: 110px;
+        min-width: 96px;
         font-family: ui-monospace, monospace;
         background: #0f172a;
         color: #7dd3fc;
         border: 1px solid #475569;
+        justify-self: end;
       }
       .hotkey-row button.recording {
         border-color: #f59e0b;
@@ -219,7 +183,109 @@
         border-color: #ef4444;
         color: #fca5a5;
       }
+      @media (max-width: 420px) {
+        .card {
+          padding: 16px;
+        }
+        .hotkey-row {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 6px;
+        }
+        .hotkey-row button {
+          justify-self: start;
+          width: 100%;
+        }
+      }
     </style>
+  </head>
+  <body>
+    <main class="options-layout">
+      <section class="card">
+        <h1>Japanese Ultimate Sensei</h1>
+        <p class="sub">Extension Options — Server, Dictionary &amp; Subtitle Preferences</p>
+        <div id="first-run-banner" class="status" style="margin: 0 0 16px">
+          Connect to your Sensei server: enter its Tailscale URL (e.g.
+          <code>http://homeserver:8000</code>) and <code>SENSEI_API_TOKEN</code> below, then click
+          <strong>Test Connection</strong>.
+        </div>
+        <form id="settings-form">
+          <div class="field">
+            <label for="server-url">Server URL</label>
+            <input
+              id="server-url"
+              type="text"
+              placeholder="http://homeserver:8000"
+              required
+            />
+          </div>
+          <div class="field">
+            <label for="api-token">API Token (SENSEI_API_TOKEN)</label>
+            <input
+              id="api-token"
+              type="password"
+              placeholder="Paste your SENSEI_API_TOKEN"
+            />
+          </div>
+          <div class="field">
+            <label for="gloss-lang">Dictionary Gloss Language</label>
+            <select id="gloss-lang">
+              <option value="eng">English (EN)</option>
+              <option value="ger">German (DE)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="highlight-limit">Highlighted Unknown Words per Line</label>
+            <input id="highlight-limit" type="number" min="0" max="20" step="1" />
+          </div>
+          <div class="field">
+            <label for="hover-delay">Hover Intent Delay (ms)</label>
+            <input id="hover-delay" type="number" min="0" max="2000" step="25" />
+          </div>
+          <div class="field">
+            <label class="checkbox-row">
+              <input id="pause-on-hover-toggle" type="checkbox" />
+              <span>Pause video while hovering a word</span>
+            </label>
+          </div>
+          <div class="field">
+            <label class="checkbox-row">
+              <input id="shift-hover-toggle" type="checkbox" />
+              <span>Require holding Shift to open dictionary on hover (Yomitan-style)</span>
+            </label>
+          </div>
+          <div class="field">
+            <label class="checkbox-row">
+              <input id="auto-pause-toggle" type="checkbox" />
+              <span>Auto-pause at the end of each subtitle line (study / rewatch mode)</span>
+            </label>
+          </div>
+          <div class="field">
+            <label class="checkbox-row">
+              <input id="romaji-toggle" type="checkbox" />
+              <span>Show Romaji line below Japanese subtitles</span>
+            </label>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary">Save Settings</button>
+            <button type="button" id="test-btn" class="secondary">Test Connection</button>
+          </div>
+          <div id="status-box" class="status"></div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Hotkeys</h2>
+        <p class="sub">
+          Keys are matched by physical position, so they work the same on QWERTZ and QWERTY.
+          Click a key, then press the new combination (Esc cancels). Saved immediately.
+        </p>
+        <div id="hotkey-list"></div>
+        <div class="actions">
+          <button type="button" id="hotkey-reset-btn" class="secondary">Reset to defaults</button>
+        </div>
+        <div id="hotkey-status" class="status"></div>
+      </section>
+    </main>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
