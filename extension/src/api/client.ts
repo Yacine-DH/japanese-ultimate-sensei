@@ -21,6 +21,11 @@ export type DictEntry = components['schemas']['DictEntry'];
 export type Sense = components['schemas']['Sense'];
 export type WordOut = components['schemas']['WordOut'];
 export type WordStatus = components['schemas']['WordStatus'];
+export type WordListItem = components['schemas']['WordListItem'];
+export type WordPage = components['schemas']['WordPage'];
+export type CardCreate = components['schemas']['CardCreate'];
+export type CardCreated = components['schemas']['CardCreated'];
+export type CardOut = components['schemas']['CardOut'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -443,6 +448,19 @@ export const api = {
     return api.call<WordOut>(`/words/${wordId}/status`, {
       method: 'POST',
       json: { status },
+    });
+  },
+
+  reprocessEpisode(episodeId: number): Promise<ApiCallResponse<EpisodeCreated>> {
+    return api.call<EpisodeCreated>(`/episodes/${episodeId}/reprocess`, {
+      method: 'POST',
+    });
+  },
+
+  createCard(payload: CardCreate): Promise<ApiCallResponse<CardCreated>> {
+    return api.call<CardCreated>('/cards', {
+      method: 'POST',
+      json: payload,
     });
   },
 };

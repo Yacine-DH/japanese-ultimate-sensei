@@ -75,6 +75,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/episodes/{episode_id}/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-tokenize stored lines (after tokenizer or dictionary updates) */
+        post: operations["reprocess_episodes__episode_id__reprocess_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/episodes/{episode_id}/understanding": {
         parameters: {
             query?: never;
@@ -103,6 +120,44 @@ export interface paths {
         get: operations["lookup_dictionary_lookup_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/words": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Words
+         * @description Vocabulary table. With `anime_id`/`episode_id`: only words spoken there, most
+         *     frequent first, with `occurrences`. Otherwise newest first.
+         */
+        get: operations["list_words_words_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/words/bulk-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Status */
+        post: operations["bulk_status_words_bulk_status_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -143,6 +198,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Card
+         * @description Save a word for review. Marks it `learning`. One card per word: saving again
+         *     returns the existing card (200) and attaches any new media to it.
+         */
+        post: operations["create_card_cards_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{card_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Card */
+        get: operations["read_card_cards__card_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Card
+         * @description Delete a card and its review history. Media rows are detached, not deleted; the
+         *     word keeps its status.
+         */
+        delete: operations["delete_card_cards__card_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews/due": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reviews Due
+         * @description Cards due now, most overdue first, with everything the review screen shows.
+         */
+        get: operations["reviews_due_reviews_due_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Review */
+        post: operations["post_review_reviews_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -160,6 +295,118 @@ export interface components {
             episode_number?: number | null;
             /** Title */
             title?: string | null;
+        };
+        /** BulkStatusIn */
+        BulkStatusIn: {
+            /** Word Ids */
+            word_ids: number[];
+            status: components["schemas"]["WordStatus"];
+        };
+        /** BulkStatusOut */
+        BulkStatusOut: {
+            /** Updated */
+            updated: number;
+            /**
+             * Missing
+             * @description Requested ids that don't exist
+             */
+            missing: number[];
+        };
+        /** CardCreate */
+        CardCreate: {
+            /** Word Id */
+            word_id: number;
+            /**
+             * Line Id
+             * @description Subtitle line the word was seen in
+             */
+            line_id?: number | null;
+            /**
+             * Media Ids
+             * @description From POST /media (screenshot/audio/clip)
+             * @default []
+             */
+            media_ids: number[];
+            /**
+             * Sentence
+             * @description Defaults to the line's text
+             */
+            sentence?: string | null;
+        };
+        /** CardCreated */
+        CardCreated: {
+            /** Id */
+            id: number;
+            /** Word Id */
+            word_id: number;
+            /** Line Id */
+            line_id: number | null;
+            /** Sentence */
+            sentence: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "learning" | "review" | "relearning";
+            /**
+             * Due
+             * Format: date-time
+             */
+            due: string;
+            /**
+             * Stability
+             * @description FSRS stability in days; null before 1st review
+             */
+            stability: number | null;
+            /** Difficulty */
+            difficulty: number | null;
+            /** Reps */
+            reps: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created
+             * @description False when the word already had a card (returned as is)
+             */
+            created: boolean;
+        };
+        /** CardOut */
+        CardOut: {
+            /** Id */
+            id: number;
+            /** Word Id */
+            word_id: number;
+            /** Line Id */
+            line_id: number | null;
+            /** Sentence */
+            sentence: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "learning" | "review" | "relearning";
+            /**
+             * Due
+             * Format: date-time
+             */
+            due: string;
+            /**
+             * Stability
+             * @description FSRS stability in days; null before 1st review
+             */
+            stability: number | null;
+            /** Difficulty */
+            difficulty: number | null;
+            /** Reps */
+            reps: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** DictEntry */
         DictEntry: {
@@ -241,6 +488,15 @@ export interface components {
             /** Number */
             number?: number | null;
         };
+        /** EpisodeRef */
+        EpisodeRef: {
+            /** Id */
+            id: number;
+            /** Anime Title */
+            anime_title: string | null;
+            /** Number */
+            number: number | null;
+        };
         /** FuriganaSegment */
         FuriganaSegment: {
             /** Text */
@@ -290,6 +546,12 @@ export interface components {
             text: string;
             /** Tokens */
             tokens: components["schemas"]["TokenOut"][];
+            /**
+             * Romaji
+             * @description Whole-line romaji, words grouped ('tabi wa owatta')
+             * @default
+             */
+            romaji: string;
             /** Translation En */
             translation_en?: string | null;
             /** Translation De */
@@ -303,6 +565,75 @@ export interface components {
             reading: string | null;
             /** Entries */
             entries: components["schemas"]["DictEntry"][];
+        };
+        /**
+         * MediaKind
+         * @enum {string}
+         */
+        MediaKind: "screenshot" | "audio" | "clip";
+        /** MediaOut */
+        MediaOut: {
+            /** Id */
+            id: number;
+            kind: components["schemas"]["MediaKind"];
+            /** Mime */
+            mime: string;
+            /**
+             * Url
+             * @description Relative to the server base URL, e.g. /media/12
+             */
+            url: string;
+        };
+        /** ReviewCard */
+        ReviewCard: {
+            card: components["schemas"]["CardOut"];
+            word: components["schemas"]["WordOut"];
+            /** @description Sentence with tokens + furigana (null if no line) */
+            line: components["schemas"]["LineOut"] | null;
+            episode: components["schemas"]["EpisodeRef"] | null;
+            /** @description Best JMdict entry (EN + DE glosses) */
+            entry: components["schemas"]["DictEntry"] | null;
+            /** Media */
+            media: components["schemas"]["MediaOut"][];
+            /**
+             * Next Due
+             * @description Due date per rating '1'..'4' (Again/Hard/Good/Easy) for button labels
+             */
+            next_due: {
+                [key: string]: string;
+            };
+        };
+        /** ReviewIn */
+        ReviewIn: {
+            /** Card Id */
+            card_id: number;
+            /**
+             * Rating
+             * @description 1 Again · 2 Hard · 3 Good · 4 Easy
+             */
+            rating: number;
+            /** Duration Ms */
+            duration_ms?: number | null;
+        };
+        /** ReviewOut */
+        ReviewOut: {
+            card: components["schemas"]["CardOut"];
+            word_status: components["schemas"]["WordStatus"];
+            /**
+             * Graduated
+             * @description True when this review made the word 'known'
+             */
+            graduated: boolean;
+        };
+        /** ReviewQueue */
+        ReviewQueue: {
+            /**
+             * Due Total
+             * @description All cards due now (the queue may be limited)
+             */
+            due_total: number;
+            /** Cards */
+            cards: components["schemas"]["ReviewCard"][];
         };
         /** Sense */
         Sense: {
@@ -333,9 +664,15 @@ export interface components {
             romaji: string;
             /**
              * Is Content
-             * @description True for vocabulary worth learning (not particles etc.)
+             * @description True for vocabulary worth learning (not particles, numbers or names)
              */
             is_content: boolean;
+            /**
+             * Is Proper Noun
+             * @description Character/place name. Not counted in understanding; don't highlight as unknown
+             * @default false
+             */
+            is_proper_noun: boolean;
             /** Word Id */
             word_id: number | null;
             /** @description User's status for word_id; null if no word */
@@ -387,6 +724,27 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** WordListItem */
+        WordListItem: {
+            /** Id */
+            id: number;
+            /** Lemma */
+            lemma: string;
+            /** Reading */
+            reading: string;
+            /** Pos */
+            pos: string;
+            /** Jmdict Id */
+            jmdict_id: string | null;
+            /** Common */
+            common: boolean;
+            status: components["schemas"]["WordStatus"];
+            /**
+             * Occurrences
+             * @description How often the word is spoken in the filtered anime/episode (null without one)
+             */
+            occurrences?: number | null;
+        };
         /** WordOut */
         WordOut: {
             /** Id */
@@ -402,6 +760,16 @@ export interface components {
             /** Common */
             common: boolean;
             status: components["schemas"]["WordStatus"];
+        };
+        /** WordPage */
+        WordPage: {
+            /** Items */
+            items: components["schemas"]["WordListItem"][];
+            /**
+             * Total
+             * @description Matches before limit/offset
+             */
+            total: number;
         };
         /**
          * WordStatus
@@ -620,6 +988,37 @@ export interface operations {
             };
         };
     };
+    reprocess_episodes__episode_id__reprocess_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                episode_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EpisodeCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_understanding_episodes__episode_id__understanding_get: {
         parameters: {
             query?: never;
@@ -671,6 +1070,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LookupResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_words_words_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["WordStatus"] | null;
+                anime_id?: number | null;
+                episode_id?: number | null;
+                /** @description Substring of lemma or reading */
+                q?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WordPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_status_words_bulk_status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkStatusIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkStatusOut"];
                 };
             };
             /** @description Validation Error */
@@ -737,6 +1206,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WordOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_card_cards_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardCreate"];
+            };
+        };
+        responses: {
+            /** @description The word already had a card; it is returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_card_cards__card_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewCard"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_card_cards__card_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reviews_due_reviews_due_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewQueue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_review_reviews_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewOut"];
                 };
             };
             /** @description Validation Error */

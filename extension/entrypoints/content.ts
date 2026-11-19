@@ -6,8 +6,9 @@ import {
   type TokenOut,
   type WordStatus,
 } from '../src/api/client';
-import { buildLineRomaji, renderTokenSegments } from '../src/lib/furigana';
+import { getLineRomaji, renderTokenSegments } from '../src/lib/furigana';
 import {
+  isLookupableToken,
   rankHighlightedTokenIndices,
   selectSensesForLanguage,
   updateWordStatusInLines,
@@ -75,6 +76,7 @@ export default defineContentScript({
     let pausedByHover = false;
     let hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
     let activePopupToken: TokenOut | null = null;
+    let activePopupLineId: number | null = null;
     let positionRafId: number | null = null;
     let videoResizeObserver: ResizeObserver | null = null;
     const lookupCache = new Map<string, LookupResult>();
@@ -154,7 +156,12 @@ export default defineContentScript({
           .sensei-token.content {
             cursor: pointer;
           }
-          .sensei-token.content:hover {
+          .sensei-token.proper-noun {
+            cursor: pointer;
+            color: #e2e8f0;
+          }
+          .sensei-token.content:hover,
+          .sensei-token.proper-noun:hover {
             background: rgba(56, 189, 248, 0.25);
           }
           .sensei-token.highlighted {
@@ -364,10 +371,32 @@ export default defineContentScript({
       }, 180);
     }
 
-    async function handleStatusChange(token: TokenOut, status: WordStatus): Promise<void> {
+    async function handleStatusChange(
+      token: TokenOut,
+      status: WordStatus,
+      lineId: number | null = activePopupLineId,
+    ): Promise<void> {
       if (token.word_id === null) {
         showToast(status === 'learning' ? 'Saved for review' : `Marked ${status}`);
         return;
+      }
+      if (status === 'learning') {
+        const cardRes = await api.createCard({
+          word_id: token.word_id,
+          line_id: lineId,
+          media_ids: [],
+        });
+        if (cardRes.ok) {
+          lines = updateWordStatusInLines(lines, token.word_id, 'learning');
+          renderedLinesKey = null;
+          syncSubtitleFrame();
+          showToast(
+            cardRes.data?.created === false
+              ? `Already in review: ${token.lemma}`
+              : `Saved card: ${token.lemma}`,
+          );
+          return;
+        }
       }
       const res = await api.setWordStatus(token.word_id, status);
       if (res.ok) {
@@ -386,10 +415,11 @@ export default defineContentScript({
       }
     }
 
-    async function openHoverPopup(token: TokenOut): Promise<void> {
+    async function openHoverPopup(token: TokenOut, lineId: number | null = null): Promise<void> {
       if (!popupEl || !settings) return;
       cancelHoverClose();
       activePopupToken = token;
+      activePopupLineId = lineId;
       pauseVideoOnHover();
 
       popupEl.innerHTML = '';
@@ -413,7 +443,7 @@ export default defineContentScript({
 
       const posSpan = document.createElement('span');
       posSpan.className = 'sensei-popup-pos';
-      posSpan.textContent = token.pos;
+      posSpan.textContent = token.is_proper_noun ? `${token.pos} · Name` : token.pos;
 
       header.appendChild(titleWrap);
       header.appendChild(posSpan);
@@ -517,12 +547,14 @@ export default defineContentScript({
         line.tokens.forEach((token, idx) => {
           const span = document.createElement('span');
           const classes = ['sensei-token'];
-          if (token.is_content) {
+          if (token.is_proper_noun) {
+            classes.push('proper-noun');
+          } else if (token.is_content) {
             classes.push('content');
           }
           if (highlightedIndices.has(idx)) {
             classes.push('highlighted');
-          } else if (token.status === 'learning') {
+          } else if (!token.is_proper_noun && token.status === 'learning') {
             classes.push('learning');
           }
           span.className = classes.join(' ');
@@ -541,11 +573,11 @@ export default defineContentScript({
             }
           }
 
-          if (token.is_content) {
+          if (isLookupableToken(token)) {
             span.addEventListener('mouseenter', (ev) => {
               cancelHoverClose();
               hoverIntent.enter(token, ev.shiftKey, (t) => {
-                void openHoverPopup(t);
+                void openHoverPopup(t, line.id);
               });
             });
             span.addEventListener('mouseleave', () => {
@@ -559,7 +591,7 @@ export default defineContentScript({
         lineContainer.appendChild(jpLine);
 
         if (settings.romaji) {
-          const romajiText = buildLineRomaji(line.tokens);
+          const romajiText = getLineRomaji(line);
           if (romajiText) {
             const romajiDiv = document.createElement('div');
             romajiDiv.className = 'sensei-romaji-line';

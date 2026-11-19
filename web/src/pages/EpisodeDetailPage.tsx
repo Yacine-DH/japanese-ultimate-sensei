@@ -4,10 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type LineOut, type TokenOut, type WordStatus } from '../api/client';
 import { type GlossLanguage, loadWebSettings } from '../lib/settings';
 import {
-  buildRomajiLine,
   computeBarSegments,
   filterTranscriptLines,
   formatTimestampMs,
+  getTranscriptLineRomaji,
+  isTokenLookupable,
   pickEntrySenses,
   shouldShowFurigana,
   updateWordStatusInTranscript,
@@ -15,10 +16,13 @@ import {
 
 function tokenClassName(token: TokenOut, isSelected: boolean): string {
   const base = 'inline-block px-0.5 rounded transition';
+  const selectedRing = isSelected ? ' ring-2 ring-sky-400 bg-sky-500/25' : '';
+  if (token.is_proper_noun) {
+    return `${base} cursor-pointer text-slate-200 hover:bg-slate-800${selectedRing}`;
+  }
   if (!token.is_content) {
     return `${base} text-slate-300`;
   }
-  const selectedRing = isSelected ? ' ring-2 ring-sky-400 bg-sky-500/25' : '';
   if (token.status === 'known') {
     return `${base} cursor-pointer text-slate-100 hover:bg-slate-800${selectedRing}`;
   }
@@ -45,6 +49,8 @@ export function EpisodeDetailPage() {
   const [showRomaji, setShowRomaji] = useState(initialSettings.romaji);
   const [glossLang, setGlossLang] = useState<GlossLanguage>(initialSettings.glossLang);
   const [selectedToken, setSelectedToken] = useState<TokenOut | null>(null);
+  const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
+  const [cardNotice, setCardNotice] = useState<string | null>(null);
 
   const episodeQuery = useQuery({
     queryKey: ['episode', episodeId],
@@ -87,7 +93,34 @@ export function EpisodeDetailPage() {
           ? { ...prev, status: updatedWord.status }
           : prev,
       );
+      setCardNotice(null);
       void queryClient.invalidateQueries({ queryKey: ['understanding', episodeId] });
+    },
+  });
+
+  const saveCardMutation = useMutation({
+    mutationFn: ({ wordId, lineId }: { wordId: number; lineId: number | null }) =>
+      apiClient.createCard({ word_id: wordId, line_id: lineId, media_ids: [] }),
+    onSuccess: (created) => {
+      queryClient.setQueryData<LineOut[]>(['episode-lines', episodeId], (prev) =>
+        prev ? updateWordStatusInTranscript(prev, created.word_id, 'learning') : prev,
+      );
+      setSelectedToken((prev) =>
+        prev && prev.word_id === created.word_id ? { ...prev, status: 'learning' } : prev,
+      );
+      setCardNotice(created.created ? 'Added flashcard to review queue.' : 'Card already in review queue.');
+      void queryClient.invalidateQueries({ queryKey: ['understanding', episodeId] });
+      void queryClient.invalidateQueries({ queryKey: ['reviews-due'] });
+    },
+  });
+
+  const reprocessMutation = useMutation({
+    mutationFn: () => apiClient.reprocessEpisode(episodeId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['episode', episodeId] });
+      void queryClient.invalidateQueries({ queryKey: ['episode-lines', episodeId] });
+      void queryClient.invalidateQueries({ queryKey: ['understanding', episodeId] });
+      void queryClient.invalidateQueries({ queryKey: ['episodes'] });
     },
   });
 
@@ -111,9 +144,25 @@ export function EpisodeDetailPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <Link to="/" className="text-xs font-medium text-sky-400 hover:text-sky-300">
-          &larr; Back to Library
-        </Link>
+        <div className="flex items-center justify-between gap-4">
+          <Link to="/" className="text-xs font-medium text-sky-400 hover:text-sky-300">
+            &larr; Back to Library
+          </Link>
+          <button
+            type="button"
+            disabled={reprocessMutation.isPending}
+            onClick={() => reprocessMutation.mutate()}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
+            title="Re-tokenize lines with the latest server tokenizer, romaji grouping, and name detection"
+          >
+            {reprocessMutation.isPending ? 'Reprocessing...' : 'Reprocess Episode'}
+          </button>
+        </div>
+        {reprocessMutation.isError && (
+          <div className="text-xs text-rose-400">
+            Reprocess failed: {(reprocessMutation.error as Error)?.message ?? 'Error'}
+          </div>
+        )}
 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -256,8 +305,10 @@ export function EpisodeDetailPage() {
                           key={`${line.id}-${idx}`}
                           className={tokenClassName(token, isSelected)}
                           onClick={() => {
-                            if (token.is_content) {
+                            if (isTokenLookupable(token)) {
                               setSelectedToken(token);
+                              setSelectedLineId(line.id);
+                              setCardNotice(null);
                             }
                           }}
                         >
@@ -279,7 +330,7 @@ export function EpisodeDetailPage() {
                   </div>
                   {showRomaji && (
                     <div className="text-xs text-slate-400 font-mono">
-                      {buildRomajiLine(line.tokens)}
+                      {getTranscriptLineRomaji(line)}
                     </div>
                   )}
                 </div>
@@ -315,6 +366,9 @@ export function EpisodeDetailPage() {
                     <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">
                       {selectedToken.pos}
                     </span>
+                    {selectedToken.is_proper_noun && (
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">Name</span>
+                    )}
                     {selectedToken.common && (
                       <span className="px-2 py-0.5 rounded bg-sky-500/15 text-sky-300">
                         Common
@@ -374,11 +428,11 @@ export function EpisodeDetailPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={statusMutation.isPending}
+                    disabled={saveCardMutation.isPending}
                     onClick={() =>
-                      statusMutation.mutate({
+                      saveCardMutation.mutate({
                         wordId: selectedToken.word_id!,
-                        status: 'learning',
+                        lineId: selectedLineId,
                       })
                     }
                     className={`py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition ${
@@ -387,10 +441,11 @@ export function EpisodeDetailPage() {
                         : 'bg-slate-800 border-slate-700 text-sky-300 hover:bg-slate-700'
                     }`}
                   >
-                    Save
+                    Save Card
                   </button>
                 </div>
               )}
+              {cardNotice && <div className="text-xs text-emerald-400">{cardNotice}</div>}
 
               <div className="border-t border-slate-800 pt-3 space-y-3">
                 {lookupQuery.isLoading ? (

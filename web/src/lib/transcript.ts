@@ -82,8 +82,25 @@ export function buildRomajiLine(tokens: readonly Pick<TokenOut, 'romaji'>[]): st
     .join(' ');
 }
 
+/** Prefer server-grouped LineOut.romaji (#8); fall back to joining token romaji only if absent. */
+export function getTranscriptLineRomaji(line: Pick<LineOut, 'romaji' | 'tokens'>): string {
+  const grouped = line.romaji?.trim();
+  if (grouped) {
+    return grouped;
+  }
+  return buildRomajiLine(line.tokens);
+}
+
+export function isTokenLookupable(
+  token: Pick<TokenOut, 'is_content' | 'is_proper_noun'>,
+): boolean {
+  return token.is_content || token.is_proper_noun;
+}
+
 export function lineHasUnknownContentWord(line: Pick<LineOut, 'tokens'>): boolean {
-  return line.tokens.some((tok) => tok.is_content && !isWordUnderstood(tok.status));
+  return line.tokens.some(
+    (tok) => tok.is_content && !tok.is_proper_noun && !isWordUnderstood(tok.status),
+  );
 }
 
 export function filterTranscriptLines(
@@ -99,7 +116,7 @@ export function filterTranscriptLines(
     if (!q) {
       return true;
     }
-    if (line.text.toLowerCase().includes(q)) {
+    if (line.text.toLowerCase().includes(q) || line.romaji.toLowerCase().includes(q)) {
       return true;
     }
     return line.tokens.some(

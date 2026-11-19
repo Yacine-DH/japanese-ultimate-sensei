@@ -70,8 +70,21 @@ export default defineBackground(() => {
       if (isApiCallMessage(message)) {
         const method = (message.init?.method ?? 'GET').toUpperCase();
         const epMatch = /^\/episodes\/(\d+)$/.exec(message.path);
+        const reprocessMatch = /^\/episodes\/(\d+)\/reprocess$/.exec(message.path);
         const linesMatch = /^\/episodes\/(\d+)\/lines$/.exec(message.path);
         const wordStatusMatch = /^\/words\/(\d+)\/status$/.exec(message.path);
+
+        if (method === 'POST' && reprocessMatch) {
+          const epId = Number(reprocessMatch[1]);
+          return (async () => {
+            const settings = await getSettings();
+            const res = await executeApiCall(settings, message.path, message.init);
+            if (res.ok) {
+              await transcriptCache.invalidateEpisode(epId);
+            }
+            return res;
+          })();
+        }
 
         if (method === 'GET' && epMatch) {
           const epId = Number(epMatch[1]);

@@ -5,7 +5,9 @@ import {
   computeBarSegments,
   filterTranscriptLines,
   formatTimestampMs,
+  getTranscriptLineRomaji,
   groupEpisodesByAnime,
+  isTokenLookupable,
   pickEntrySenses,
   shouldShowFurigana,
   updateWordStatusInTranscript,
@@ -38,6 +40,7 @@ function makeToken(overrides: Partial<TokenOut> = {}): TokenOut {
     furigana: [{ text: '魔法', ruby: 'まほう' }],
     romaji: 'mahou',
     is_content: true,
+    is_proper_noun: false,
     word_id: 42,
     status: 'new',
     common: true,
@@ -45,13 +48,14 @@ function makeToken(overrides: Partial<TokenOut> = {}): TokenOut {
   };
 }
 
-function makeLine(id: number, text: string, tokens: TokenOut[]): LineOut {
+function makeLine(id: number, text: string, tokens: TokenOut[], romaji = ''): LineOut {
   return {
     id,
     idx: id,
     start_ms: id * 1000,
     end_ms: id * 1000 + 2000,
     text,
+    romaji,
     tokens,
     translation_en: null,
     translation_de: null,
@@ -93,13 +97,29 @@ describe('web library & transcript helpers (W-2, #23)', () => {
     expect(shouldShowFurigana(newTok, 'まほう')).toBe(true);
     expect(shouldShowFurigana(newTok, null)).toBe(false);
 
+    const nameTok = makeToken({
+      word_id: 3,
+      surface: 'フリーレン',
+      lemma: 'フリーレン',
+      reading: 'ふりーれん',
+      lemma_reading: 'ふりーれん',
+      romaji: 'furiiren',
+      is_content: false,
+      is_proper_noun: true,
+      status: 'new',
+    });
+
     const lines = [
-      makeLine(1, '私', [knownTok]),
-      makeLine(2, '魔法', [newTok]),
+      makeLine(1, '私', [knownTok], 'watashi'),
+      makeLine(2, '魔法', [newTok], 'mahou'),
+      makeLine(3, 'フリーレン', [nameTok], 'furiiren-sama'),
     ];
 
+    // Proper nouns are lookupable (#9) but never trigger the unknown-words pre-study filter
+    expect(isTokenLookupable(nameTok)).toBe(true);
     expect(filterTranscriptLines(lines, '', true).map((l) => l.id)).toEqual([2]);
     expect(filterTranscriptLines(lines, 'mahou', false).map((l) => l.id)).toEqual([2]);
+    expect(getTranscriptLineRomaji(lines[2]!)).toBe('furiiren-sama');
     expect(buildRomajiLine([newTok])).toBe('mahou');
 
     const updated = updateWordStatusInTranscript(lines, 2, 'known');

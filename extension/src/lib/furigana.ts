@@ -1,4 +1,4 @@
-import type { FuriganaSegment, TokenOut } from '../api/client';
+import type { FuriganaSegment, LineOut, TokenOut } from '../api/client';
 
 export function isWordUnderstood(
   status: TokenOut['status'],
@@ -30,4 +30,13 @@ export function buildLineRomaji(tokens: readonly Pick<TokenOut, 'romaji'>[]): st
     .map((t) => t.romaji.trim())
     .filter((r) => r.length > 0)
     .join(' ');
+}
+
+/** Prefer server-grouped LineOut.romaji (#8); fall back to joining token romaji only if absent. */
+export function getLineRomaji(line: Pick<LineOut, 'romaji' | 'tokens'>): string {
+  const grouped = line.romaji?.trim();
+  if (grouped) {
+    return grouped;
+  }
+  return buildLineRomaji(line.tokens);
 }
