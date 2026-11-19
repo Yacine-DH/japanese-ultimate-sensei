@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     data_dir: Path = REPO_ROOT / "data"
     # Additional allowed CORS origins (extension origins + localhost are always allowed).
     cors_origins: list[str] = []
+    # Built web app (cd web && pnpm build) served at / ; ignored when the folder is missing.
+    web_dist: Path = REPO_ROOT / "web" / "dist"
     # Single-user for now; every user-scoped row carries this id so accounts can come later.
     default_user_id: int = 1
 
