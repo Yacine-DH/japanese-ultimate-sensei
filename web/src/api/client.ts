@@ -1,5 +1,5 @@
 import type { components, paths } from './schema';
-import { type WebSettings, loadWebSettings, normalizeServerUrl } from '../lib/settings';
+import { type WebSettings, loadWebSettings, resolveApiBaseUrl } from '../lib/settings';
 
 export type { components, paths };
 
@@ -55,7 +55,7 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const settings = options?.settings ?? loadWebSettings();
   const fetchFn = options?.fetchImpl ?? fetch;
-  const base = normalizeServerUrl(settings.serverUrl);
+  const base = resolveApiBaseUrl(settings.serverUrl);
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const url = `${base}${normalizedPath}`;
 

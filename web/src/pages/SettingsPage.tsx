@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
+import { apiClient, type Health } from '../api/client';
 import {
   type GlossLanguage,
   loadWebSettings,
@@ -8,18 +8,42 @@ import {
 } from '../lib/settings';
 
 export function SettingsPage() {
-  const initial = loadWebSettings();
-  const [serverUrl, setServerUrl] = useState(initial.serverUrl);
-  const [apiToken, setApiToken] = useState(initial.apiToken);
-  const [glossLang, setGlossLang] = useState<GlossLanguage>(initial.glossLang);
-  const [romaji, setRomaji] = useState(initial.romaji);
+  const [savedSettings, setSavedSettings] = useState(() => loadWebSettings());
+  const [serverUrl, setServerUrl] = useState(savedSettings.serverUrl);
+  const [apiToken, setApiToken] = useState(savedSettings.apiToken);
+  const [glossLang, setGlossLang] = useState<GlossLanguage>(savedSettings.glossLang);
+  const [romaji, setRomaji] = useState(savedSettings.romaji);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<
+    | { state: 'idle' }
+    | { state: 'testing' }
+    | { state: 'ok'; health: Health }
+    | { state: 'error'; message: string }
+  >({ state: 'idle' });
 
+  // Only queries against saved settings — never re-fires on form keystrokes (#7).
   const healthQuery = useQuery({
-    queryKey: ['health', serverUrl, apiToken],
-    queryFn: () => apiClient.getHealth({ serverUrl, apiToken }),
+    queryKey: ['health', savedSettings.serverUrl, savedSettings.apiToken],
+    queryFn: () =>
+      apiClient.getHealth({
+        serverUrl: savedSettings.serverUrl,
+        apiToken: savedSettings.apiToken,
+      }),
     retry: false,
   });
+
+  async function handleTestConnection() {
+    setTestResult({ state: 'testing' });
+    try {
+      const health = await apiClient.getHealth({ serverUrl, apiToken });
+      setTestResult({ state: 'ok', health });
+    } catch (err) {
+      setTestResult({
+        state: 'error',
+        message: err instanceof Error ? err.message : 'Connection failed',
+      });
+    }
+  }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -29,9 +53,10 @@ export function SettingsPage() {
       glossLang,
       romaji,
     });
+    setSavedSettings(saved);
     setServerUrl(saved.serverUrl);
+    setTestResult({ state: 'idle' });
     setSavedNotice('Settings saved to local storage.');
-    void healthQuery.refetch();
   }
 
   return (
@@ -63,7 +88,7 @@ export function SettingsPage() {
         <button
           type="button"
           onClick={() => void healthQuery.refetch()}
-          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700"
+          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
         >
           Refresh
         </button>
@@ -85,11 +110,12 @@ export function SettingsPage() {
             type="text"
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
-            placeholder="http://<tailscale-host>:8000"
+            placeholder="Same origin (leave empty when served by FastAPI)"
             className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
           />
           <p className="text-xs text-slate-500 mt-1">
-            Leave empty to use the current origin when served directly by FastAPI.
+            Defaults to this page&apos;s origin. Set an explicit URL (e.g.
+            http://homeserver:8000) only when running the web dev server separately.
           </p>
         </div>
 
@@ -140,17 +166,38 @@ export function SettingsPage() {
           </span>
         </label>
 
-        <div className="pt-2 flex items-center gap-4">
+        <div className="pt-2 flex flex-wrap items-center gap-3">
           <button
             type="submit"
             className="px-4 py-2 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm cursor-pointer"
           >
             Save Settings
           </button>
+          <button
+            type="button"
+            onClick={() => void handleTestConnection()}
+            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-sm border border-slate-700 cursor-pointer"
+          >
+            Test Connection
+          </button>
           {savedNotice && (
             <span className="text-xs text-emerald-400 font-medium">{savedNotice}</span>
           )}
         </div>
+
+        {testResult.state === 'testing' && (
+          <div className="text-xs text-slate-400">Testing connection...</div>
+        )}
+        {testResult.state === 'ok' && (
+          <div className="text-xs text-emerald-400">
+            Connected: v{testResult.health.version} · JMdict:{' '}
+            {testResult.health.dictionary ? 'Ready' : 'Missing'} · Auth:{' '}
+            {testResult.health.auth ? 'Required' : 'Open'}
+          </div>
+        )}
+        {testResult.state === 'error' && (
+          <div className="text-xs text-rose-400">Test failed: {testResult.message}</div>
+        )}
       </form>
     </div>
   );

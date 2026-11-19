@@ -153,12 +153,77 @@
         margin-top: 6px;
         font-size: 0.75rem;
       }
+      .setup-card {
+        display: none;
+        background: rgba(56, 189, 248, 0.08);
+        border: 1px solid #38bdf8;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 10px;
+        font-size: 0.8rem;
+      }
+      .setup-card.visible {
+        display: block;
+      }
+      .setup-card h2 {
+        margin: 0 0 4px;
+        font-size: 0.9rem;
+        color: #e0f2fe;
+      }
+      .setup-card p {
+        margin: 0 0 10px;
+        font-size: 0.75rem;
+        color: #94a3b8;
+      }
+      .setup-status {
+        margin-top: 8px;
+        font-size: 0.75rem;
+      }
+      .setup-status.ok {
+        color: #86efac;
+      }
+      .setup-status.err {
+        color: #fca5a5;
+      }
+      input[type='password'] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #475569;
+        background: #0f172a;
+        color: #f8fafc;
+        margin-bottom: 8px;
+        font-size: 0.8rem;
+      }
     </style>
   </head>
   <body>
     <div class="header">
       <h1>Sensei</h1>
       <span id="health-badge" class="badge offline">Checking...</span>
+    </div>
+
+    <div id="setup-card" class="setup-card">
+      <h2>Connect to your Sensei server</h2>
+      <p>Enter your home server's Tailscale URL (e.g. http://homeserver:8000) and API token.</p>
+      <form id="setup-form">
+        <label for="setup-server-url">Server URL</label>
+        <input
+          id="setup-server-url"
+          type="text"
+          placeholder="http://homeserver:8000"
+          required
+        />
+        <label for="setup-api-token">API Token (SENSEI_API_TOKEN)</label>
+        <input
+          id="setup-api-token"
+          type="password"
+          placeholder="Paste token if server auth is enabled"
+        />
+        <button type="submit" class="primary">Test &amp; Connect</button>
+        <div id="setup-status" class="setup-status"></div>
+      </form>
     </div>
 
     <div class="panel">
