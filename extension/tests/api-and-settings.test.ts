@@ -30,6 +30,9 @@ describe('settings utilities', () => {
       glossLang: 'ger',
       romaji: true,
       highlightLimit: 20,
+      hoverDelayMs: 200,
+      pauseOnHover: true,
+      requireShiftForHover: false,
       urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
       hotkeys: DEFAULT_HOTKEYS,
     });

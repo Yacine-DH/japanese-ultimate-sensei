@@ -1,4 +1,5 @@
 import { DEFAULT_HOTKEYS, type HotkeyBindings, sanitizeHotkeys } from './hotkeys';
+import { DEFAULT_HOVER_CONFIG, sanitizeHoverDelayMs } from './hover-intent';
 
 export type GlossLanguage = 'eng' | 'ger';
 
@@ -8,6 +9,9 @@ export interface ExtensionSettings {
   glossLang: GlossLanguage;
   romaji: boolean;
   highlightLimit: number;
+  hoverDelayMs: number;
+  pauseOnHover: boolean;
+  requireShiftForHover: boolean;
   urlMappings: Record<string, number>;
   hotkeys: HotkeyBindings;
 }
@@ -20,6 +24,9 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   glossLang: 'eng',
   romaji: false,
   highlightLimit: 3,
+  hoverDelayMs: DEFAULT_HOVER_CONFIG.hoverDelayMs,
+  pauseOnHover: DEFAULT_HOVER_CONFIG.pauseOnHover,
+  requireShiftForHover: DEFAULT_HOVER_CONFIG.requireShiftForHover,
   urlMappings: {},
   hotkeys: DEFAULT_HOTKEYS,
 };
@@ -58,6 +65,9 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     glossLang,
     romaji: Boolean(merged.romaji),
     highlightLimit,
+    hoverDelayMs: sanitizeHoverDelayMs(merged.hoverDelayMs),
+    pauseOnHover: Boolean(merged.pauseOnHover),
+    requireShiftForHover: Boolean(merged.requireShiftForHover),
     urlMappings: sanitizeUrlMappings(merged.urlMappings),
     hotkeys: sanitizeHotkeys(merged.hotkeys),
   };
