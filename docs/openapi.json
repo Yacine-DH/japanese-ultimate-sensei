@@ -670,6 +670,214 @@
           }
         }
       }
+    },
+    "/cards": {
+      "post": {
+        "tags": [
+          "cards"
+        ],
+        "summary": "Create Card",
+        "description": "Save a word for review. Marks it `learning`. One card per word: saving again\nreturns the existing card (200) and attaches any new media to it.",
+        "operationId": "create_card_cards_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardCreated"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The word already had a card; it is returned"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cards/{card_id}": {
+      "get": {
+        "tags": [
+          "cards"
+        ],
+        "summary": "Read Card",
+        "operationId": "read_card_cards__card_id__get",
+        "parameters": [
+          {
+            "name": "card_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Card Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewCard"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "cards"
+        ],
+        "summary": "Delete Card",
+        "description": "Delete a card and its review history. Media rows are detached, not deleted; the\nword keeps its status.",
+        "operationId": "delete_card_cards__card_id__delete",
+        "parameters": [
+          {
+            "name": "card_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Card Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reviews/due": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Reviews Due",
+        "description": "Cards due now, most overdue first, with everything the review screen shows.",
+        "operationId": "reviews_due_reviews_due_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewQueue"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reviews": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Post Review",
+        "operationId": "post_review_reviews_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -759,6 +967,232 @@
           "missing"
         ],
         "title": "BulkStatusOut"
+      },
+      "CardCreate": {
+        "properties": {
+          "word_id": {
+            "type": "integer",
+            "title": "Word Id"
+          },
+          "line_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Id",
+            "description": "Subtitle line the word was seen in"
+          },
+          "media_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Media Ids",
+            "description": "From POST /media (screenshot/audio/clip)",
+            "default": []
+          },
+          "sentence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentence",
+            "description": "Defaults to the line's text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "word_id"
+        ],
+        "title": "CardCreate"
+      },
+      "CardCreated": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "word_id": {
+            "type": "integer",
+            "title": "Word Id"
+          },
+          "line_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Id"
+          },
+          "sentence": {
+            "type": "string",
+            "title": "Sentence"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "learning",
+              "review",
+              "relearning"
+            ],
+            "title": "State"
+          },
+          "due": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Due"
+          },
+          "stability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stability",
+            "description": "FSRS stability in days; null before 1st review"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "reps": {
+            "type": "integer",
+            "title": "Reps"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created",
+            "description": "False when the word already had a card (returned as is)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "word_id",
+          "line_id",
+          "sentence",
+          "state",
+          "due",
+          "stability",
+          "difficulty",
+          "reps",
+          "created_at",
+          "created"
+        ],
+        "title": "CardCreated"
+      },
+      "CardOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "word_id": {
+            "type": "integer",
+            "title": "Word Id"
+          },
+          "line_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Id"
+          },
+          "sentence": {
+            "type": "string",
+            "title": "Sentence"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "learning",
+              "review",
+              "relearning"
+            ],
+            "title": "State"
+          },
+          "due": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Due"
+          },
+          "stability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stability",
+            "description": "FSRS stability in days; null before 1st review"
+          },
+          "difficulty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty"
+          },
+          "reps": {
+            "type": "integer",
+            "title": "Reps"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "word_id",
+          "line_id",
+          "sentence",
+          "state",
+          "due",
+          "stability",
+          "difficulty",
+          "reps",
+          "created_at"
+        ],
+        "title": "CardOut"
       },
       "DictEntry": {
         "properties": {
@@ -1037,6 +1471,43 @@
         "type": "object",
         "title": "EpisodePatch"
       },
+      "EpisodeRef": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "anime_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anime Title"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "anime_title",
+          "number"
+        ],
+        "title": "EpisodeRef"
+      },
       "FuriganaSegment": {
         "properties": {
           "text": {
@@ -1207,6 +1678,189 @@
           "entries"
         ],
         "title": "LookupResult"
+      },
+      "MediaKind": {
+        "type": "string",
+        "enum": [
+          "screenshot",
+          "audio",
+          "clip"
+        ],
+        "title": "MediaKind"
+      },
+      "MediaOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MediaKind"
+          },
+          "mime": {
+            "type": "string",
+            "title": "Mime"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Relative to the server base URL, e.g. /media/12"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "mime",
+          "url"
+        ],
+        "title": "MediaOut"
+      },
+      "ReviewCard": {
+        "properties": {
+          "card": {
+            "$ref": "#/components/schemas/CardOut"
+          },
+          "word": {
+            "$ref": "#/components/schemas/WordOut"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sentence with tokens + furigana (null if no line)"
+          },
+          "episode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpisodeRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DictEntry"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Best JMdict entry (EN + DE glosses)"
+          },
+          "media": {
+            "items": {
+              "$ref": "#/components/schemas/MediaOut"
+            },
+            "type": "array",
+            "title": "Media"
+          },
+          "next_due": {
+            "additionalProperties": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "type": "object",
+            "title": "Next Due",
+            "description": "Due date per rating '1'..'4' (Again/Hard/Good/Easy) for button labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "card",
+          "word",
+          "line",
+          "episode",
+          "entry",
+          "media",
+          "next_due"
+        ],
+        "title": "ReviewCard"
+      },
+      "ReviewIn": {
+        "properties": {
+          "card_id": {
+            "type": "integer",
+            "title": "Card Id"
+          },
+          "rating": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Rating",
+            "description": "1 Again · 2 Hard · 3 Good · 4 Easy"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "card_id",
+          "rating"
+        ],
+        "title": "ReviewIn"
+      },
+      "ReviewOut": {
+        "properties": {
+          "card": {
+            "$ref": "#/components/schemas/CardOut"
+          },
+          "word_status": {
+            "$ref": "#/components/schemas/WordStatus"
+          },
+          "graduated": {
+            "type": "boolean",
+            "title": "Graduated",
+            "description": "True when this review made the word 'known'"
+          }
+        },
+        "type": "object",
+        "required": [
+          "card",
+          "word_status",
+          "graduated"
+        ],
+        "title": "ReviewOut"
+      },
+      "ReviewQueue": {
+        "properties": {
+          "due_total": {
+            "type": "integer",
+            "title": "Due Total",
+            "description": "All cards due now (the queue may be limited)"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewCard"
+            },
+            "type": "array",
+            "title": "Cards"
+          }
+        },
+        "type": "object",
+        "required": [
+          "due_total",
+          "cards"
+        ],
+        "title": "ReviewQueue"
       },
       "Sense": {
         "properties": {

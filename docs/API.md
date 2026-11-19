@@ -99,6 +99,45 @@ Use the token's `lemma` + `lemma_reading`. Matches kanji or kana forms. Best ent
 `{"id":42,"lemma":"食べる","reading":"たべる","pos":"動詞","jmdict_id":"1358280","common":true,"status":"new"}`
 ### `POST /words/{id}/status` body `{"status":"known"}` → `WordOut`
 
+## Cards + reviews (FSRS)
+One card per word (recognition: Japanese → meaning). Scheduling is FSRS (py-fsrs defaults:
+90 % retention, 1 m / 10 m learning steps). A word becomes `known` automatically once its card
+is in review with stability ≥ 21 days, and drops back to `learning` on a lapse (Again).
+
+### `POST /cards` body `{"word_id":42,"line_id":10,"media_ids":[3,4],"sentence"?:str}` → 201 `CardCreated`
+Marks the word `learning` (unless it's already `known`/`ignored`). `sentence` defaults to the
+line's text. If the word already has a card: **200** with that card (`"created": false`), and
+the new `media_ids` are attached to it. 404 unknown word/line, 422 unknown media ids.
+```json
+{"id":7,"word_id":42,"line_id":10,"sentence":"何か食べたい","state":"learning",
+ "due":"2026-11-19T08:00:00Z","stability":null,"difficulty":null,"reps":0,
+ "created_at":"...","created":true}
+```
+`state` ∈ `learning | review | relearning`.
+
+### `GET /reviews/due?limit=20` → `ReviewQueue` (most overdue first)
+```json
+{"due_total":12,"cards":[{
+  "card":{...CardOut},
+  "word":{...WordOut},
+  "line":{...LineOut with tokens, furigana, romaji},
+  "episode":{"id":1,"anime_title":"Frieren","number":1.0},
+  "entry":{...DictEntry with senses.eng / senses.ger},
+  "media":[{"id":3,"kind":"screenshot","mime":"image/webp","url":"/media/3"}],
+  "next_due":{"1":"...+1m","2":"...+6m","3":"...+10m","4":"...+7d"}}]}
+```
+`next_due` = when the card would come back for each rating: use it for button labels.
+`media[].url` is relative to the server base URL (served by `GET /media/{id}`, S-2 #14).
+`line`/`episode` are null for cards saved without a line.
+
+### `POST /reviews` body `{"card_id":7,"rating":3,"duration_ms":4200}` → `ReviewOut`
+`rating`: 1 Again · 2 Hard · 3 Good · 4 Easy.
+`{"card":{...CardOut},"word_status":"learning","graduated":false}`. `graduated: true` = this
+review made the word `known` (good moment for a small celebration).
+
+### `GET /cards/{id}` → `ReviewCard` · `DELETE /cards/{id}` → 204
+Delete removes the card + its review history; the word keeps its status.
+
 ## Coming in Phase 1 (not implemented yet; see TASKS.md)
-`/subs/search`, `/episodes/from-jimaku`, `/media`, `/cards`, `/reviews/due`, `/reviews`,
-`/activity`, known-word import, Anki export.
+`/subs/search`, `/episodes/from-jimaku`, `/media` (#14), `/activity`, known-word import,
+Anki export.

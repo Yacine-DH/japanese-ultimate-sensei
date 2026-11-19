@@ -2,10 +2,11 @@
 change it deliberately and regenerate docs/openapi.json (see AGENTS.md)."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.models import WordStatus
+from app.models import MediaKind, WordStatus
 
 
 class Health(BaseModel):
@@ -144,3 +145,72 @@ class LookupResult(BaseModel):
     query: str
     reading: str | None
     entries: list[DictEntry]
+
+
+# ---- cards + reviews (S-3) -------------------------------------------------------------
+
+
+class MediaOut(BaseModel):
+    id: int
+    kind: MediaKind
+    mime: str
+    url: str = Field(description="Relative to the server base URL, e.g. /media/12")
+
+
+class CardCreate(BaseModel):
+    word_id: int
+    line_id: int | None = Field(default=None, description="Subtitle line the word was seen in")
+    media_ids: list[int] = Field(default=[], description="From POST /media (screenshot/audio/clip)")
+    sentence: str | None = Field(default=None, description="Defaults to the line's text")
+
+
+class CardOut(BaseModel):
+    id: int
+    word_id: int
+    line_id: int | None
+    sentence: str
+    state: Literal["learning", "review", "relearning"]
+    due: datetime
+    stability: float | None = Field(description="FSRS stability in days; null before 1st review")
+    difficulty: float | None
+    reps: int
+    created_at: datetime
+
+
+class CardCreated(CardOut):
+    created: bool = Field(description="False when the word already had a card (returned as is)")
+
+
+class EpisodeRef(BaseModel):
+    id: int
+    anime_title: str | None
+    number: float | None
+
+
+class ReviewCard(BaseModel):
+    card: CardOut
+    word: WordOut
+    line: LineOut | None = Field(description="Sentence with tokens + furigana (null if no line)")
+    episode: EpisodeRef | None
+    entry: DictEntry | None = Field(description="Best JMdict entry (EN + DE glosses)")
+    media: list[MediaOut]
+    next_due: dict[str, datetime] = Field(
+        description="Due date per rating '1'..'4' (Again/Hard/Good/Easy) for button labels"
+    )
+
+
+class ReviewQueue(BaseModel):
+    due_total: int = Field(description="All cards due now (the queue may be limited)")
+    cards: list[ReviewCard]
+
+
+class ReviewIn(BaseModel):
+    card_id: int
+    rating: int = Field(ge=1, le=4, description="1 Again · 2 Hard · 3 Good · 4 Easy")
+    duration_ms: int | None = Field(default=None, ge=0)
+
+
+class ReviewOut(BaseModel):
+    card: CardOut
+    word_status: WordStatus
+    graduated: bool = Field(description="True when this review made the word 'known'")

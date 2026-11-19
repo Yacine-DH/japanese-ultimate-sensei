@@ -7,11 +7,21 @@ import hmac
 import json
 from datetime import UTC, datetime
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, delete, func, or_, select
 
-from app import __version__
+from app import __version__, srs
 from app.config import Settings, check_auth_settings, get_settings
 from app.db import get_session, make_engine
 from app.dictionary import Dictionary, load_dictionary
@@ -24,17 +34,36 @@ from app.ingest import (
     understanding,
     word_counts,
 )
-from app.models import Anime, Episode, SubtitleLine, UserWord, Word, WordStatus
+from app.models import (
+    Anime,
+    Card,
+    Episode,
+    Media,
+    ReviewLog,
+    SubtitleLine,
+    UserWord,
+    Word,
+    WordStatus,
+)
 from app.nlp.tokenizer import line_romaji
 from app.schemas import (
     BulkStatusIn,
     BulkStatusOut,
+    CardCreate,
+    CardCreated,
+    CardOut,
     EpisodeCreated,
     EpisodeOut,
     EpisodePatch,
+    EpisodeRef,
     Health,
     LineOut,
     LookupResult,
+    MediaOut,
+    ReviewCard,
+    ReviewIn,
+    ReviewOut,
+    ReviewQueue,
     TokenOut,
     Understanding,
     WordListItem,
@@ -100,6 +129,50 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "anime_title": anime.title if anime else None,
             "line_count": count,
         }
+
+    def build_lines(session: Session, lines: list[SubtitleLine]) -> list[LineOut]:
+        parsed = [json.loads(line.tokens_json) for line in lines]
+        word_ids = {t["word_id"] for toks in parsed for t in toks if t.get("word_id")}
+        statuses = status_map(session, uid, word_ids)
+        common = (
+            {
+                w.id: w.common
+                for w in session.exec(select(Word).where(Word.id.in_(list(word_ids)))).all()  # type: ignore[union-attr]
+            }
+            if word_ids
+            else {}
+        )
+        out = []
+        for line, toks in zip(lines, parsed, strict=True):
+            tokens = [
+                TokenOut(
+                    **{
+                        k: t[k]
+                        for k in TokenOut.model_fields
+                        if k in t and k not in ("status", "common", "is_proper_noun")
+                    },
+                    is_proper_noun=token_is_proper(t),
+                    status=(
+                        statuses.get(t["word_id"], WordStatus.new) if t.get("word_id") else None
+                    ),
+                    common=common.get(t.get("word_id"), False),
+                )
+                for t in toks
+            ]
+            out.append(
+                LineOut(
+                    id=line.id,
+                    idx=line.idx,
+                    start_ms=line.start_ms,
+                    end_ms=line.end_ms,
+                    text=line.text,
+                    tokens=tokens,
+                    romaji=line_romaji(toks),
+                    translation_en=line.translation_en,
+                    translation_de=line.translation_de,
+                )
+            )
+        return out
 
     def get_episode(session: Session, episode_id: int) -> Episode:
         ep = session.get(Episode, episode_id)
@@ -198,49 +271,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     def read_lines(episode_id: int, session: Session = Depends(get_session)):
         get_episode(session, episode_id)
-        lines = episode_lines(session, episode_id)
-        parsed = [json.loads(line.tokens_json) for line in lines]
-        word_ids = {t["word_id"] for toks in parsed for t in toks if t.get("word_id")}
-        statuses = status_map(session, uid, word_ids)
-        common = (
-            {
-                w.id: w.common
-                for w in session.exec(select(Word).where(Word.id.in_(list(word_ids)))).all()  # type: ignore[union-attr]
-            }
-            if word_ids
-            else {}
-        )
-        out = []
-        for line, toks in zip(lines, parsed, strict=True):
-            tokens = [
-                TokenOut(
-                    **{
-                        k: t[k]
-                        for k in TokenOut.model_fields
-                        if k in t and k not in ("status", "common", "is_proper_noun")
-                    },
-                    is_proper_noun=token_is_proper(t),
-                    status=(
-                        statuses.get(t["word_id"], WordStatus.new) if t.get("word_id") else None
-                    ),
-                    common=common.get(t.get("word_id"), False),
-                )
-                for t in toks
-            ]
-            out.append(
-                LineOut(
-                    id=line.id,
-                    idx=line.idx,
-                    start_ms=line.start_ms,
-                    end_ms=line.end_ms,
-                    text=line.text,
-                    tokens=tokens,
-                    romaji=line_romaji(toks),
-                    translation_en=line.translation_en,
-                    translation_de=line.translation_de,
-                )
-            )
-        return out
+        return build_lines(session, episode_lines(session, episode_id))
 
     @app.post(
         "/episodes/{episode_id}/reprocess",
@@ -364,5 +395,124 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         set_statuses(session, [word_id], body.status)
         session.commit()
         return word_out(session, w)
+
+    # ---- cards + reviews (S-3) ------------------------------------------------------------
+
+    def get_card(session: Session, card_id: int) -> Card:
+        card = session.get(Card, card_id)
+        if not card or card.user_id != uid:
+            raise HTTPException(404, "card not found")
+        return card
+
+    def card_out(session: Session, card: Card) -> CardOut:
+        return CardOut(**srs.card_info(session, card))
+
+    def review_card(session: Session, card: Card) -> ReviewCard:
+        word = session.get(Word, card.word_id)
+        line = session.get(SubtitleLine, card.line_id) if card.line_id else None
+        ep = session.get(Episode, line.episode_id) if line else None
+        anime = session.get(Anime, ep.anime_id) if ep and ep.anime_id else None
+        d = app.state.dictionary
+        entry = d.entry(word.jmdict_id) if d is not None and word.jmdict_id else None
+        media = session.exec(select(Media).where(Media.card_id == card.id)).all()
+        return ReviewCard(
+            card=card_out(session, card),
+            word=word_out(session, word),
+            line=build_lines(session, [line])[0] if line else None,
+            episode=EpisodeRef(
+                id=ep.id, anime_title=anime.title if anime else None, number=ep.number
+            )
+            if ep
+            else None,
+            entry=entry,
+            media=[
+                MediaOut(id=m.id, kind=m.kind, mime=m.mime, url=f"/media/{m.id}") for m in media
+            ],
+            next_due=srs.preview(card),
+        )
+
+    @app.post(
+        "/cards",
+        response_model=CardCreated,
+        status_code=201,
+        dependencies=auth,
+        tags=["cards"],
+        responses={200: {"description": "The word already had a card; it is returned"}},
+    )
+    def create_card(body: CardCreate, response: Response, session: Session = Depends(get_session)):
+        """Save a word for review. Marks it `learning`. One card per word: saving again
+        returns the existing card (200) and attaches any new media to it."""
+        if not session.get(Word, body.word_id):
+            raise HTTPException(404, "word not found")
+        line = session.get(SubtitleLine, body.line_id) if body.line_id else None
+        if body.line_id and not line:
+            raise HTTPException(404, "line not found")
+        media = [session.get(Media, mid) for mid in dict.fromkeys(body.media_ids)]
+        if missing := [
+            mid for mid, m in zip(dict.fromkeys(body.media_ids), media, strict=True) if not m
+        ]:
+            raise HTTPException(422, f"unknown media ids: {missing}")
+
+        card = session.exec(
+            select(Card).where(Card.user_id == uid, Card.word_id == body.word_id)
+        ).first()
+        created = card is None
+        if card is None:
+            card = Card(
+                user_id=uid,
+                word_id=body.word_id,
+                line_id=line.id if line else None,
+                sentence=body.sentence or (line.text if line else ""),
+            )
+            srs.store_fsrs(card, srs.fsrs_of(card))
+            session.add(card)
+            session.flush()
+            if srs.word_status(session, uid, body.word_id) not in (
+                WordStatus.known,
+                WordStatus.ignored,
+            ):
+                srs.set_word_status(session, uid, body.word_id, WordStatus.learning)
+            srs.bump_activity(session, uid, words_added=1)
+        for m in media:
+            m.card_id = card.id
+            session.add(m)
+        session.commit()
+        session.refresh(card)
+        if not created:
+            response.status_code = 200
+        return CardCreated(**card_out(session, card).model_dump(), created=created)
+
+    @app.get("/cards/{card_id}", response_model=ReviewCard, dependencies=auth, tags=["cards"])
+    def read_card(card_id: int, session: Session = Depends(get_session)):
+        return review_card(session, get_card(session, card_id))
+
+    @app.delete("/cards/{card_id}", status_code=204, dependencies=auth, tags=["cards"])
+    def delete_card(card_id: int, session: Session = Depends(get_session)):
+        """Delete a card and its review history. Media rows are detached, not deleted; the
+        word keeps its status."""
+        card = get_card(session, card_id)
+        session.exec(delete(ReviewLog).where(ReviewLog.card_id == card_id))
+        for m in session.exec(select(Media).where(Media.card_id == card_id)).all():
+            m.card_id = None
+            session.add(m)
+        session.delete(card)
+        session.commit()
+
+    @app.get("/reviews/due", response_model=ReviewQueue, dependencies=auth, tags=["reviews"])
+    def reviews_due(limit: int = Query(20, ge=1, le=200), session: Session = Depends(get_session)):
+        """Cards due now, most overdue first, with everything the review screen shows."""
+        now = srs.utcnow()
+        due = (Card.user_id == uid) & (Card.due <= now)  # type: ignore[operator]
+        total = session.exec(select(func.count()).select_from(Card).where(due)).one()
+        cards = session.exec(select(Card).where(due).order_by(Card.due).limit(limit)).all()  # type: ignore[arg-type]
+        return ReviewQueue(due_total=total, cards=[review_card(session, c) for c in cards])
+
+    @app.post("/reviews", response_model=ReviewOut, dependencies=auth, tags=["reviews"])
+    def post_review(body: ReviewIn, session: Session = Depends(get_session)):
+        card = get_card(session, body.card_id)
+        status, graduated = srs.review(session, uid, card, body.rating, body.duration_ms)
+        session.commit()
+        session.refresh(card)
+        return ReviewOut(card=card_out(session, card), word_status=status, graduated=graduated)
 
     return app
