@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { LineOut, TokenOut } from '../src/api/client';
-import { buildLineRomaji, renderTokenSegments, shouldShowRuby } from '../src/lib/furigana';
+import {
+  buildLineRomaji,
+  getLineRomaji,
+  renderTokenSegments,
+  shouldShowRuby,
+} from '../src/lib/furigana';
 import {
   adjustOffsetMs,
   computeSyncOffsetMs,
@@ -30,6 +35,7 @@ function makeToken(overrides: Partial<TokenOut> = {}): TokenOut {
     ],
     romaji: 'tabe',
     is_content: true,
+    is_proper_noun: false,
     word_id: 42,
     status: 'new',
     common: true,
@@ -44,6 +50,7 @@ function makeLine(overrides: Partial<LineOut> = {}): LineOut {
     start_ms: 1000,
     end_ms: 3500,
     text: '何か食べたい',
+    romaji: 'nanika tabetai',
     tokens: [
       makeToken(),
       makeToken({
@@ -140,8 +147,10 @@ describe('furigana and romaji rendering (E-2)', () => {
     ]);
   });
 
-  it('joins non-empty token romaji into a single line', () => {
-    const line = makeLine();
+  it('prefers grouped LineOut.romaji (#8) and falls back to joined token romaji', () => {
+    const line = makeLine({ romaji: 'tabi wa owatta' });
+    expect(getLineRomaji(line)).toBe('tabi wa owatta');
+    expect(getLineRomaji(makeLine({ romaji: '' }))).toBe('tabe tai');
     expect(buildLineRomaji(line.tokens)).toBe('tabe tai');
   });
 });

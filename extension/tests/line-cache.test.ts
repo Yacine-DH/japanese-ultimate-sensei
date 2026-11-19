@@ -29,6 +29,7 @@ function makeLines(): LineOut[] {
       start_ms: 1000,
       end_ms: 2500,
       text: '魔法',
+      romaji: 'mahou',
       tokens: [
         {
           surface: '魔法',
@@ -40,6 +41,7 @@ function makeLines(): LineOut[] {
           furigana: [{ text: '魔法', ruby: 'まほう' }],
           romaji: 'mahou',
           is_content: true,
+          is_proper_noun: false,
           word_id: 55,
           status: 'new',
           common: true,

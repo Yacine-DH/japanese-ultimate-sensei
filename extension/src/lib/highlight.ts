@@ -3,9 +3,18 @@ import type { GlossLanguage } from './settings';
 import { isWordUnderstood } from './furigana';
 
 export function isUnknownContentToken(
-  token: Pick<TokenOut, 'is_content' | 'status'>,
+  token: Pick<TokenOut, 'is_content' | 'is_proper_noun' | 'status'>,
 ): boolean {
+  if (token.is_proper_noun) {
+    return false;
+  }
   return token.is_content && !isWordUnderstood(token.status);
+}
+
+export function isLookupableToken(
+  token: Pick<TokenOut, 'is_content' | 'is_proper_noun'>,
+): boolean {
+  return token.is_content || token.is_proper_noun;
 }
 
 export function rankHighlightedTokenIndices(

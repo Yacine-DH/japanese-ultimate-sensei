@@ -16,6 +16,7 @@ function makeLine(id: number, startMs: number, endMs: number, text = '台詞'): 
     start_ms: startMs,
     end_ms: endMs,
     text,
+    romaji: '',
     tokens: [],
     translation_en: null,
     translation_de: null,

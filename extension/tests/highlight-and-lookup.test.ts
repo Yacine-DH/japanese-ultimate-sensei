@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DictEntry, LineOut, TokenOut } from '../src/api/client';
 import {
+  isLookupableToken,
   isUnknownContentToken,
   rankHighlightedTokenIndices,
   selectSensesForLanguage,
@@ -18,6 +19,7 @@ function makeToken(overrides: Partial<TokenOut> = {}): TokenOut {
     furigana: [{ text: '魔法', ruby: 'まほう' }],
     romaji: 'mahou',
     is_content: true,
+    is_proper_noun: false,
     word_id: 1,
     status: 'new',
     common: true,
@@ -25,13 +27,26 @@ function makeToken(overrides: Partial<TokenOut> = {}): TokenOut {
   };
 }
 
-describe('unknown content token highlighting (E-3)', () => {
-  it('identifies unknown content tokens and excludes particles/known/ignored', () => {
+describe('unknown content token highlighting (E-3, #9)', () => {
+  it('identifies unknown content tokens and excludes particles, proper nouns, known, and ignored', () => {
     expect(isUnknownContentToken(makeToken({ is_content: true, status: 'new' }))).toBe(true);
     expect(isUnknownContentToken(makeToken({ is_content: true, status: 'learning' }))).toBe(true);
     expect(isUnknownContentToken(makeToken({ is_content: true, status: 'known' }))).toBe(false);
     expect(isUnknownContentToken(makeToken({ is_content: true, status: 'ignored' }))).toBe(false);
     expect(isUnknownContentToken(makeToken({ is_content: false, status: null }))).toBe(false);
+
+    // Character/place names (#9) are never highlighted as unknown, yet remain lookupable
+    const nameTok = makeToken({
+      surface: 'フリーレン',
+      lemma: 'フリーレン',
+      is_content: false,
+      is_proper_noun: true,
+      word_id: 99,
+      status: 'new',
+    });
+    expect(isUnknownContentToken(nameTok)).toBe(false);
+    expect(isUnknownContentToken({ ...nameTok, is_content: true })).toBe(false);
+    expect(isLookupableToken(nameTok)).toBe(true);
   });
 
   it('ranks common unknown content words first up to limit N', () => {
@@ -91,6 +106,7 @@ describe('unknown content token highlighting (E-3)', () => {
         start_ms: 0,
         end_ms: 2000,
         text: '魔法',
+        romaji: 'mahou',
         tokens: [makeToken({ word_id: 77, status: 'new' })],
         translation_en: null,
         translation_de: null,
