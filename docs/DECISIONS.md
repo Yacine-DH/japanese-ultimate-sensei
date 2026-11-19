@@ -2,6 +2,14 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-19: Web app served by the API server, same origin (Claude)
+- The SPA's routes (`/words`, `/episodes/:id`) overlap API paths. Instead of an `/api` prefix
+  (breaking both clients) the server serves `index.html` for **browser page loads**
+  (`Sec-Fetch-Mode: navigate`, or `Accept: text/html` without that header) and the API for
+  everything else. Files in `web/dist` are served directly. `/docs` stays the API docs.
+- Runs as a systemd **user** service (`deploy/install-service.sh`); `deploy/update.sh` = pull,
+  sync, build, restart.
+
 ### 2026-11-19: Server hardening + learner-facing token data (Claude)
 - **Token required at startup (#11).** An empty `SENSEI_API_TOKEN` now aborts startup instead of
   silently disabling auth; `SENSEI_ALLOW_NO_AUTH=true` is the explicit dev opt-out.

@@ -28,6 +28,15 @@ cp .env.example .env
 echo "SENSEI_API_TOKEN=$(openssl rand -hex 24)" >> .env  # required: server refuses to start without it
 uv run uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
 ```
+### Run it for real (background service)
+```bash
+(cd web && pnpm install && pnpm build)                # web app → served by the server at /
+bash deploy/install-service.sh                        # starts now + on boot, restarts on crash
+bash deploy/update.sh                                 # later: pull, rebuild, restart
+journalctl --user -u sensei -f                        # logs
+```
+Open `http://<server-tailscale-name>:8000/` for the web app; the extension uses the same URL.
+
 Then from the laptop (Tailscale): `curl http://<server-tailscale-name>:8000/health`.
 Interactive API docs: `http://<server>:8000/docs`.
 

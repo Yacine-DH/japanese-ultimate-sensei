@@ -72,6 +72,7 @@ from app.schemas import (
     WordStatusIn,
 )
 from app.subtitles import parse_bytes
+from app.webapp import mount_web
 
 MAX_SUBTITLE_BYTES = 5 * 1024 * 1024
 EXTENSION_ORIGINS = (
@@ -87,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = make_engine(settings.db_path)
     app.state.dictionary = load_dictionary(settings.dictionary_path)
 
+    app.state.web = mount_web(app, settings.web_dist)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

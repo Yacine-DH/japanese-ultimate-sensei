@@ -7,6 +7,8 @@ spec in [`openapi.json`](openapi.json) (regenerate with `cd server && uv run pyt
 `X-Sensei-Token: <token>`); `401` otherwise. The server refuses to start without a
 `SENSEI_API_TOKEN` (≥ 16 chars) unless `SENSEI_ALLOW_NO_AUTH=true` (local dev only), in which
 case `/health` reports `"auth": false`.
+**Web app:** the server also serves `web/dist` at `/` for browser page loads (see DECISIONS.md),
+so the web app talks to the API on the same origin.
 **Times** are integer milliseconds. **Readings** are hiragana. **Errors** are `{"detail": "..."}`.
 
 ## Meta
