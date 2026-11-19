@@ -24,8 +24,8 @@ cd server
 uv sync                                               # installs Python 3.12 + deps
 uv run python -m app.dictionary_setup                 # downloads JMdict EN+DE → data/jmdict.sqlite
 uv run pytest                                         # tests
-cp .env.example .env
-echo "SENSEI_API_TOKEN=$(openssl rand -hex 24)" >> .env  # required: server refuses to start without it
+cp .env.example .env                                  # then set SENSEI_API_TOKEN (≥ 16 chars, required)
+# or skip this: deploy/install-service.sh generates the token for you
 uv run uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
 ```
 ### Run it for real (background service)
