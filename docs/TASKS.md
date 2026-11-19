@@ -8,7 +8,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **O-1** Install `uv` on the server: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - [x] **O-2** Install Node.js 22 LTS on the server (e.g. `fnm install 22` or nvm), plus `pnpm` (`corepack enable`) (antigravity, 2026-11-17: Node v22.23.5 + pnpm 12.21.0 installed in `~/.local/bin`)
 - [ ] **O-3** Make a free [jimaku.cc](https://jimaku.cc) account and API key → `SENSEI_JIMAKU_API_KEY` in `server/.env`
-- [ ] **O-4** Set `SENSEI_API_TOKEN` in `server/.env` (**required since #11**: `cd server && cp .env.example .env && echo "SENSEI_API_TOKEN=$(openssl rand -hex 24)" >> .env`)
+- [x] **O-4** `SENSEI_API_TOKEN` in `server/.env`, required since #11; `bash deploy/install-service.sh` generates it (claude, 2026-11-19: set on the home server)
 - [ ] **O-5** Tell Claude your laptop specs (CPU/GPU/RAM), which decides which LLM runs where
 
 ## Phase 0: Foundation

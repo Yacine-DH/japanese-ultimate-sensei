@@ -9,10 +9,13 @@ UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
 PORT="${SENSEI_PORT:-8000}"
 UNIT_DIR="$HOME/.config/systemd/user"
 
-if [[ ! -f "$REPO/server/.env" ]] || ! grep -q '^SENSEI_API_TOKEN=.\{16,\}' "$REPO/server/.env"; then
-  echo "server/.env with SENSEI_API_TOKEN is missing. Create it first:" >&2
-  echo "  cd $REPO/server && cp .env.example .env && echo \"SENSEI_API_TOKEN=\$(openssl rand -hex 24)\" >> .env" >&2
-  exit 1
+ENV="$REPO/server/.env"
+[[ -f "$ENV" ]] || cp "$REPO/server/.env.example" "$ENV"
+if ! grep -q '^SENSEI_API_TOKEN=.\{16,\}' "$ENV"; then
+  sed -i '/^SENSEI_API_TOKEN=/d' "$ENV"
+  echo "SENSEI_API_TOKEN=$(openssl rand -hex 24)" >> "$ENV"
+  echo "Generated an API token in server/.env. Paste it into the extension + web app settings:"
+  echo "  grep SENSEI_API_TOKEN $ENV"
 fi
 
 mkdir -p "$UNIT_DIR"
