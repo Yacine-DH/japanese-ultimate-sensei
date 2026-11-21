@@ -143,7 +143,10 @@ def read_apkg(data: bytes) -> Apkg:
     if "collection.anki21b" in names:  # Anki ≥ 2.1.50 default: zstd-compressed, schema 18
         import zstandard
 
-        raw = zstandard.ZstdDecompressor().stream_reader(zf.read("collection.anki21b")).read()
+        try:
+            raw = zstandard.ZstdDecompressor().stream_reader(zf.read("collection.anki21b")).read()
+        except zstandard.ZstdError as e:
+            raise AnkiFormatError(f"corrupt Anki collection: {e}") from e
     elif "collection.anki21" in names:
         raw = zf.read("collection.anki21")
     elif "collection.anki2" in names:
@@ -173,7 +176,11 @@ def _read_collection(con: sqlite3.Connection) -> Apkg:
             "SELECT ntid, ord, name FROM fields ORDER BY ntid, ord"
         ):
             notetypes.setdefault(ntid, {"name": str(ntid), "fields": []})["fields"].append(name)
-        decks = dict(con.execute("SELECT id, name FROM decks"))
+        # schema 18 separates subdeck names with \x1f instead of "::"
+        decks = {
+            did: str(name).replace("\x1f", "::")
+            for did, name in con.execute("SELECT id, name FROM decks")
+        }
     else:  # schema 11: JSON blobs in col
         models_json, decks_json = con.execute("SELECT models, decks FROM col").fetchone()
         notetypes = {

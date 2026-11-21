@@ -60,10 +60,12 @@ def modern_apkg(tmp_path) -> bytes:
         CREATE TABLE cards (id INTEGER PRIMARY KEY, nid INTEGER, did INTEGER, ivl INTEGER, type INTEGER);
         INSERT INTO notetypes VALUES (7, 'Core 2k');
         INSERT INTO fields VALUES (7, 0, 'Sentence'), (7, 1, 'Front'), (7, 2, 'Back');
-        INSERT INTO decks VALUES (1, 'Default'), (2, 'Mining');
+        INSERT INTO decks VALUES (1, 'Default'), (2, 'Mining'), (3, 'Mining' || char(31) || 'Frieren');
         INSERT INTO notes VALUES (10, 7, '文' || char(31) || '食べる' || char(31) || 'eat'),
                                  (11, 7, '文' || char(31) || '海賊' || char(31) || 'pirate');
         INSERT INTO cards VALUES (100, 10, 2, 50, 2), (101, 11, 1, 50, 2);
+        INSERT INTO notes VALUES (12, 7, '文' || char(31) || '男' || char(31) || 'man');
+        INSERT INTO cards VALUES (102, 12, 3, 50, 2);
     """)
     con.commit()
     con.close()
@@ -113,10 +115,15 @@ def test_import_modern_apkg_with_field_and_deck(client, tmp_path):
     data = modern_apkg(tmp_path)
     r = post_apkg(client, data, deck="mining").json()
     assert r["note_types"][0]["field_used"] == "Front"
-    assert r["matched"] == 1  # only 食べる is in the Mining deck
+    assert r["matched"] == 2  # 食べる in Mining + 男 in the Mining::Frieren subdeck
+    assert r["decks"] == ["Default", "Mining", "Mining::Frieren"]
     wrong = post_apkg(client, data, field="Back", dry_run="true").json()
-    assert wrong["unmatched_count"] == 2  # English field → nothing matches
+    assert wrong["unmatched_count"] == 3  # English field → nothing matches
     assert post_apkg(client, b"not a zip").status_code == 422
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("collection.anki21b", b"not zstd")
+    assert post_apkg(client, buf.getvalue()).status_code == 422
 
 
 def test_import_word_list_and_ankiconnect_cards(client):
