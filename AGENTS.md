@@ -10,6 +10,10 @@ Two agents build this project for one human (the owner):
   **Read it at the start of every session, before claiming work, and after every PR you merge.**
   Append only; rules at the top of that file. No secrets.
 - GitHub issues/PRs hold specs, bugs and history (see below). The owner can still relay.
+- **Headless Antigravity runs:** Claude (when the owner asks for joint work or reviews) or the
+  owner can start one: `scripts/antigravity.sh --review <PR>` / `--issue <N>` / `"<free task>"`.
+  It works in its own worktree `../sensei-antigravity-bot` (never the interactive
+  `../sensei-antigravity`), one run at a time, logs in `../agent-logs/`, and reports in the channel.
 
 ## Before you start any work
 0. Read the **agent channel** (path above) for new messages.
