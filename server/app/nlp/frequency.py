@@ -23,12 +23,16 @@ def zipf(lemma: str) -> float:
         return 0.0
 
 
-def fill_zipf(session: Session, words: Iterable[Word]) -> None:
-    """Compute missing frequencies (words created before the column existed)."""
+def fill_zipf(session: Session, words: Iterable[Word]) -> bool:
+    """Compute missing frequencies (words created before the column existed).
+    Returns True if anything changed (commit only then)."""
+    changed = False
     for w in words:
         if w.zipf is None:
             w.zipf = zipf(w.lemma)
             session.add(w)
+            changed = True
+    return changed
 
 
 def usefulness(zipf_value: float | None, in_episode: int, in_anime: int) -> float:

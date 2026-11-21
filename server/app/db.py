@@ -71,5 +71,7 @@ def migrate(engine: Engine, db_path: Path) -> None:
 
 
 def get_session(request: Request) -> Iterator[Session]:
-    with Session(request.app.state.engine) as session:
+    # Objects stay readable after commit (no per-object reload queries when building the
+    # response); each request is short-lived, so staleness isn't a concern.
+    with Session(request.app.state.engine, expire_on_commit=False) as session:
         yield session

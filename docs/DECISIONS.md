@@ -6,8 +6,12 @@ Newest first. One entry per decision that would surprise someone later.
 - **wordfreq** (CC BY-SA 4.0, Japanese data incl. subtitles; needs `mecab-python3`+ipadic, pip
   wheels) gives `Word.zipf`, the main "worth learning first" signal. Replaces the JMdict
   `common` flag for highlight ranking. First schema migration: `0002` adds `word.zipf`.
-- **JMdict linking prefers Sudachi's normalized (kanji) form**, so kana words link to the right
-  homophone (いる → 居る not 射る, こと → 事 not 琴). Lookups accept `word_id` to return that link
+- **JMdict linking prefers Sudachi's normalized (kanji) form for kana lemmas**, so kana words
+  link to the right homophone (いる → 居る not 射る, もの → 物). Kanji lemmas match themselves
+  first: normalization merges distinct words (斬る → 切る, 妬く → 焼く); found by Antigravity's
+  headless review of PR #79.
+- **Colloquial readings override** Sudachi's dictionary defaults for a few words (私 → わたし,
+  明日 → あした) and 何 follows a sound rule (なん before d/t/n/counters, else なに). Lookups accept `word_id` to return that link
   first. `python -m app.reprocess` re-links existing words.
 - JLPT levels: not added (no clean, well-licensed list in a package yet).
 

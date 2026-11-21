@@ -48,10 +48,17 @@ class WordResolver:
     def _jmdict(self, tok: Token) -> tuple[str, bool] | None:
         if not self.dictionary:
             return None
-        # Sudachi's normalized form names the kanji a kana word stands for (いる → 居る,
-        # こと → 事, とる → 取る), which picks the right entry among homophones: try it first.
+        # For kana lemmas, Sudachi's normalized form names the kanji they stand for (いる → 居る,
+        # こと → 事), which picks the right homophone: try it first. Kanji lemmas match their
+        # own entry first, because normalization merges distinct words (斬る → 切る, 妬く → 焼く);
+        # it stays a fallback for spelling variants (食べもの → 食べ物).
         normalized = tok.normalized if has_kanji(tok.normalized or "") else None
-        for text in dict.fromkeys(filter(None, [normalized, tok.lemma, tok.lemma_reading])):
+        order = (
+            [tok.lemma, normalized, tok.lemma_reading]
+            if has_kanji(tok.lemma)
+            else [normalized, tok.lemma, tok.lemma_reading]
+        )
+        for text in dict.fromkeys(filter(None, order)):
             if text and (hit := self.dictionary.best(text, tok.lemma_reading)):
                 return hit
         return None
