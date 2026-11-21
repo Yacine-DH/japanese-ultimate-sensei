@@ -30,6 +30,8 @@ Wants=network-online.target
 WorkingDirectory=$REPO/server
 ExecStart=$UV run --frozen uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
 Restart=on-failure
+# `uv run` exits 143 on SIGTERM (systemctl stop/restart): that is a clean stop.
+SuccessExitStatus=143
 RestartSec=3
 
 [Install]

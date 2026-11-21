@@ -237,3 +237,38 @@ def test_merge_reading_fixes_when_both_rows_exist(client):
         ]
         assert s.exec(select(UserWord).where(UserWord.word_id == new_id)).one().status == "known"
         assert s.exec(select(Card).where(Card.word_id == new_id)).one()
+
+
+def test_reprocess_cleans_old_line_text(client):
+    """Lines stored before the #90 cleanup: markers stripped, sound-cue lines dropped unless
+    a card uses them."""
+    from sqlmodel import Session, select
+
+    from app.models import Card, LineNote, SubtitleLine
+
+    srt = "".join(
+        f"{n}\n00:00:0{n},000 --> 00:00:0{n},900\n魔法を使う{n}\n\n" for n in range(1, 5)
+    ).encode()
+    ep = client.post(
+        "/episodes", data={"anime_title": "x"}, files={"subtitle": ("s.srt", srt)}
+    ).json()
+    lines = client.get(f"/episodes/{ep['id']}/lines").json()
+    word_id = next(t["word_id"] for t in lines[0]["tokens"] if t["word_id"])
+    assert len(lines) == 4
+    engine = client.app.state.engine
+    with Session(engine) as s:
+        rows = s.exec(select(SubtitleLine).order_by(SubtitleLine.idx)).all()
+        rows[0].text, rows[1].text, rows[2].text = "（足音）", "（ノック）", rows[2].text + "➡"
+        s.add(LineNote(line_id=rows[0].id, lang="en", text="footsteps", model="m"))
+        s.add(Card(user_id=1, word_id=word_id, line_id=rows[1].id, sentence="（ノック）"))
+        s.add_all(rows[:3])
+        s.commit()
+        ids = [r.id for r in rows[:3]]
+    assert client.post(f"/episodes/{ep['id']}/reprocess").status_code == 200
+    after = {line["id"]: line["text"] for line in client.get(f"/episodes/{ep['id']}/lines").json()}
+    assert ids[0] not in after  # dropped, with its note
+    assert after[ids[1]] == "（ノック）"  # kept: a card points at it
+    assert not after[ids[2]].endswith("➡")
+    assert len(after) == len(lines) - 1
+    with Session(engine) as s:
+        assert not s.exec(select(LineNote).where(LineNote.line_id == ids[0])).all()

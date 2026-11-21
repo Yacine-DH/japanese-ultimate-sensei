@@ -254,7 +254,10 @@ class JimakuFile(BaseModel):
     multi_episode: bool = Field(
         description="Several episodes in one file (e.g. 01-04): can't import"
     )
-    web_source: bool = Field(description="Web/TV release: timing likely matches streaming sites")
+    web_source: bool = Field(description="Web release: timing likely matches streaming sites")
+    dual_language: bool = Field(
+        default=False, description="Also has English/Chinese lines (ja-en, CHS/JPN): avoid"
+    )
     recommended: bool = Field(description="Best pick (at most one per list)")
 
 

@@ -153,3 +153,50 @@ def test_import_errors(jclient):
 
 def test_missing_key_is_503(client):
     assert client.get("/subs/search", params={"q": "x"}).status_code == 503
+
+
+FRIEREN_02 = [
+    "Sousou no Frieren - 02 「別に魔法じゃなくたって…」 (AT-X 1280x720 x264 AAC).srt",
+    "葬送のフリーレン.S01E02.別に魔法じゃなくたって….WEBRip.Amazon.ja-jp[sdh].srt",
+    "葬送のフリーレン.S01E02.別に魔法じゃなくたって….WEBRip.Netflix.ja[cc].srt",
+    "[Nekomoe kissaten] Sousou no Frieren [02][Web].JPSC.ass",
+    "[SubsPlease] Sousou no Frieren - 02 (1080p) [E5A85899]_ja.srt",
+    "[erai-raws-timed]-sousou-no-frieren-S1E02.srt",
+    "[Moozzi2] Sousou no Frieren - 02 (BD 1920x1080 x265-10Bit Flac).ass",
+    "[SubsPlease] Sousou no Frieren - 02 (1080p) [E5A85899]_ja-en.ass",
+    "[NanakoRaws] Sousou no Frieren - 01-04 (1080p).srt",
+    "[KitaujiSub] Sousou no Frieren - 01-04 TVSP [CHS, JPN].ass",
+    "[Beatrice-Raws] Sousou no Frieren 02 [BDRip 1920x1080 HEVC TrueHD].sup.7z",
+]
+
+
+def test_rank_prefers_web_rips_real_list():
+    """Real Jimaku list (#91): web rips beat the TV rip, BD and dual-language files sink."""
+    ranked = rank([{"name": n, "url": "https://jimaku.cc/x"} for n in FRIEREN_02], 2)
+    by_name = {i.name: i for i in ranked}
+    assert ranked[0].recommended and ranked[0].name.startswith("[SubsPlease]")
+    assert ranked[0].name.endswith("_ja.srt")
+    at_x, bd = FRIEREN_02[0], FRIEREN_02[6]
+    assert not by_name[at_x].web_source
+    web = [i for i in ranked if i.web_source and not i.dual_language and i.supported]
+    assert all(by_name[at_x].score < i.score for i in web)
+    assert by_name[bd].score < by_name[at_x].score
+    for dual in (FRIEREN_02[3], FRIEREN_02[7], FRIEREN_02[9]):
+        assert by_name[dual].dual_language and by_name[dual].score < by_name[bd].score
+    assert not by_name[FRIEREN_02[1]].dual_language  # ja-jp is just Japanese
+
+
+def test_tags_with_underscores_and_jp_en():
+    """Review of #95: `_` is a word character, so tags need non-alphanumeric boundaries."""
+    ranked = rank(
+        [
+            {"name": n, "url": "https://jimaku.cc/x"}
+            for n in ("Show_02_BDRip.srt", "Show_02_WebRip.ass")
+        ],
+        2,
+    )
+    assert ranked[0].name == "Show_02_WebRip.ass" and ranked[0].web_source
+    names = ("[SubsPlease] Show - 02_jp-en.ass", "Show_02_en-jp.srt", "Show_02_jpn-en.srt")
+    for n in names:
+        assert rank([{"name": n, "url": "https://jimaku.cc/x"}], 2)[0].dual_language, n
+    assert not rank([{"name": "Show [BD123456].srt", "url": "https://jimaku.cc/x"}])[0].score < 0

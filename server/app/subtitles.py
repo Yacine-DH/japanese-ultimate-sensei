@@ -14,14 +14,34 @@ _DRAWING_RE = re.compile(r"\\p[1-9]")
 # e.g. （ヒンメル）帰ったら…, and bracketed sound cues like ［拍手］ or 〔笑い〕.
 _SPEAKER_RE = re.compile(r"^[（(][^（）()。、！？!?\s]{1,12}[）)]\s*")
 _CUE_RE = re.compile(r"[［\[〔][^］\]〕]{1,20}[］\]〕]")
+# TV subs mark "continues on the next line" with arrows (長距離魔法は➡) or ｠.
+_MARKS_RE = re.compile(r"[➡➜➞→⇒｠]")
+# Netflix-style readings after a kanji word: 蒼月草(そうげつそう).
+_INLINE_READING_RE = re.compile(r"(?<=[\u4e00-\u9fff々〆ヶ])[（(][ぁ-ゖー]{1,20}[）)]")
+# A whole line in （…） is a thought or whisper unless it names a sound: （足音） （鐘の音）
+# （人々の逃げ惑う声） （寝息） （ノック）.
+_PAREN_LINE_RE = re.compile(r"^[（(]([^（）()。、！？!?…\s]{1,30})[）)]$")
+_SOUND_TAILS = (
+    "音", "声", "息", "笑い", "ノック", "拍手", "悲鳴", "いびき", "咳", "せき", "チャイム",
+    "ブザー", "歓声", "ざわめき", "鳴き", "うなり", "BGM", "音楽",
+)  # fmt: skip
+
+
+def is_sound_cue(part: str) -> bool:
+    m = _PAREN_LINE_RE.match(part.strip())
+    return bool(m) and m.group(1).endswith(_SOUND_TAILS)
 
 
 def strip_annotations(part: str) -> str:
-    """Remove SDH speaker labels and sound cues, but only when real dialogue remains:
-    a whole line in （…） is usually a thought or whisper, so it's kept."""
-    cleaned = _CUE_RE.sub("", part).strip()
-    cleaned = _SPEAKER_RE.sub("", cleaned).strip()
-    return cleaned if has_japanese(cleaned) else part.strip()
+    """Remove SDH speaker labels, sound cues, continuation marks and inline readings. Speaker
+    labels only go when real dialogue remains: a whole line in （…） is usually a thought or
+    whisper, so it's kept, unless it is a sound cue."""
+    part = _INLINE_READING_RE.sub("", _MARKS_RE.sub("", part)).strip()
+    part = _CUE_RE.sub("", part).strip()  # ［拍手］ 〔笑い声〕: always cues
+    if not part or is_sound_cue(part):
+        return ""
+    cleaned = _SPEAKER_RE.sub("", part).strip()
+    return cleaned if has_japanese(cleaned) else part
 
 
 @dataclass

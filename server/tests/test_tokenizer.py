@@ -98,3 +98,29 @@ def test_nani_key_is_context_free():
         for t in ("何を食べる", "何の話", "何飲んでるの")
     }
     assert len(keys) == 1  # one word, one status, whatever the furigana says
+
+
+def test_real_data_keys_and_romaji():
+    """Frieren ep 2 findings (#89, #92)."""
+    from app.nlp.tokenizer import line_romaji
+
+    toks = tokenize("ある日 魔法がある")
+    aru = [t for t in toks if t.surface == "ある"]
+    assert aru[0].pos == "連体詞" and aru[0].lemma == "或る" and aru[0].lemma_reading == "ある"
+    assert aru[1].pos == "動詞" and aru[1].lemma == "ある"  # distinct keys → distinct glosses
+    sou = [t for t in tokenize("心配はなさそうだし") if t.surface == "そう"]
+    assert sou and not sou[0].is_content  # 〜そう is grammar
+    assert all(t.reading == t.surface for t in tokenize("あの 子") if t.pos == "空白")
+
+    def rom(s: str) -> str:
+        return line_romaji([t.to_dict() for t in tokenize(s)])
+
+    assert rom("三つの要素") == "mittsu no youso"
+    assert rom("一つは") == "hitotsu wa"
+    assert rom("打ち込みすぎだ。") == "uchikomisugi da."
+    assert rom("え～とね") == "ee to ne"
+    assert rom("お願いします") == "onegai shimasu"
+    assert rom("お好きなのですね") == "osuki na no desu ne"
+    assert rom("なさそうだし") == "nasasou da shi"
+    assert rom("ハイター様が") == "haitaa-sama ga"  # honorifics keep the hyphen
+    assert rom("見捨てないような") == "misutenai you na"

@@ -9,6 +9,11 @@ from app.nlp.kana import furigana, has_japanese, kata_to_hira, to_romaji
 CONTENT_POS = {"名詞", "動詞", "形容詞", "形状詞", "副詞", "連体詞", "感動詞", "代名詞", "接続詞"}
 # Sub-categories that are not worth learning as words.
 SKIP_SUBPOS = {"数詞"}
+# Grammar, not vocabulary: 〜そう (なさそう), 〜よう, みたい are tagged 形状詞/名詞-助動詞語幹.
+AUX_STEM = "助動詞語幹"
+# Same lemma + reading, different words: give the rarer one its kanji lemma so it gets its
+# own key (and JMdict link): 連体詞 ある "a certain" is 或る, not the verb 有る "to be".
+HOMOGRAPHS = {("ある", "連体詞"): "或る"}
 
 
 @dataclass
@@ -60,10 +65,14 @@ def tokenize(text: str) -> list[Token]:
         pos = list(m.part_of_speech())
         reading = _reading_of(m)
         lemma = m.dictionary_form() or surface
+        lemma = HOMOGRAPHS.get((lemma, pos[0]), lemma)
+        if pos[0] == "空白":
+            reading = surface  # Sudachi reads whitespace as きごう
         proper = is_proper_noun(pos, surface, m.is_oov())
         is_content = (
             pos[0] in CONTENT_POS
             and pos[1] not in SKIP_SUBPOS
+            and AUX_STEM not in pos[1:]
             and has_japanese(surface)
             and not proper
         )
@@ -171,6 +180,22 @@ _PUNCT = {
 _OPEN = {"「": '"', "『": '"', "（": "(", "(": "("}
 # Conjunctive particles written together with the verb in Hepburn (食べて → tabete).
 _GLUE_PARTICLES = {"て", "で", "ば", "ちゃ", "じゃ"}
+# Suffixes that keep a hyphen (furiiren-sama); others join the word (mittsu, uchikomisugi).
+_HONORIFICS = {
+    "さん",
+    "様",
+    "さま",
+    "くん",
+    "君",
+    "ちゃん",
+    "殿",
+    "どの",
+    "先生",
+    "先輩",
+    "氏",
+    "たん",
+}
+_LONG_MARKS = {"～", "〜", "ー"}
 # Auxiliaries glue only onto things that inflect; the copula after a noun stays a word.
 _INFLECTING = {"動詞", "形容詞", "助動詞"}
 _COPULA = {"だ", "です"}
@@ -193,6 +218,9 @@ def line_romaji(tokens: list[dict]) -> str:
             out += ("" if glue_next else " ") + _OPEN[surface]
             glue_next = True
             continue
+        if surface in _LONG_MARKS and out[-1:] in "aeiou" and out:
+            out += out[-1]  # え～と → ee to: a stretched vowel
+            continue
         if pos == "補助記号" or surface in _PUNCT:
             out += _PUNCT.get(surface, "" if has_japanese(surface) else surface)
             continue
@@ -202,17 +230,20 @@ def line_romaji(tokens: list[dict]) -> str:
         if pos == "空白":
             glue_next = True
             continue
-        glue = (pos == "助動詞" and prev_pos in _INFLECTING and t.get("lemma") not in _COPULA) or (
-            pos == "助詞" and detail[:1] == ["接続助詞"] and surface in _GLUE_PARTICLES
+        glue = (
+            (pos == "助動詞" and prev_pos in _INFLECTING and t.get("lemma") not in _COPULA)
+            or (pos == "助詞" and detail[:1] == ["接続助詞"] and surface in _GLUE_PARTICLES)
+            or (pos == "接尾辞" and surface not in _HONORIFICS)
+            or (AUX_STEM in detail and surface == "そう" and prev_pos in _INFLECTING)  # nasasou
         )
         if glue_next or not out:
             out += rom
-        elif pos == "接尾辞":
+        elif pos == "接尾辞" and not glue:
             out += "-" + rom
         elif glue:
             out += rom
         else:
             out += " " + rom
-        glue_next = False
+        glue_next = pos == "接頭辞"  # お|願い → onegai
         prev_pos = pos
     return out.strip()

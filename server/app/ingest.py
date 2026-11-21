@@ -1,16 +1,17 @@
 """Episode ingestion: subtitle lines → tokens → vocabulary rows. Plus read-time helpers."""
 
 import json
+from collections import Counter
 from collections.abc import Iterable
 
 from sqlmodel import Session, select
 
 from app.dictionary import Dictionary
-from app.models import Card, Episode, SubtitleLine, UserWord, Word, WordStatus
+from app.models import Card, Episode, LineNote, SubtitleLine, UserWord, Word, WordStatus
 from app.nlp.frequency import zipf
-from app.nlp.kana import has_kanji
+from app.nlp.kana import has_japanese, has_kanji
 from app.nlp.tokenizer import COLLOQUIAL, Token, is_proper_noun, lemma_reading, tokenize
-from app.subtitles import ParsedLine
+from app.subtitles import ParsedLine, strip_annotations
 
 UNDERSTOOD = {WordStatus.known, WordStatus.ignored}
 
@@ -59,7 +60,7 @@ class WordResolver:
             else [normalized, tok.lemma, tok.lemma_reading]
         )
         for text in dict.fromkeys(filter(None, order)):
-            if text and (hit := self.dictionary.best(text, tok.lemma_reading)):
+            if text and (hit := self.dictionary.best(text, tok.lemma_reading, tok.pos)):
                 return hit
         return None
 
@@ -143,15 +144,32 @@ def reprocess_episode(session: Session, episode_id: int, dictionary: Dictionary 
     """Re-tokenize an episode's stored lines after tokenizer/dictionary changes.
 
     Rows are updated in place so line ids (referenced by cards) stay stable; word statuses
-    are untouched because words are keyed by lemma + reading.
+    are untouched because words are keyed by lemma + reading. The text gets the current
+    subtitle cleanup too; lines that turn out to be only a sound cue are dropped unless a
+    card uses them.
     """
     merge_reading_fixes(session)
     resolver = WordResolver(session, dictionary)
     lines = episode_lines(session, episode_id)
+    used = set(
+        session.exec(
+            select(Card.line_id).where(Card.line_id.in_([line.id for line in lines]))  # type: ignore[union-attr]
+        ).all()
+    )
+    kept = 0
     for line in lines:
+        clean = strip_annotations(line.text)
+        if not has_japanese(clean) and line.id not in used:
+            for note in session.exec(select(LineNote).where(LineNote.line_id == line.id)):
+                session.delete(note)
+            session.delete(line)
+            continue
+        if has_japanese(clean):
+            line.text = clean
         line.tokens_json = tokens_json(line.text, resolver)
         session.add(line)
-    return len(lines)
+        kept += 1
+    return kept
 
 
 def token_is_proper(t: dict) -> bool:
@@ -227,20 +245,40 @@ def understanding_of(session: Session, user_id: int, episode_ids: Iterable[int])
 
 
 def relink_words(session: Session, dictionary: Dictionary) -> int:
-    """Recompute every word's JMdict link with the current rules. Returns words changed."""
+    """Recompute every word's JMdict link with the current rules. Returns words changed.
+
+    Uses the word's tokens as they appear in subtitles (POS + normalized form in context): a
+    lemma tokenized alone can come out as another word (ほう → interjection, した → し|た).
+    Words never seen in a line (Anki imports) fall back to the lemma alone, but only when
+    Sudachi reads it as exactly one token.
+    """
     resolver = WordResolver(session, dictionary)
+    seen: dict[int, Counter[tuple[str, str]]] = {}
+    for raw in session.exec(select(SubtitleLine.tokens_json)).all():
+        for t in json.loads(raw):
+            if t.get("word_id"):
+                seen.setdefault(t["word_id"], Counter())[(t["pos"], t.get("normalized") or "")] += 1
     changed = 0
     for word in session.exec(select(Word)).all():
-        toks = [t for t in tokenize(word.lemma) if t.is_content or t.is_proper_noun] or tokenize(
-            word.lemma
+        if word.id in seen:
+            pos, normalized = seen[word.id].most_common(1)[0][0]
+        else:
+            alone = tokenize(word.lemma)
+            single = len(alone) == 1 and alone[0].surface == word.lemma
+            pos = word.pos or (alone[0].pos if single else "")
+            normalized = alone[0].normalized if single else word.lemma
+        tok = Token(
+            surface=word.lemma,
+            lemma=word.lemma,
+            reading=word.reading,
+            lemma_reading=word.reading,
+            normalized=normalized or word.lemma,
+            pos=pos,
         )
-        if not toks:
-            continue
-        tok = toks[0]
-        tok.lemma, tok.lemma_reading = word.lemma, word.reading
         hit = resolver._jmdict(tok)
-        if hit and (word.jmdict_id, word.common) != hit:
-            word.jmdict_id, word.common = hit
+        if hit and ((word.jmdict_id, word.common) != hit or (pos and word.pos != pos)):
+            (word.jmdict_id, word.common) = hit
+            word.pos = pos or word.pos  # dominant POS in context: the link was chosen by it
             session.add(word)
             changed += 1
     return changed
