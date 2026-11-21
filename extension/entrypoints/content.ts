@@ -494,10 +494,22 @@ export default defineContentScript({
             result.cardRes.data?.created === false
               ? `Updated ✓ ${token.lemma}`
               : `Saved ✓ ${token.lemma}`;
-          const detail =
+          let detail =
             result.capturedKinds.length > 0
               ? `Attached: ${result.capturedKinds.join(', ')}`
               : 'Saved card to review queue';
+
+          if (settings?.ankiConnectEnabled && result.cardRes.data?.id) {
+            const ankiRes = await api.pushCardToAnki(result.cardRes.data.id);
+            if (ankiRes.status === 'pushed') {
+              detail += ' · Pushed to Anki';
+            } else if (ankiRes.status === 'duplicate') {
+              detail += ' · Already in Anki';
+            } else if (ankiRes.status === 'queued') {
+              detail += ' · Queued for Anki (offline)';
+            }
+          }
+
           showSavedToast(title, detail, result.thumbnailDataUrl);
         } else {
           showToast(`Error: ${result.cardRes.error ?? 'Failed to save card'}`);

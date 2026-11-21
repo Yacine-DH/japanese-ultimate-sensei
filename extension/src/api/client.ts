@@ -33,6 +33,10 @@ export type JimakuFile = components['schemas']['JimakuFile'];
 export type JimakuImport = components['schemas']['JimakuImport'];
 export type WatchIn = components['schemas']['WatchIn'];
 export type WatchOut = components['schemas']['WatchOut'];
+export type AnkiModel = components['schemas']['AnkiModel'];
+export type AnkiNotePayload = components['schemas']['AnkiNotePayload'];
+export type AnkiConnectNote = components['schemas']['AnkiConnectNote'];
+export type AnkiMediaFile = components['schemas']['AnkiMediaFile'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -109,6 +113,44 @@ export interface TabStateChangedMessage {
   state: TabEpisodeState;
 }
 
+export interface AnkiPushCardMessage {
+  type: 'SENSEI_ANKI_PUSH_CARD';
+  cardId: number;
+}
+
+export interface AnkiPushCardResponse {
+  status: 'pushed' | 'duplicate' | 'queued' | 'disabled' | 'error';
+  noteId?: number;
+  message?: string;
+  queueLength: number;
+}
+
+export interface AnkiFlushQueueMessage {
+  type: 'SENSEI_ANKI_FLUSH_QUEUE';
+}
+
+export interface AnkiFlushQueueResponse {
+  ankiReachable: boolean;
+  pushed: number;
+  duplicates: number;
+  remaining: number;
+  errors: number;
+}
+
+export interface AnkiTestMessage {
+  type: 'SENSEI_ANKI_TEST';
+  url?: string;
+}
+
+export interface AnkiTestResponse {
+  reachable: boolean;
+  version?: number;
+  decks?: string[];
+  models?: string[];
+  queueLength: number;
+  error?: string;
+}
+
 export function isApiCallMessage(msg: unknown): msg is ApiCallMessage {
   return (
     typeof msg === 'object' &&
@@ -170,6 +212,31 @@ export function isTabStateChangedMessage(msg: unknown): msg is TabStateChangedMe
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_TAB_STATE_CHANGED'
+  );
+}
+
+export function isAnkiPushCardMessage(msg: unknown): msg is AnkiPushCardMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_ANKI_PUSH_CARD' &&
+    typeof (msg as { cardId?: unknown }).cardId === 'number'
+  );
+}
+
+export function isAnkiFlushQueueMessage(msg: unknown): msg is AnkiFlushQueueMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_ANKI_FLUSH_QUEUE'
+  );
+}
+
+export function isAnkiTestMessage(msg: unknown): msg is AnkiTestMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_ANKI_TEST'
   );
 }
 
@@ -592,6 +659,79 @@ export const api = {
       method: 'POST',
       json: payload,
     });
+  },
+
+  getAnkiModel(): Promise<ApiCallResponse<AnkiModel>> {
+    return api.call<AnkiModel>('/anki/model');
+  },
+
+  getAnkiNote(cardId: number, deck = 'Sensei'): Promise<ApiCallResponse<AnkiNotePayload>> {
+    const params = new URLSearchParams({ deck });
+    return api.call<AnkiNotePayload>(`/cards/${cardId}/anki-note?${params.toString()}`);
+  },
+
+  async pushCardToAnki(cardId: number): Promise<AnkiPushCardResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { status: 'error', message: 'Extension background worker unavailable', queueLength: 0 };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_ANKI_PUSH_CARD',
+        cardId,
+      } satisfies AnkiPushCardMessage)) as AnkiPushCardResponse | undefined;
+      if (res && typeof res.status === 'string') {
+        return res;
+      }
+      return { status: 'error', message: 'Invalid Anki push response', queueLength: 0 };
+    } catch (err) {
+      return {
+        status: 'error',
+        message: err instanceof Error ? err.message : String(err),
+        queueLength: 0,
+      };
+    }
+  },
+
+  async flushAnkiQueue(): Promise<AnkiFlushQueueResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { ankiReachable: false, pushed: 0, duplicates: 0, remaining: 0, errors: 0 };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_ANKI_FLUSH_QUEUE',
+      } satisfies AnkiFlushQueueMessage)) as AnkiFlushQueueResponse | undefined;
+      if (res && typeof res.ankiReachable === 'boolean') {
+        return res;
+      }
+      return { ankiReachable: false, pushed: 0, duplicates: 0, remaining: 0, errors: 0 };
+    } catch {
+      return { ankiReachable: false, pushed: 0, duplicates: 0, remaining: 0, errors: 0 };
+    }
+  },
+
+  async testAnkiConnect(url?: string): Promise<AnkiTestResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { reachable: false, queueLength: 0, error: 'Extension background worker unavailable' };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_ANKI_TEST',
+        url,
+      } satisfies AnkiTestMessage)) as AnkiTestResponse | undefined;
+      if (res && typeof res.reachable === 'boolean') {
+        return res;
+      }
+      return { reachable: false, queueLength: 0, error: 'Invalid Anki test response' };
+    } catch (err) {
+      return {
+        reachable: false,
+        queueLength: 0,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   },
 
   async uploadMedia(

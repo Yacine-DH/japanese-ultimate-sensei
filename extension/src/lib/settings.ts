@@ -13,11 +13,18 @@ export interface ExtensionSettings {
   pauseOnHover: boolean;
   requireShiftForHover: boolean;
   autoPauseEachLine: boolean;
+  ankiConnectEnabled: boolean;
+  ankiConnectUrl: string;
+  ankiDeckName: string;
+  ankiModelName: string;
   urlMappings: Record<string, number>;
   hotkeys: HotkeyBindings;
 }
 
 export const DEFAULT_SERVER_URL = '';
+export const DEFAULT_ANKI_CONNECT_URL = 'http://localhost:8765';
+export const DEFAULT_ANKI_DECK_NAME = 'Sensei';
+export const DEFAULT_ANKI_MODEL_NAME = 'Sensei Japanese';
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   serverUrl: DEFAULT_SERVER_URL,
@@ -29,6 +36,10 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   pauseOnHover: DEFAULT_HOVER_CONFIG.pauseOnHover,
   requireShiftForHover: DEFAULT_HOVER_CONFIG.requireShiftForHover,
   autoPauseEachLine: false,
+  ankiConnectEnabled: false,
+  ankiConnectUrl: DEFAULT_ANKI_CONNECT_URL,
+  ankiDeckName: DEFAULT_ANKI_DECK_NAME,
+  ankiModelName: DEFAULT_ANKI_MODEL_NAME,
   urlMappings: {},
   hotkeys: DEFAULT_HOTKEYS,
 };
@@ -69,6 +80,10 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     ? Math.max(0, Math.min(20, Math.round(rawLimit)))
     : DEFAULT_SETTINGS.highlightLimit;
 
+  const ankiUrl = normalizeServerUrl(String(merged.ankiConnectUrl ?? DEFAULT_ANKI_CONNECT_URL));
+  const ankiDeck = String(merged.ankiDeckName ?? DEFAULT_ANKI_DECK_NAME).trim();
+  const ankiModel = String(merged.ankiModelName ?? DEFAULT_ANKI_MODEL_NAME).trim();
+
   return {
     serverUrl: normalizeServerUrl(String(merged.serverUrl ?? DEFAULT_SERVER_URL)),
     apiToken: String(merged.apiToken ?? '').trim(),
@@ -79,6 +94,10 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     pauseOnHover: Boolean(merged.pauseOnHover),
     requireShiftForHover: Boolean(merged.requireShiftForHover),
     autoPauseEachLine: Boolean(merged.autoPauseEachLine),
+    ankiConnectEnabled: Boolean(merged.ankiConnectEnabled),
+    ankiConnectUrl: isServerUrlConfigured(ankiUrl) ? ankiUrl : DEFAULT_ANKI_CONNECT_URL,
+    ankiDeckName: ankiDeck || DEFAULT_ANKI_DECK_NAME,
+    ankiModelName: ankiModel || DEFAULT_ANKI_MODEL_NAME,
     urlMappings: sanitizeUrlMappings(merged.urlMappings),
     hotkeys: sanitizeHotkeys(merged.hotkeys),
   };

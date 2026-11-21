@@ -29,6 +29,23 @@ const romajiToggle = document.getElementById('romaji-toggle') as HTMLInputElemen
 const testBtn = document.getElementById('test-btn') as HTMLButtonElement;
 const statusBox = document.getElementById('status-box') as HTMLDivElement;
 const firstRunBanner = document.getElementById('first-run-banner') as HTMLDivElement;
+const ankiForm = document.getElementById('anki-form') as HTMLFormElement;
+const ankiEnabledToggle = document.getElementById('anki-enabled-toggle') as HTMLInputElement;
+const ankiUrlInput = document.getElementById('anki-url') as HTMLInputElement;
+const ankiDeckInput = document.getElementById('anki-deck') as HTMLInputElement;
+const ankiModelInput = document.getElementById('anki-model') as HTMLInputElement;
+const ankiTestBtn = document.getElementById('anki-test-btn') as HTMLButtonElement;
+const ankiSyncBtn = document.getElementById('anki-sync-btn') as HTMLButtonElement;
+const ankiStatus = document.getElementById('anki-status') as HTMLDivElement;
+
+function showAnkiStatus(message: string, ok: boolean): void {
+  ankiStatus.textContent = message;
+  ankiStatus.className = `status ${ok ? 'ok' : 'err'}`;
+}
+
+function updateAnkiQueueBadge(count: number): void {
+  ankiSyncBtn.textContent = `Sync Queue (${count})`;
+}
 
 function updateFirstRunBanner(url: string): void {
   if (!isServerUrlConfigured(url)) {
@@ -54,7 +71,13 @@ async function init(): Promise<void> {
   shiftHoverToggle.checked = settings.requireShiftForHover;
   autoPauseToggle.checked = settings.autoPauseEachLine;
   romajiToggle.checked = settings.romaji;
+  ankiEnabledToggle.checked = settings.ankiConnectEnabled;
+  ankiUrlInput.value = settings.ankiConnectUrl;
+  ankiDeckInput.value = settings.ankiDeckName;
+  ankiModelInput.value = settings.ankiModelName;
   updateFirstRunBanner(settings.serverUrl);
+  const probe = await api.testAnkiConnect(settings.ankiConnectUrl);
+  updateAnkiQueueBadge(probe.queueLength);
 }
 
 form.addEventListener('submit', async (event) => {
@@ -187,4 +210,64 @@ hotkeyResetBtn.addEventListener('click', async () => {
 void getKeyboardLayoutMap().then((map) => {
   layoutMap = map;
   void renderHotkeys();
+});
+
+// ---- AnkiConnect (E-6) ----
+ankiForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const saved = await saveSettings({
+    ankiConnectEnabled: ankiEnabledToggle.checked,
+    ankiConnectUrl: ankiUrlInput.value,
+    ankiDeckName: ankiDeckInput.value,
+    ankiModelName: ankiModelInput.value,
+  });
+  ankiUrlInput.value = saved.ankiConnectUrl;
+  ankiDeckInput.value = saved.ankiDeckName;
+  ankiModelInput.value = saved.ankiModelName;
+  showAnkiStatus(
+    saved.ankiConnectEnabled
+      ? `AnkiConnect enabled → deck "${saved.ankiDeckName}" (${saved.ankiModelName}).`
+      : 'AnkiConnect push disabled (settings saved).',
+    true,
+  );
+});
+
+ankiTestBtn.addEventListener('click', async () => {
+  const saved = await saveSettings({
+    ankiConnectEnabled: ankiEnabledToggle.checked,
+    ankiConnectUrl: ankiUrlInput.value,
+    ankiDeckName: ankiDeckInput.value,
+    ankiModelName: ankiModelInput.value,
+  });
+  const res = await api.testAnkiConnect(saved.ankiConnectUrl);
+  updateAnkiQueueBadge(res.queueLength);
+  if (res.reachable) {
+    const deckCount = res.decks?.length ?? 0;
+    const hasModel = res.models?.includes(saved.ankiModelName) ?? false;
+    showAnkiStatus(
+      `Connected to AnkiConnect v${res.version} · ${deckCount} decks · note type "${saved.ankiModelName}": ${hasModel ? 'ready' : 'will be created on first push'} · queue: ${res.queueLength}.`,
+      true,
+    );
+  } else {
+    showAnkiStatus(
+      `AnkiConnect unreachable at ${saved.ankiConnectUrl}: ${res.error ?? 'Is Anki open with AnkiConnect installed?'}`,
+      false,
+    );
+  }
+});
+
+ankiSyncBtn.addEventListener('click', async () => {
+  const res = await api.flushAnkiQueue();
+  updateAnkiQueueBadge(res.remaining);
+  if (!res.ankiReachable) {
+    showAnkiStatus(
+      `Anki is not reachable yet (${res.remaining} card${res.remaining === 1 ? '' : 's'} still queued).`,
+      false,
+    );
+    return;
+  }
+  showAnkiStatus(
+    `Synced queue: ${res.pushed} pushed, ${res.duplicates} already in Anki, ${res.remaining} remaining${res.errors ? `, ${res.errors} errors` : ''}.`,
+    res.errors === 0,
+  );
 });

@@ -32,6 +32,20 @@ export function formatDeckDisplayName(deck: string): string {
   return deck.split('\u001f').join('::');
 }
 
+export function parseContentDispositionFilename(
+  header: string | null,
+  fallback = 'sensei-export.apkg',
+): string {
+  if (!header) return fallback;
+  const match = /filename\*?=(?:UTF-8''|")?([^";\r\n]+)"?/i.exec(header);
+  if (!match?.[1]) return fallback;
+  try {
+    return decodeURIComponent(match[1].trim());
+  } catch {
+    return match[1].trim();
+  }
+}
+
 export function countNonEmptyLines(text: string): number {
   return text
     .split(/\r?\n/)
