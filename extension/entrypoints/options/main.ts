@@ -37,10 +37,41 @@ const ankiModelInput = document.getElementById('anki-model') as HTMLInputElement
 const ankiTestBtn = document.getElementById('anki-test-btn') as HTMLButtonElement;
 const ankiSyncBtn = document.getElementById('anki-sync-btn') as HTMLButtonElement;
 const ankiStatus = document.getElementById('anki-status') as HTMLDivElement;
+const ankiImportDeckSelect = document.getElementById('anki-import-deck') as HTMLSelectElement;
+const ankiImportFieldInput = document.getElementById('anki-import-field') as HTMLInputElement;
+const ankiImportPreviewBtn = document.getElementById('anki-import-preview-btn') as HTMLButtonElement;
+const ankiImportConfirmBtn = document.getElementById('anki-import-confirm-btn') as HTMLButtonElement;
+const ankiImportStatus = document.getElementById('anki-import-status') as HTMLDivElement;
 
 function showAnkiStatus(message: string, ok: boolean): void {
   ankiStatus.textContent = message;
   ankiStatus.className = `status ${ok ? 'ok' : 'err'}`;
+}
+
+function showAnkiImportStatus(message: string, ok: boolean): void {
+  ankiImportStatus.textContent = message;
+  ankiImportStatus.className = `status ${ok ? 'ok' : 'err'}`;
+}
+
+function populateAnkiImportDecks(decks: string[] | undefined): void {
+  const prev = ankiImportDeckSelect.value;
+  ankiImportDeckSelect.innerHTML = '';
+  if (!decks || decks.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No Anki decks loaded (open Anki & click Test AnkiConnect)';
+    ankiImportDeckSelect.appendChild(opt);
+    return;
+  }
+  for (const name of decks) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    ankiImportDeckSelect.appendChild(opt);
+  }
+  if (prev && decks.includes(prev)) {
+    ankiImportDeckSelect.value = prev;
+  }
 }
 
 function updateAnkiQueueBadge(count: number): void {
@@ -78,6 +109,9 @@ async function init(): Promise<void> {
   updateFirstRunBanner(settings.serverUrl);
   const probe = await api.testAnkiConnect(settings.ankiConnectUrl);
   updateAnkiQueueBadge(probe.queueLength);
+  if (probe.reachable) {
+    populateAnkiImportDecks(probe.decks);
+  }
 }
 
 form.addEventListener('submit', async (event) => {
@@ -242,6 +276,7 @@ ankiTestBtn.addEventListener('click', async () => {
   const res = await api.testAnkiConnect(saved.ankiConnectUrl);
   updateAnkiQueueBadge(res.queueLength);
   if (res.reachable) {
+    populateAnkiImportDecks(res.decks);
     const deckCount = res.decks?.length ?? 0;
     const hasModel = res.models?.includes(saved.ankiModelName) ?? false;
     showAnkiStatus(
@@ -271,3 +306,48 @@ ankiSyncBtn.addEventListener('click', async () => {
     res.errors === 0,
   );
 });
+
+async function runAnkiImport(dryRun: boolean): Promise<void> {
+  const deck = ankiImportDeckSelect.value.trim();
+  if (!deck) {
+    showAnkiImportStatus('Pick an Anki deck first (click Test AnkiConnect to load decks).', false);
+    return;
+  }
+  ankiImportPreviewBtn.disabled = true;
+  ankiImportConfirmBtn.disabled = true;
+  showAnkiImportStatus(
+    dryRun ? `Previewing "${deck}"…` : `Importing known words from "${deck}"…`,
+    true,
+  );
+  try {
+    const res = await api.importAnkiDeck({
+      deck,
+      fieldName: ankiImportFieldInput.value.trim() || undefined,
+      matureDays: 21,
+      dryRun,
+    });
+    if (!res.ok || !res.report) {
+      showAnkiImportStatus(`Import failed: ${res.error ?? 'Unknown error'}`, false);
+      return;
+    }
+    if (dryRun && !ankiImportFieldInput.value.trim() && res.fieldUsed) {
+      ankiImportFieldInput.value = res.fieldUsed;
+    }
+    const r = res.report;
+    const verb = dryRun ? 'Preview (nothing saved): would update' : 'Imported! Updated';
+    const fieldsHint =
+      res.fields && res.fields.length > 0
+        ? ` · field "${res.fieldUsed || 'auto'}" (available: ${res.fields.slice(0, 6).join(', ')})`
+        : '';
+    showAnkiImportStatus(
+      `${verb} ${r.updated} words (${r.matched} matched, ${r.already} already set, ${r.skipped_new} unstudied skipped, ${r.unmatched_count} unmatched)${fieldsHint}.`,
+      true,
+    );
+  } finally {
+    ankiImportPreviewBtn.disabled = false;
+    ankiImportConfirmBtn.disabled = false;
+  }
+}
+
+ankiImportPreviewBtn.addEventListener('click', () => void runAnkiImport(true));
+ankiImportConfirmBtn.addEventListener('click', () => void runAnkiImport(false));

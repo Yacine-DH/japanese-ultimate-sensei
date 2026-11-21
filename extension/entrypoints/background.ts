@@ -9,7 +9,9 @@ import {
   executeApiCall,
   executeMediaUpload,
   executeSubtitleUpload,
+  type ImportReport,
   isAnkiFlushQueueMessage,
+  isAnkiImportDeckMessage,
   isAnkiPushCardMessage,
   isAnkiTestMessage,
   isApiCallMessage,
@@ -27,6 +29,7 @@ import {
 } from '../src/api/client';
 import {
   AnkiPushQueue,
+  importDeckFromAnkiConnect,
   type LocalStorageLike,
   pushCardToAnki,
   testAnkiConnect,
@@ -253,6 +256,24 @@ export default defineBackground(() => {
           const url = message.url?.trim() || settings.ankiConnectUrl;
           const [status, queued] = await Promise.all([testAnkiConnect(url), ankiQueue.list()]);
           return { ...status, queueLength: queued.length };
+        })();
+      }
+
+      if (isAnkiImportDeckMessage(message)) {
+        return (async () => {
+          const settings = await getSettings();
+          return importDeckFromAnkiConnect({
+            ankiUrl: settings.ankiConnectUrl,
+            deck: message.deck,
+            fieldName: message.fieldName,
+            matureDays: message.matureDays ?? 21,
+            dryRun: message.dryRun,
+            sendChunk: (payload) =>
+              executeApiCall<ImportReport>(settings, '/import/anki/cards', {
+                method: 'POST',
+                json: payload,
+              }),
+          });
         })();
       }
 

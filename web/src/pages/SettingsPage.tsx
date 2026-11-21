@@ -1,6 +1,12 @@
 import { type FormEvent, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { verifyWebConnection, type WebConnectionCheck } from '../api/client';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import {
+  apiClient,
+  SenseiApiError,
+  verifyWebConnection,
+  type WebConnectionCheck,
+} from '../api/client';
+import { ImportWordsPanel } from '../components/ImportWordsPanel';
 import {
   type GlossLanguage,
   loadWebSettings,
@@ -22,9 +28,41 @@ export function SettingsPage() {
   const [glossLang, setGlossLang] = useState<GlossLanguage>(savedSettings.glossLang);
   const [romaji, setRomaji] = useState(savedSettings.romaji);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [ankiNotice, setAnkiNotice] = useState<string | null>(null);
+  const [exportDeck, setExportDeck] = useState('Sensei');
+  const [exportSince, setExportSince] = useState('');
+  const [exportMessage, setExportMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [testResult, setTestResult] = useState<
     { state: 'idle' } | { state: 'testing' } | WebConnectionCheck
   >({ state: 'idle' });
+
+  const exportAnkiMutation = useMutation({
+    mutationFn: () =>
+      apiClient.downloadAnkiApkg({
+        deck: exportDeck.trim() || 'Sensei',
+        since: exportSince ? `${exportSince}T00:00:00Z` : undefined,
+      }),
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setExportMessage({ ok: true, text: `Downloaded ${filename}.` });
+    },
+    onError: (err) => {
+      const msg =
+        err instanceof SenseiApiError
+          ? err.status === 404
+            ? 'No saved cards match this filter yet.'
+            : err.message
+          : 'Failed to export .apkg.';
+      setExportMessage({ ok: false, text: msg });
+    },
+  });
 
   // Only queries against saved settings — never re-fires on form keystrokes (#7).
   const healthQuery = useQuery({
@@ -58,7 +96,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="max-w-xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-100">Settings</h1>
         <p className="text-sm text-slate-400 mt-1">
@@ -204,6 +242,67 @@ export function SettingsPage() {
           <div className="text-xs text-rose-400">Server unreachable: {testResult.message}</div>
         )}
       </form>
+
+      {/* Anki Export (.apkg) — W-8 (#76) */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-slate-100">Export Cards to Anki (.apkg)</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Download your saved Sensei cards with screenshots, MP3 audio, and clips. Re-importing a
+            newer export into Anki updates existing notes without creating duplicates.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <label className="space-y-1">
+            <span className="block text-slate-400">Anki Deck Name</span>
+            <input
+              type="text"
+              value={exportDeck}
+              onChange={(e) => setExportDeck(e.target.value)}
+              placeholder="Sensei"
+              className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="block text-slate-400">Only cards created since (optional)</span>
+            <input
+              type="date"
+              value={exportSince}
+              onChange={(e) => setExportSince(e.target.value)}
+              className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-slate-100"
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={exportAnkiMutation.isPending}
+            onClick={() => exportAnkiMutation.mutate()}
+            className="px-4 py-2 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-xs disabled:opacity-50 cursor-pointer"
+          >
+            {exportAnkiMutation.isPending ? 'Building .apkg…' : 'Download .apkg'}
+          </button>
+          {exportMessage && (
+            <span
+              className={`text-xs ${exportMessage.ok ? 'text-emerald-400' : 'text-amber-300'}`}
+            >
+              {exportMessage.text}
+            </span>
+          )}
+        </div>
+      </section>
+
+      {/* Anki / Word-List Known-Word Import — W-8 (#76) */}
+      <div className="space-y-2">
+        {ankiNotice && (
+          <div className="text-xs px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+            {ankiNotice}
+          </div>
+        )}
+        <ImportWordsPanel onImported={(summary) => setAnkiNotice(summary)} />
+      </div>
     </div>
   );
 }
