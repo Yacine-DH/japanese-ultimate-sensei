@@ -247,5 +247,31 @@ The same from AnkiConnect on the laptop (`findCards` + `cardsInfo`: word field v
 ### `POST /import/words` body `{"text":"食べる\n海賊\n…","status":"known","dry_run":false}`
 One word per line (HTML / `食[た]べる` furigana are cleaned). `status` = `known` or `learning`.
 
-## Coming in Phase 1 (not implemented yet; see TASKS.md)
-Anki export (#17).
+## Anki export
+Note type **"Sensei Japanese"**, fields: `Word, Reading, MeaningEN, MeaningDE, Sentence` (Anki
+furigana syntax `漢字[かんじ]`, the word in `<b>`), `SentenceRomaji, Screenshot` (`<img>`),
+`Audio` (`[sound:…mp3]`), `Clip` (`<video autoplay loop muted>`), `Source` ("Anime · Ep 1 · 3:21"),
+`SenseiId`. One "Recognition" card (front: screenshot, word, sentence without furigana).
+Media files are named `sensei-<media id>.<ext>`; audio is converted to MP3 for Anki.
+Note GUIDs come from the card id: **re-importing a newer export updates notes**, no duplicates.
+
+### `GET /export/anki.apkg?since=<ISO datetime>&deck=Sensei` → `.apkg` file
+All cards (or created since). 404 if none. Needs the auth header: in the web app, `fetch` it
+and save the blob (`Content-Disposition` has a filename).
+
+### `GET /cards/{id}/anki-note?deck=Sensei` → `AnkiNotePayload` (for AnkiConnect, E-6)
+```json
+{"note":{"deckName":"Sensei","modelName":"Sensei Japanese","fields":{"Word":"食べる","…":"…"},
+  "tags":["sensei","sensei::Frieren"],"options":{"allowDuplicate":false,"duplicateScope":"deck"}},
+ "media":[{"filename":"sensei-3.webp","url":"http://<server>:8000/media/3?sig=…"},
+          {"filename":"sensei-4.mp3","url":"http://<server>:8000/media/4?sig=…&format=mp3"}]}
+```
+AnkiConnect sequence on the laptop: `modelNames` → if "Sensei Japanese" is missing,
+`createModel` with `GET /anki/model`; `createDeck {deck}`; `storeMediaFile {filename, url}`
+for each `media`; `addNote {note}`. A duplicate error from `addNote` means the card is already in Anki.
+
+### `GET /anki/model` → AnkiConnect `createModel` params
+`{"modelName":"Sensei Japanese","inOrderFields":[…],"css":"…","isCloze":false,"cardTemplates":[{"Name":"Recognition","Front":"…","Back":"…"}]}`
+
+### `GET /media/{id}?sig=…&format=mp3`
+Audio only: MP3 copy (cached), used by the Anki export.

@@ -9,6 +9,7 @@ import logging
 import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import (
@@ -27,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlmodel import Session, delete, func, or_, select
 
-from app import __version__, anki_import, srs
+from app import __version__, anki_export, anki_import, srs
 from app import activity as act
 from app import media as media_lib
 from app.config import Settings, check_auth_settings, get_settings
@@ -61,6 +62,10 @@ from app.schemas import (
     AnimeOut,
     AnimeProgress,
     AnkiCardsImport,
+    AnkiConnectNote,
+    AnkiMediaFile,
+    AnkiModel,
+    AnkiNotePayload,
     BulkStatusIn,
     BulkStatusOut,
     CardCreate,
@@ -676,6 +681,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         media_id: int,
         request: Request,
         sig: str | None = Query(None, description="Signature from MediaOut.url"),
+        format: Literal["mp3"] | None = Query(None, description="audio only: MP3 copy (for Anki)"),
         session: Session = Depends(get_session),
     ):
         """Serve a media file. Auth: the usual token header, or the `sig` in `MediaOut.url`."""
@@ -687,7 +693,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not m or not path or not path.is_file():
             raise HTTPException(404, "media not found")
         cache = "no-cache" if is_raw(m) else "private, max-age=31536000, immutable"
-        return FileResponse(path, media_type=m.mime, headers={"Cache-Control": cache})
+        mime = m.mime
+        if format == "mp3":
+            if m.kind != MediaKind.audio or is_raw(m):
+                raise HTTPException(422, "mp3 is only available for finished audio")
+            try:
+                path, mime = media_lib.ensure_mp3(path), "audio/mpeg"
+            except media_lib.MediaError as e:
+                raise HTTPException(500, str(e)) from e
+        return FileResponse(path, media_type=mime, headers={"Cache-Control": cache})
 
     @app.delete("/media/{media_id}", status_code=204, dependencies=auth, tags=["media"])
     def delete_media(media_id: int, session: Session = Depends(get_session)):
@@ -695,6 +709,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not m:
             raise HTTPException(404, "media not found")
         (media_dir / m.path).unlink(missing_ok=True)
+        (media_dir / m.path).with_suffix(".mp3").unlink(missing_ok=True)
         session.delete(m)
         session.commit()
 
@@ -906,5 +921,74 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             items.append((c.expression, status))
         r = anki_import.apply_words(session, uid, items, app.state.dictionary, body.dry_run, report)
         return report_out(r)
+
+    # ---- Anki export (S-5) ----------------------------------------------------------------
+
+    @app.get(
+        "/export/anki.apkg",
+        dependencies=auth,
+        tags=["anki"],
+        response_class=Response,
+        responses={200: {"content": {"application/apkg": {}}, "description": "Anki package"}},
+    )
+    def export_apkg(
+        since: datetime | None = Query(None, description="Only cards created at/after (ISO)"),
+        deck: str = Query("Sensei", min_length=1, max_length=100),
+        session: Session = Depends(get_session),
+    ):
+        """All cards (or those created since a date) as an .apkg with screenshot, MP3 audio
+        and clip. Re-importing a newer export updates existing notes."""
+        stmt = select(Card).where(Card.user_id == uid).order_by(Card.id)  # type: ignore[arg-type]
+        if since is not None:
+            stmt = stmt.where(Card.created_at >= since.astimezone(UTC))
+        cards = list(session.exec(stmt).all())
+        if not cards:
+            raise HTTPException(404, "no cards to export")
+        data = anki_export.build_apkg(session, cards, deck, app.state.dictionary, media_dir)
+        name = f"sensei-{datetime.now():%Y%m%d}.apkg"
+        return Response(
+            data,
+            media_type="application/apkg",
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+
+    @app.get("/anki/model", response_model=AnkiModel, dependencies=auth, tags=["anki"])
+    def anki_model():
+        """AnkiConnect `createModel` params for the 'Sensei Japanese' note type."""
+        return anki_export.create_model_params()
+
+    @app.get(
+        "/cards/{card_id}/anki-note",
+        response_model=AnkiNotePayload,
+        dependencies=auth,
+        tags=["anki"],
+    )
+    def anki_note(
+        card_id: int,
+        request: Request,
+        deck: str = Query("Sensei", min_length=1, max_length=100),
+        session: Session = Depends(get_session),
+    ):
+        """AnkiConnect payload for one card: `storeMediaFile` each `media` item, then
+        `addNote` with `note`. Media URLs are absolute (this server's address as the client
+        reached it) and signed, so Anki on the laptop can download them."""
+        card = get_card(session, card_id)
+        media = anki_export.card_media(session, card)
+        base = str(request.base_url).rstrip("/")
+        files = []
+        for m in media.values():
+            url = base + media_out(m).url
+            if m.kind == MediaKind.audio:
+                url += ("&" if "?" in url else "?") + "format=mp3"
+            files.append(AnkiMediaFile(filename=anki_export.media_filename(m), url=url))
+        return AnkiNotePayload(
+            note=AnkiConnectNote(
+                deckName=deck,
+                modelName=anki_export.MODEL_NAME,
+                fields=anki_export.note_fields(session, card, app.state.dictionary, media),
+                tags=anki_export.tags_for(session, card),
+            ),
+            media=files,
+        )
 
     return app

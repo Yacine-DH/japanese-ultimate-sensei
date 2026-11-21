@@ -375,3 +375,42 @@ class AnkiCardsImport(BaseModel):
     cards: list[AnkiCardIn] = Field(max_length=100_000)
     mature_days: int = Field(default=21, ge=1, le=365)
     dry_run: bool = False
+
+
+# ---- Anki export (S-5) -----------------------------------------------------------------
+
+
+class AnkiConnectNote(BaseModel):
+    deckName: str
+    modelName: str
+    fields: dict[str, str]
+    tags: list[str]
+    options: dict = Field(default={"allowDuplicate": False, "duplicateScope": "deck"})
+
+
+class AnkiMediaFile(BaseModel):
+    filename: str
+    url: str = Field(
+        description="Absolute, signed: pass to AnkiConnect storeMediaFile {filename, url}"
+    )
+
+
+class AnkiNotePayload(BaseModel):
+    note: AnkiConnectNote = Field(description="Pass as AnkiConnect addNote {note}")
+    media: list[AnkiMediaFile] = Field(description="storeMediaFile each one before addNote")
+
+
+class AnkiCardTemplate(BaseModel):
+    Name: str
+    Front: str
+    Back: str
+
+
+class AnkiModel(BaseModel):
+    """AnkiConnect createModel params for the 'Sensei Japanese' note type."""
+
+    modelName: str
+    inOrderFields: list[str]
+    css: str
+    isCloze: bool
+    cardTemplates: list[AnkiCardTemplate]
