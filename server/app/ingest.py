@@ -7,6 +7,8 @@ from sqlmodel import Session, select
 
 from app.dictionary import Dictionary
 from app.models import Episode, SubtitleLine, UserWord, Word, WordStatus
+from app.nlp.frequency import zipf
+from app.nlp.kana import has_kanji
 from app.nlp.tokenizer import Token, is_proper_noun, tokenize
 from app.subtitles import ParsedLine
 
@@ -32,7 +34,9 @@ class WordResolver:
             word.jmdict_id, word.common = hit  # dictionary was missing/older at first ingest
             self.session.add(word)
         if word is None:
-            word = Word(lemma=tok.lemma, reading=tok.lemma_reading, pos=tok.pos)
+            word = Word(
+                lemma=tok.lemma, reading=tok.lemma_reading, pos=tok.pos, zipf=zipf(tok.lemma)
+            )
             hit = self._jmdict(tok)
             if hit:
                 word.jmdict_id, word.common = hit
@@ -44,7 +48,10 @@ class WordResolver:
     def _jmdict(self, tok: Token) -> tuple[str, bool] | None:
         if not self.dictionary:
             return None
-        for text in dict.fromkeys([tok.lemma, tok.normalized, tok.lemma_reading]):
+        # Sudachi's normalized form names the kanji a kana word stands for (いる → 居る,
+        # こと → 事, とる → 取る), which picks the right entry among homophones: try it first.
+        normalized = tok.normalized if has_kanji(tok.normalized or "") else None
+        for text in dict.fromkeys(filter(None, [normalized, tok.lemma, tok.lemma_reading])):
             if text and (hit := self.dictionary.best(text, tok.lemma_reading)):
                 return hit
         return None
@@ -162,3 +169,23 @@ def understanding_of(session: Session, user_id: int, episode_ids: Iterable[int])
         "token_pct": pct(known_tokens, total_tokens),
         "unique_pct": pct(known_unique, len(counts)),
     }
+
+
+def relink_words(session: Session, dictionary: Dictionary) -> int:
+    """Recompute every word's JMdict link with the current rules. Returns words changed."""
+    resolver = WordResolver(session, dictionary)
+    changed = 0
+    for word in session.exec(select(Word)).all():
+        toks = [t for t in tokenize(word.lemma) if t.is_content or t.is_proper_noun] or tokenize(
+            word.lemma
+        )
+        if not toks:
+            continue
+        tok = toks[0]
+        tok.lemma, tok.lemma_reading = word.lemma, word.reading
+        hit = resolver._jmdict(tok)
+        if hit and (word.jmdict_id, word.common) != hit:
+            word.jmdict_id, word.common = hit
+            session.add(word)
+            changed += 1
+    return changed

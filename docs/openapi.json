@@ -186,6 +186,7 @@
           "episodes"
         ],
         "summary": "Delete Episode",
+        "description": "Delete an episode and its lines. Cards saved from it are kept (their sentence text\nstays; they just lose the link to the line). Watch time for it is removed.",
         "operationId": "delete_episode_episodes__episode_id__delete",
         "parameters": [
           {
@@ -387,6 +388,24 @@
               "default": 5,
               "title": "Limit"
             }
+          },
+          {
+            "name": "word_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Token's word_id: its linked entry comes first (exact homophone)",
+              "title": "Word Id"
+            },
+            "description": "Token's word_id: its linked entry comes first (exact homophone)"
           }
         ],
         "responses": {
@@ -510,6 +529,22 @@
               "default": 0,
               "title": "Offset"
             }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "auto",
+                "frequency"
+              ],
+              "type": "string",
+              "description": "auto: by occurrences with anime/episode, else newest; frequency: zipf",
+              "default": "auto",
+              "title": "Sort"
+            },
+            "description": "auto: by occurrences with anime/episode, else newest; frequency: zipf"
           }
         ],
         "responses": {
@@ -1636,6 +1671,77 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AnkiNotePayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/episodes/{episode_id}/missed": {
+      "get": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Missed Words",
+        "description": "After an episode: the unknown words most worth learning, best first (general\nfrequency + how often this episode and anime use them). Names are excluded.",
+        "operationId": "missed_words_episodes__episode_id__missed_get",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "include_learning",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Also list words you're learning",
+              "default": false,
+              "title": "Include Learning"
+            },
+            "description": "Also list words you're learning"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MissedWord"
+                  },
+                  "title": "Response Missed Words Episodes  Episode Id  Missed Get"
                 }
               }
             }
@@ -2863,6 +2969,29 @@
         ],
         "title": "EpisodeRef"
       },
+      "ExampleLine": {
+        "properties": {
+          "line_id": {
+            "type": "integer",
+            "title": "Line Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_id",
+          "text",
+          "start_ms"
+        ],
+        "title": "ExampleLine"
+      },
       "FuriganaSegment": {
         "properties": {
           "text": {
@@ -3333,6 +3462,68 @@
         ],
         "title": "MediaOut"
       },
+      "MissedWord": {
+        "properties": {
+          "word": {
+            "$ref": "#/components/schemas/WordListItem",
+            "description": "`occurrences` = times spoken in this episode"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "Usefulness: general frequency + use in this episode/anime"
+          },
+          "anime_occurrences": {
+            "type": "integer",
+            "title": "Anime Occurrences",
+            "description": "Times spoken across the whole anime"
+          },
+          "example": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExampleLine"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First line of the episode with the word"
+          },
+          "gloss_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss En",
+            "description": "First meaning (short), for a quick list"
+          },
+          "gloss_de": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss De"
+          }
+        },
+        "type": "object",
+        "required": [
+          "word",
+          "score",
+          "anime_occurrences",
+          "example",
+          "gloss_en",
+          "gloss_de"
+        ],
+        "title": "MissedWord"
+      },
       "ProgressPoint": {
         "properties": {
           "day": {
@@ -3621,8 +3812,20 @@
           "common": {
             "type": "boolean",
             "title": "Common",
-            "description": "JMdict common word — highlight priority",
+            "description": "JMdict common word",
             "default": false
+          },
+          "zipf": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zipf",
+            "description": "General frequency (Zipf 0–8; 5+ everyday, <3 rare, 0 unknown). Rank unknown words to highlight by this, highest first"
           }
         },
         "type": "object",
@@ -3839,6 +4042,18 @@
             "type": "boolean",
             "title": "Common"
           },
+          "zipf": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zipf",
+            "description": "General frequency (Zipf 0–8)"
+          },
           "status": {
             "$ref": "#/components/schemas/WordStatus"
           },
@@ -3899,6 +4114,18 @@
           "common": {
             "type": "boolean",
             "title": "Common"
+          },
+          "zipf": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zipf",
+            "description": "General frequency (Zipf 0–8)"
           },
           "status": {
             "$ref": "#/components/schemas/WordStatus"

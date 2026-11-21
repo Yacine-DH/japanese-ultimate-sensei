@@ -41,7 +41,12 @@ class TokenOut(BaseModel):
     )
     word_id: int | None
     status: WordStatus | None = Field(description="User's status for word_id; null if no word")
-    common: bool = Field(default=False, description="JMdict common word — highlight priority")
+    common: bool = Field(default=False, description="JMdict common word")
+    zipf: float | None = Field(
+        default=None,
+        description="General frequency (Zipf 0–8; 5+ everyday, <3 rare, 0 unknown). Rank "
+        "unknown words to highlight by this, highest first",
+    )
 
 
 class LineOut(BaseModel):
@@ -100,6 +105,7 @@ class WordOut(BaseModel):
     pos: str
     jmdict_id: str | None
     common: bool
+    zipf: float | None = Field(default=None, description="General frequency (Zipf 0–8)")
     status: WordStatus
 
 
@@ -414,3 +420,21 @@ class AnkiModel(BaseModel):
     css: str
     isCloze: bool
     cardTemplates: list[AnkiCardTemplate]
+
+
+# ---- missed words (S-8) ----------------------------------------------------------------
+
+
+class ExampleLine(BaseModel):
+    line_id: int
+    text: str
+    start_ms: int
+
+
+class MissedWord(BaseModel):
+    word: WordListItem = Field(description="`occurrences` = times spoken in this episode")
+    score: float = Field(description="Usefulness: general frequency + use in this episode/anime")
+    anime_occurrences: int = Field(description="Times spoken across the whole anime")
+    example: ExampleLine | None = Field(description="First line of the episode with the word")
+    gloss_en: str | None = Field(description="First meaning (short), for a quick list")
+    gloss_de: str | None

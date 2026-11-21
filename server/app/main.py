@@ -57,6 +57,7 @@ from app.models import (
     Word,
     WordStatus,
 )
+from app.nlp.frequency import fill_zipf, usefulness
 from app.nlp.tokenizer import line_romaji
 from app.schemas import (
     ActivityOut,
@@ -77,6 +78,7 @@ from app.schemas import (
     EpisodePatch,
     EpisodeProgress,
     EpisodeRef,
+    ExampleLine,
     Health,
     ImportReport,
     JimakuEntry,
@@ -85,6 +87,7 @@ from app.schemas import (
     LineOut,
     LookupResult,
     MediaOut,
+    MissedWord,
     ProgressPoint,
     ReviewCard,
     ReviewIn,
@@ -170,14 +173,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         parsed = [json.loads(line.tokens_json) for line in lines]
         word_ids = {t["word_id"] for toks in parsed for t in toks if t.get("word_id")}
         statuses = status_map(session, uid, word_ids)
-        common = (
+        words = (
             {
-                w.id: w.common
+                w.id: w
                 for w in session.exec(select(Word).where(Word.id.in_(list(word_ids)))).all()  # type: ignore[union-attr]
             }
             if word_ids
             else {}
         )
+        if any(w.zipf is None for w in words.values()):
+            fill_zipf(session, words.values())
+            session.commit()
         out = []
         for line, toks in zip(lines, parsed, strict=True):
             tokens = [
@@ -185,13 +191,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     **{
                         k: t[k]
                         for k in TokenOut.model_fields
-                        if k in t and k not in ("status", "common", "is_proper_noun")
+                        if k in t and k not in ("status", "common", "zipf", "is_proper_noun")
                     },
                     is_proper_noun=token_is_proper(t),
                     status=(
                         statuses.get(t["word_id"], WordStatus.new) if t.get("word_id") else None
                     ),
-                    common=common.get(t.get("word_id"), False),
+                    common=bool(w := words.get(t.get("word_id"))) and w.common,
+                    zipf=w.zipf if w else None,
                 )
                 for t in toks
             ]
@@ -370,9 +377,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/dictionary/lookup", response_model=LookupResult, dependencies=auth, tags=["dictionary"]
     )
     def lookup(
-        q: str, reading: str | None = None, limit: int = 5, d: Dictionary = Depends(dictionary_dep)
+        q: str,
+        reading: str | None = None,
+        limit: int = 5,
+        word_id: int | None = Query(
+            None, description="Token's word_id: its linked entry comes first (exact homophone)"
+        ),
+        d: Dictionary = Depends(dictionary_dep),
+        session: Session = Depends(get_session),
     ):
-        return LookupResult(query=q, reading=reading, entries=d.lookup(q, reading, min(limit, 20)))
+        word = session.get(Word, word_id) if word_id else None
+        first = word.jmdict_id if word else None
+        return LookupResult(
+            query=q, reading=reading, entries=d.lookup(q, reading, min(limit, 20), first)
+        )
 
     def word_out(session: Session, w: Word) -> WordOut:
         st = status_map(session, uid, [w.id]).get(w.id, WordStatus.new)
@@ -404,6 +422,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         q: str | None = Query(None, description="Substring of lemma or reading"),
         limit: int = Query(50, ge=1, le=500),
         offset: int = Query(0, ge=0),
+        sort: Literal["auto", "frequency"] = Query(
+            "auto",
+            description="auto: by occurrences with anime/episode, else newest; frequency: zipf",
+        ),
         session: Session = Depends(get_session),
     ):
         """Vocabulary table. With `anime_id`/`episode_id`: only words spoken there, most
@@ -429,11 +451,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if q:
             stmt = stmt.where(or_(Word.lemma.contains(q), Word.reading.contains(q)))  # type: ignore[attr-defined]
         rows = session.exec(stmt).all()
-        if counts is not None:
+        if sort == "frequency":
+            fill_zipf(session, [r[0] for r in rows])
+            session.commit()
+            rows = sorted(rows, key=lambda r: (-(r[0].zipf or 0), r[0].id))
+        elif counts is not None:
             rows = sorted(rows, key=lambda r: (-counts.get(r[0].id, 0), r[0].id))
         else:
             rows = sorted(rows, key=lambda r: -(r[0].id or 0))
         page = rows[offset : offset + limit]
+        if any(w.zipf is None for w, _ in page):
+            fill_zipf(session, [w for w, _ in page])
+            session.commit()
         return WordPage(
             total=len(rows),
             items=[
@@ -996,5 +1025,79 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             media=files,
         )
+
+    # ---- missed words (S-8) ---------------------------------------------------------------
+
+    def short_gloss(entry: dict | None, lang: str) -> str | None:
+        senses = (entry or {}).get("senses", {}).get(lang) or []
+        return "; ".join(senses[0]["glosses"][:3]) if senses and senses[0].get("glosses") else None
+
+    @app.get(
+        "/episodes/{episode_id}/missed",
+        response_model=list[MissedWord],
+        dependencies=auth,
+        tags=["episodes"],
+    )
+    def missed_words(
+        episode_id: int,
+        limit: int = Query(30, ge=1, le=200),
+        include_learning: bool = Query(False, description="Also list words you're learning"),
+        session: Session = Depends(get_session),
+    ):
+        """After an episode: the unknown words most worth learning, best first (general
+        frequency + how often this episode and anime use them). Names are excluded."""
+        ep = get_episode(session, episode_id)
+        lines = episode_lines(session, episode_id)
+        counts = word_counts(session, [episode_id])
+        anime_counts = (
+            word_counts(session, act.anime_episode_ids(session, ep.anime_id))
+            if ep.anime_id
+            else counts
+        )
+        statuses = status_map(session, uid, counts)
+        skip = {WordStatus.known, WordStatus.ignored}
+        if not include_learning:
+            skip.add(WordStatus.learning)
+        candidates = [w for w in counts if statuses.get(w, WordStatus.new) not in skip]
+        words = {
+            w.id: w
+            for w in session.exec(select(Word).where(Word.id.in_(candidates))).all()  # type: ignore[union-attr]
+        }
+        fill_zipf(session, words.values())
+        session.commit()
+        ranked = sorted(
+            words.values(),
+            key=lambda w: (-usefulness(w.zipf, counts[w.id], anime_counts.get(w.id, 0)), w.id),
+        )[:limit]
+
+        first_line: dict[int, SubtitleLine] = {}
+        wanted = {w.id for w in ranked}
+        for line in lines:
+            for t in json.loads(line.tokens_json):
+                wid = t.get("word_id")
+                if wid in wanted and wid not in first_line:
+                    first_line[wid] = line
+        d = app.state.dictionary
+        out = []
+        for w in ranked:
+            entry = d.entry(w.jmdict_id) if d is not None and w.jmdict_id else None
+            line = first_line.get(w.id)
+            out.append(
+                MissedWord(
+                    word=WordListItem(
+                        **w.model_dump(),
+                        status=statuses.get(w.id, WordStatus.new),
+                        occurrences=counts[w.id],
+                    ),
+                    score=usefulness(w.zipf, counts[w.id], anime_counts.get(w.id, 0)),
+                    anime_occurrences=anime_counts.get(w.id, 0),
+                    example=ExampleLine(line_id=line.id, text=line.text, start_ms=line.start_ms)
+                    if line
+                    else None,
+                    gloss_en=short_gloss(entry, "eng"),
+                    gloss_de=short_gloss(entry, "ger"),
+                )
+            )
+        return out
 
     return app

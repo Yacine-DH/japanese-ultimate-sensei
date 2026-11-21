@@ -20,3 +20,8 @@ def test_reading_disambiguates_and_kana_form_matches(dictionary):
 def test_missing(dictionary):
     assert dictionary.lookup("存在しない") == []
     assert dictionary.best("存在しない") is None
+
+
+def test_lookup_puts_known_link_first(dictionary):
+    ids = [e["id"] for e in dictionary.lookup("たべる", first="9999999")]
+    assert ids[0] == "9999999" and "1358280" in ids

@@ -58,12 +58,25 @@ Display rule for clients: line is active when
   Names still carry `word_id`/`status`, so they can be looked up.
 - Only content words and names have `word_id`/`status`.
 - `status` ∈ `new | learning | known | ignored`. For highlighting, treat `known`/`ignored` as understood.
-- `common` = JMdict common word, the current priority signal for "which unknown words to highlight".
+- `zipf` = general word frequency (wordfreq, Zipf 0–8: 5+ everyday, 3–4 less common, <3 rare,
+  0 unknown). **Rank which unknown words to highlight by `zipf`, highest first.** `common` =
+  JMdict common flag (secondary).
 
 ### `POST /episodes/{id}/reprocess` → `EpisodeCreated`
 Re-tokenizes the stored lines with the current tokenizer + dictionary (needed after server
 updates such as name detection). Line ids and word statuses are kept. CLI for all episodes:
 `cd server && uv run python -m app.reprocess`.
+
+### `GET /episodes/{id}/missed?limit=30&include_learning=false` → `MissedWord[]`
+After an episode: unknown words most worth learning, best first. `score` = `zipf` +
+1.5·log2(1 + times in this episode) + 0.5·log2(1 + times in the anime). Names excluded;
+`learning` words only with `include_learning=true`.
+```json
+[{"word":{...WordListItem, "occurrences":30, "zipf":6.76},"score":16.67,"anime_occurrences":30,
+  "example":{"line_id":812,"text":"何をするの？","start_ms":61230},
+  "gloss_en":"to do; to carry out; to perform","gloss_de":"tun; machen; verrichten"}]
+```
+Typical UI: list with checkboxes → `POST /words/bulk-status` (known) or `POST /cards` (save).
 
 ### `GET /episodes/{id}/understanding` → `Understanding`
 ```json
@@ -73,8 +86,10 @@ updates such as name detection). Line ids and word statuses are kept. CLI for al
 `token_pct` (weighted by how often words are spoken) is the headline "% understood" number.
 
 ## Dictionary
-### `GET /dictionary/lookup?q=<text>&reading=<hiragana>&limit=5` → `LookupResult`
-Use the token's `lemma` + `lemma_reading`. Matches kanji or kana forms. Best entry first.
+### `GET /dictionary/lookup?q=<text>&reading=<hiragana>&word_id=<id>&limit=5` → `LookupResult`
+Use the token's `lemma` + `lemma_reading` **and `word_id`**: the entry the server linked to that
+word (via Sudachi's kanji form, e.g. いる → 居る, こと → 事) comes first, which is the only way
+to get kana homophones right. Matches kanji or kana forms. Best entry first.
 ```json
 {"query":"食べる","reading":"たべる","entries":[{"id":"1358280","common":true,
  "kanji":["食べる","喰べる"],"kana":["たべる"],
@@ -90,6 +105,7 @@ Use the token's `lemma` + `lemma_reading`. Matches kanji or kana forms. Best ent
  "jmdict_id":"1358280","common":true,"status":"new","occurrences":7}]}
 ```
 - `status=new` includes words with no decision yet. `q` = substring of lemma or reading.
+- `sort=frequency`: by general frequency (`zipf`), highest first. Items carry `zipf`.
 - With `anime_id` and/or `episode_id`: only words spoken there, **most frequent first**, and
   `occurrences` = times spoken there (names excluded). Without them: newest first, `occurrences: null`.
 - `limit` 1–500. `total` = matches before paging.
