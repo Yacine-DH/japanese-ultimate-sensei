@@ -136,7 +136,12 @@ def understanding(session: Session, user_id: int, episode_id: int) -> dict:
     `token_pct` weighs words by how often they're spoken (what you actually experience
     watching); `unique_pct` counts each distinct word once.
     """
-    counts = word_counts(session, [episode_id])
+    return {"episode_id": episode_id, **understanding_of(session, user_id, [episode_id])}
+
+
+def understanding_of(session: Session, user_id: int, episode_ids: Iterable[int]) -> dict:
+    """Understanding stats over the combined vocabulary of several episodes."""
+    counts = word_counts(session, episode_ids)
     statuses = status_map(session, user_id, counts)
     total_tokens = sum(counts.values())
     known_tokens = sum(c for w, c in counts.items() if statuses.get(w) in UNDERSTOOD)
@@ -148,7 +153,6 @@ def understanding(session: Session, user_id: int, episode_id: int) -> dict:
         return round(100 * a / b, 1) if b else 0.0
 
     return {
-        "episode_id": episode_id,
         "total_tokens": total_tokens,
         "unique_words": len(counts),
         "known_tokens": known_tokens,

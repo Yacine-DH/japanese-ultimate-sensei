@@ -1,7 +1,7 @@
 """API request/response models. This is the contract with the extension and web app —
 change it deliberately and regenerate docs/openapi.json (see AGENTS.md)."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -261,3 +261,76 @@ class JimakuImport(BaseModel):
     anime_title: str | None = Field(
         default=None, description="Defaults to the entry's English title (else romaji)"
     )
+
+
+# ---- activity + progress (S-6) ---------------------------------------------------------
+
+
+class WatchIn(BaseModel):
+    episode_id: int
+    seconds: int = Field(ge=1, le=600, description="Seconds watched since the last heartbeat")
+
+
+class WatchOut(BaseModel):
+    day: date
+    seconds_today: int = Field(description="All episodes, today")
+
+
+class ActivityDayOut(BaseModel):
+    day: date
+    minutes: int = Field(description="Watched with the overlay active")
+    reviews: int
+    words_added: int = Field(description="Cards created")
+    words_known: int = Field(description="Words that became known (marked or graduated)")
+
+
+class ActivityTotals(BaseModel):
+    minutes: int
+    reviews: int
+    words_added: int
+    words_known: int
+
+
+class ActivityOut(BaseModel):
+    from_day: date
+    to_day: date
+    days: list[ActivityDayOut] = Field(description="Only days with activity, oldest first")
+    active_days: int
+    current_streak: int = Field(description="Consecutive active days up to today (or yesterday)")
+    longest_streak: int
+    totals: ActivityTotals
+
+
+class AnimeOut(BaseModel):
+    id: int
+    title: str
+    title_jp: str | None
+    anilist_id: int | None
+    episode_count: int
+    unique_words: int = Field(description="Distinct content words across its episodes")
+    known_unique: int
+    token_pct: float = Field(description="% understood across all its episodes (weighted)")
+    unique_pct: float
+
+
+class ProgressPoint(BaseModel):
+    day: date
+    token_pct: float
+    unique_pct: float
+    unique_words: int
+    known_unique: int
+
+
+class EpisodeProgress(BaseModel):
+    episode_id: int
+    number: float | None
+    title: str | None
+    token_pct: float
+    unique_pct: float
+    minutes_watched: int
+
+
+class AnimeProgress(BaseModel):
+    anime: AnimeOut
+    series: list[ProgressPoint] = Field(description="Daily anime-level % understood, oldest first")
+    episodes: list[EpisodeProgress]

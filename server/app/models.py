@@ -118,7 +118,29 @@ class ActivityDay(SQLModel, table=True):
 
     user_id: int = Field(primary_key=True)
     day: date = Field(primary_key=True)
-    minutes_watched: int = 0
+    minutes_watched: int = 0  # unused: watch time lives in WatchDay (seconds, per episode)
     reviews: int = 0
     words_added: int = 0
     words_known: int = 0
+
+
+class WatchDay(SQLModel, table=True):
+    """Seconds watched with the overlay active, per user, day and episode (heartbeats)."""
+
+    user_id: int = Field(primary_key=True)
+    day: date = Field(primary_key=True)
+    episode_id: int = Field(primary_key=True, foreign_key="episode.id")
+    seconds: int = 0
+
+
+class UnderstandingSnapshot(SQLModel, table=True):
+    """Daily "% understood" of a whole anime (all its episodes' words), for the trend chart.
+    Overwritten during the day, so each day keeps its latest value."""
+
+    user_id: int = Field(primary_key=True)
+    anime_id: int = Field(primary_key=True, foreign_key="anime.id")
+    day: date = Field(primary_key=True)
+    token_pct: float = 0
+    unique_pct: float = 0
+    unique_words: int = 0
+    known_unique: int = 0

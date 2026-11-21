@@ -191,5 +191,35 @@ the file name, `anime_title` = English title (else romaji). The anime is matched
 so episodes from Jimaku and manual uploads with the same title end up together.
 422: unsupported format / ambiguous zip / no Japanese lines.
 
+## Activity + progress (heatmap, streak, "% understood" trend)
+Days are the server's local date (the owner's day).
+
+### `POST /activity/watch` body `{"episode_id":1,"seconds":30}` → `{"day":"2026-11-21","seconds_today":1830}`
+Extension heartbeat while the video **plays** with the overlay attached: send the seconds since
+the last heartbeat (1–600), e.g. every 30 s and once on pause/tab close. Not while paused.
+
+### `GET /activity?from=YYYY-MM-DD&to=YYYY-MM-DD` → `ActivityOut`
+Defaults: `to` = today, `from` = 364 days before (a year heatmap).
+```json
+{"from_day":"2025-11-22","to_day":"2026-11-21","active_days":3,"current_streak":2,"longest_streak":2,
+ "totals":{"minutes":12,"reviews":5,"words_added":1,"words_known":3},
+ "days":[{"day":"2026-11-21","minutes":2,"reviews":0,"words_added":1,"words_known":3}]}
+```
+`days` lists **only active days** (fill the gaps with 0 in the heatmap). A day is active with any
+minutes, reviews, cards added or words known. `minutes` = watched with the overlay;
+`words_added` = cards created; `words_known` = words that became known (marked Known, bulk, or
+graduated by reviews). `current_streak` stays alive until today ends.
+
+### `GET /anime` → `AnimeOut[]`
+`[{"id":1,"title":"Frieren: Beyond Journey's End","title_jp":"葬送のフリーレン","anilist_id":154587,
+"episode_count":3,"unique_words":980,"known_unique":120,"token_pct":34.2,"unique_pct":12.2}]`
+(stats over all its episodes' words combined).
+
+### `GET /anime/{id}/progress` → `AnimeProgress`
+`{"anime":{...AnimeOut},"series":[{"day":"2026-11-20","token_pct":20.1,"unique_pct":8.0,"unique_words":980,"known_unique":78}, …],
+"episodes":[{"episode_id":1,"number":1.0,"title":null,"token_pct":40.5,"unique_pct":18.0,"minutes_watched":24}]}`
+`series` = one point per day the anime was touched (import, watching, or opening this page),
+oldest first: the "% understood over time" line. Episodes are ordered by number.
+
 ## Coming in Phase 1 (not implemented yet; see TASKS.md)
-`/activity` (#18), known-word import (#16), Anki export (#17).
+Known-word import (#16), Anki export (#17).
