@@ -4,6 +4,7 @@ import { LibraryPage } from './pages/LibraryPage';
 import { EpisodeDetailPage } from './pages/EpisodeDetailPage';
 import { ReviewPage } from './pages/ReviewPage';
 import { WordsPage } from './pages/WordsPage';
+import { KanaPage } from './pages/KanaPage';
 import { StatsPage } from './pages/StatsPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -13,6 +14,7 @@ const navItems = [
   { to: '/', label: 'Library', end: true },
   { to: '/review', label: 'Review' },
   { to: '/words', label: 'Words' },
+  { to: '/kana', label: 'Kana' },
   { to: '/stats', label: 'Stats' },
   { to: '/settings', label: 'Settings' },
 ];
@@ -54,6 +56,7 @@ export function App() {
               <Route path="/episodes/:id" element={<EpisodeDetailPage />} />
               <Route path="/review" element={<ReviewPage />} />
               <Route path="/words" element={<WordsPage />} />
+              <Route path="/kana" element={<KanaPage />} />
               <Route path="/stats" element={<StatsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
