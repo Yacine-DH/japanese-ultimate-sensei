@@ -4,6 +4,7 @@ import {
   collectFieldOptions,
   countNonEmptyLines,
   formatDeckDisplayName,
+  parseContentDispositionFilename,
   summarizeImportReport,
 } from '../src/lib/import-words';
 
@@ -21,6 +22,13 @@ describe('import-words helpers', () => {
   it('normalizes Anki schema-18 unit separator in deck names', () => {
     expect(formatDeckDisplayName('Japanese\u001fCore 2k')).toBe('Japanese::Core 2k');
     expect(formatDeckDisplayName('Default')).toBe('Default');
+  });
+
+  it('extracts filenames from Content-Disposition headers with fallback', () => {
+    expect(parseContentDispositionFilename('attachment; filename="sensei-20261121.apkg"')).toBe(
+      'sensei-20261121.apkg',
+    );
+    expect(parseContentDispositionFilename(null, 'fallback.apkg')).toBe('fallback.apkg');
   });
 
   it('counts non-empty lines and formats import report summaries cleanly', () => {

@@ -46,6 +46,10 @@ describe('settings utilities', () => {
       pauseOnHover: true,
       requireShiftForHover: false,
       autoPauseEachLine: false,
+      ankiConnectEnabled: false,
+      ankiConnectUrl: 'http://localhost:8765',
+      ankiDeckName: 'Sensei',
+      ankiModelName: 'Sensei Japanese',
       urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
       hotkeys: DEFAULT_HOTKEYS,
     });

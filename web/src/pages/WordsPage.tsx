@@ -115,6 +115,30 @@ export function WordsPage() {
     },
   });
 
+  const exportAnkiMutation = useMutation({
+    mutationFn: () => apiClient.downloadAnkiApkg({ deck: 'Sensei' }),
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setNotice(`Downloaded ${filename}.`);
+    },
+    onError: (err) => {
+      setNotice(
+        err instanceof SenseiApiError
+          ? err.status === 404
+            ? 'No saved cards to export yet.'
+            : `Export failed: ${err.message}`
+          : 'Export failed.',
+      );
+    },
+  });
+
   const items = wordsQuery.data?.items ?? [];
   const total = wordsQuery.data?.total ?? 0;
   const visibleIds = items.map((w) => w.id);
@@ -144,6 +168,14 @@ export function WordsPage() {
               {notice}
             </div>
           )}
+          <button
+            type="button"
+            disabled={exportAnkiMutation.isPending}
+            onClick={() => exportAnkiMutation.mutate()}
+            className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-50 transition cursor-pointer"
+          >
+            {exportAnkiMutation.isPending ? 'Exporting…' : 'Export Anki (.apkg)'}
+          </button>
           <button
             type="button"
             onClick={() => setShowImport((v) => !v)}

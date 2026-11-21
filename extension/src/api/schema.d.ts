@@ -522,6 +522,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/export/anki.apkg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Apkg
+         * @description All cards (or those created since a date) as an .apkg with screenshot, MP3 audio
+         *     and clip. Re-importing a newer export updates existing notes.
+         */
+        get: operations["export_apkg_export_anki_apkg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/anki/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Anki Model
+         * @description AnkiConnect `createModel` params for the 'Sensei Japanese' note type.
+         */
+        get: operations["anki_model_anki_model_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cards/{card_id}/anki-note": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Anki Note
+         * @description AnkiConnect payload for one card: `storeMediaFile` each `media` item, then
+         *     `addNote` with `note`. Media URLs are absolute (this server's address as the client
+         *     reached it) and signed, so Anki on the laptop can download them.
+         */
+        get: operations["anki_note_cards__card_id__anki_note_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -644,6 +707,15 @@ export interface components {
              */
             studied: boolean;
         };
+        /** AnkiCardTemplate */
+        AnkiCardTemplate: {
+            /** Name */
+            Name: string;
+            /** Front */
+            Front: string;
+            /** Back */
+            Back: string;
+        };
         /** AnkiCardsImport */
         AnkiCardsImport: {
             /** Cards */
@@ -658,6 +730,65 @@ export interface components {
              * @default false
              */
             dry_run: boolean;
+        };
+        /** AnkiConnectNote */
+        AnkiConnectNote: {
+            /** Deckname */
+            deckName: string;
+            /** Modelname */
+            modelName: string;
+            /** Fields */
+            fields: {
+                [key: string]: string;
+            };
+            /** Tags */
+            tags: string[];
+            /**
+             * Options
+             * @default {
+             *       "allowDuplicate": false,
+             *       "duplicateScope": "deck"
+             *     }
+             */
+            options: {
+                [key: string]: unknown;
+            };
+        };
+        /** AnkiMediaFile */
+        AnkiMediaFile: {
+            /** Filename */
+            filename: string;
+            /**
+             * Url
+             * @description Absolute, signed: pass to AnkiConnect storeMediaFile {filename, url}
+             */
+            url: string;
+        };
+        /**
+         * AnkiModel
+         * @description AnkiConnect createModel params for the 'Sensei Japanese' note type.
+         */
+        AnkiModel: {
+            /** Modelname */
+            modelName: string;
+            /** Inorderfields */
+            inOrderFields: string[];
+            /** Css */
+            css: string;
+            /** Iscloze */
+            isCloze: boolean;
+            /** Cardtemplates */
+            cardTemplates: components["schemas"]["AnkiCardTemplate"][];
+        };
+        /** AnkiNotePayload */
+        AnkiNotePayload: {
+            /** @description Pass as AnkiConnect addNote {note} */
+            note: components["schemas"]["AnkiConnectNote"];
+            /**
+             * Media
+             * @description storeMediaFile each one before addNote
+             */
+            media: components["schemas"]["AnkiMediaFile"][];
         };
         /** AnkiNoteType */
         AnkiNoteType: {
@@ -2079,6 +2210,8 @@ export interface operations {
             query?: {
                 /** @description Signature from MediaOut.url */
                 sig?: string | null;
+                /** @description audio only: MP3 copy (for Anki) */
+                format?: "mp3" | null;
             };
             header?: never;
             path: {
@@ -2438,6 +2571,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_apkg_export_anki_apkg_get: {
+        parameters: {
+            query?: {
+                /** @description Only cards created at/after (ISO) */
+                since?: string | null;
+                deck?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Anki package */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/apkg": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    anki_model_anki_model_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnkiModel"];
+                };
+            };
+        };
+    };
+    anki_note_cards__card_id__anki_note_get: {
+        parameters: {
+            query?: {
+                deck?: string;
+            };
+            header?: never;
+            path: {
+                card_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnkiNotePayload"];
                 };
             };
             /** @description Validation Error */

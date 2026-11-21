@@ -1,9 +1,17 @@
 import {
+  type AnkiFlushQueueResponse,
+  type AnkiModel,
+  type AnkiNotePayload,
+  type AnkiPushCardResponse,
+  type AnkiTestResponse,
   type CaptureVisibleTabResponse,
   type EpisodeOut,
   executeApiCall,
   executeMediaUpload,
   executeSubtitleUpload,
+  isAnkiFlushQueueMessage,
+  isAnkiPushCardMessage,
+  isAnkiTestMessage,
   isApiCallMessage,
   isCaptureVisibleTabMessage,
   isGetTabStateMessage,
@@ -17,6 +25,12 @@ import {
   type WordOut,
   type WordStatus,
 } from '../src/api/client';
+import {
+  AnkiPushQueue,
+  type LocalStorageLike,
+  pushCardToAnki,
+  testAnkiConnect,
+} from '../src/lib/anki-connect';
 import { EpisodeTranscriptCache, type SessionStorageLike } from '../src/lib/line-cache';
 import { getSettings, saveSettings } from '../src/lib/settings';
 import { normalizePageUrlPattern } from '../src/lib/url-mapping';
@@ -34,11 +48,43 @@ function getSessionStorage(): SessionStorageLike | null {
   return g.browser?.storage?.session ?? g.chrome?.storage?.session ?? null;
 }
 
+function getLocalStorage(): LocalStorageLike | null {
+  const g = globalThis as unknown as {
+    browser?: { storage?: { local?: LocalStorageLike } };
+    chrome?: { storage?: { local?: LocalStorageLike } };
+  };
+  return g.browser?.storage?.local ?? g.chrome?.storage?.local ?? null;
+}
+
 export default defineBackground(() => {
   markAsBackgroundContext();
 
   const tabOverrides = new Map<number, TabOverride>();
   const transcriptCache = new EpisodeTranscriptCache(getSessionStorage());
+  const ankiQueue = new AnkiPushQueue(getLocalStorage());
+
+  async function flushAnkiQueueNow(): Promise<AnkiFlushQueueResponse> {
+    const settings = await getSettings();
+    return ankiQueue.flush({
+      settings,
+      fetchCardNote: (cardId, deck) =>
+        executeApiCall<AnkiNotePayload>(
+          settings,
+          `/cards/${cardId}/anki-note?${new URLSearchParams({ deck }).toString()}`,
+        ),
+      fetchAnkiModel: () => executeApiCall<AnkiModel>(settings, '/anki/model'),
+    });
+  }
+
+  // Opportunistically retry queued Anki cards when the background worker starts & periodically.
+  void flushAnkiQueueNow();
+  setInterval(() => {
+    void ankiQueue.list().then((items) => {
+      if (items.length > 0) {
+        void flushAnkiQueueNow();
+      }
+    });
+  }, 60_000);
 
   async function resolveTabState(
     tabId: number | null,
@@ -164,6 +210,50 @@ export default defineBackground(() => {
 
       if (isUploadMediaMessage(message)) {
         return getSettings().then((settings) => executeMediaUpload(settings, message));
+      }
+
+      if (isAnkiPushCardMessage(message)) {
+        return (async (): Promise<AnkiPushCardResponse> => {
+          const settings = await getSettings();
+          if (!settings.ankiConnectEnabled) {
+            const queued = await ankiQueue.list();
+            return { status: 'disabled', queueLength: queued.length };
+          }
+          const res = await pushCardToAnki({
+            cardId: message.cardId,
+            settings,
+            fetchCardNote: (cardId, deck) =>
+              executeApiCall<AnkiNotePayload>(
+                settings,
+                `/cards/${cardId}/anki-note?${new URLSearchParams({ deck }).toString()}`,
+              ),
+            fetchAnkiModel: () => executeApiCall<AnkiModel>(settings, '/anki/model'),
+          });
+          if (res.status === 'queued') {
+            const queueLength = await ankiQueue.enqueue(message.cardId, res.message);
+            return { ...res, queueLength };
+          }
+          if (res.status === 'pushed' || res.status === 'duplicate') {
+            await ankiQueue.remove(message.cardId);
+            // Anki is confirmed running — drain any previously queued cards in the background
+            void flushAnkiQueueNow();
+          }
+          const queued = await ankiQueue.list();
+          return { ...res, queueLength: queued.length };
+        })();
+      }
+
+      if (isAnkiFlushQueueMessage(message)) {
+        return flushAnkiQueueNow();
+      }
+
+      if (isAnkiTestMessage(message)) {
+        return (async (): Promise<AnkiTestResponse> => {
+          const settings = await getSettings();
+          const url = message.url?.trim() || settings.ankiConnectUrl;
+          const [status, queued] = await Promise.all([testAnkiConnect(url), ankiQueue.list()]);
+          return { ...status, queueLength: queued.length };
+        })();
       }
 
       if (isCaptureVisibleTabMessage(message)) {

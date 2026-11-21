@@ -1,5 +1,6 @@
 import type { components, paths } from './schema';
 import { type WebSettings, loadWebSettings, resolveApiBaseUrl } from '../lib/settings';
+import { parseContentDispositionFilename } from '../lib/import-words';
 
 export type { components, paths };
 
@@ -282,6 +283,39 @@ export const apiClient = {
       method: 'POST',
       formData,
     });
+  },
+
+  downloadAnkiApkg: async (params?: {
+    deck?: string;
+    since?: string;
+  }): Promise<{ blob: Blob; filename: string }> => {
+    const settings = loadWebSettings();
+    const base = resolveApiBaseUrl(settings.serverUrl);
+    const qs = new URLSearchParams();
+    if (params?.deck && params.deck.trim()) qs.set('deck', params.deck.trim());
+    if (params?.since && params.since.trim()) qs.set('since', params.since.trim());
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    const response = await fetch(`${base}/export/anki.apkg${suffix}`, {
+      method: 'GET',
+      headers: buildAuthHeaders(settings, { Accept: 'application/apkg, application/octet-stream' }),
+    });
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const text = await response.text();
+        const parsed = JSON.parse(text) as { detail?: unknown };
+        if (parsed.detail) detail = String(parsed.detail);
+      } catch {
+        // Keep HTTP status fallback
+      }
+      throw new SenseiApiError(response.status, detail);
+    }
+    const blob = await response.blob();
+    const filename = parseContentDispositionFilename(
+      response.headers.get('content-disposition'),
+      'sensei-export.apkg',
+    );
+    return { blob, filename };
   },
 };
 
