@@ -30,6 +30,9 @@ export type ReviewCard = components['schemas']['ReviewCard'];
 export type ReviewQueue = components['schemas']['ReviewQueue'];
 export type ReviewIn = components['schemas']['ReviewIn'];
 export type ReviewOut = components['schemas']['ReviewOut'];
+export type JimakuEntry = components['schemas']['JimakuEntry'];
+export type JimakuFile = components['schemas']['JimakuFile'];
+export type JimakuImport = components['schemas']['JimakuImport'];
 
 export class SenseiApiError extends Error {
   readonly status: number;
@@ -203,6 +206,23 @@ export const apiClient = {
 
   submitReview: (payload: ReviewIn) =>
     apiRequest<ReviewOut>('/reviews', {
+      method: 'POST',
+      json: payload,
+    }),
+
+  searchJimaku: (q: string) =>
+    apiRequest<JimakuEntry[]>(`/subs/search?${new URLSearchParams({ q }).toString()}`),
+
+  listJimakuFiles: (entryId: number, episode?: number | null) => {
+    const qs =
+      episode !== undefined && episode !== null
+        ? `?episode=${encodeURIComponent(String(episode))}`
+        : '';
+    return apiRequest<JimakuFile[]>(`/subs/${entryId}/files${qs}`);
+  },
+
+  importFromJimaku: (payload: JimakuImport) =>
+    apiRequest<EpisodeCreated>('/episodes/from-jimaku', {
       method: 'POST',
       json: payload,
     }),
