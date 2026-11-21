@@ -7,6 +7,14 @@ import {
   saveWebSettings,
 } from '../lib/settings';
 
+function formatBytes(bytes: number | undefined): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function SettingsPage() {
   const [savedSettings, setSavedSettings] = useState(() => loadWebSettings());
   const [serverUrl, setServerUrl] = useState(savedSettings.serverUrl);
@@ -66,7 +74,9 @@ export function SettingsPage() {
           ) : healthQuery.data?.state === 'connected' ? (
             <div className="text-xs text-emerald-400 mt-1">
               v{healthQuery.data.health.version} · JMdict:{' '}
-              {healthQuery.data.health.dictionary ? 'Ready' : 'Missing'} · Auth:{' '}
+              {healthQuery.data.health.dictionary ? 'Ready' : 'Missing'} · ffmpeg:{' '}
+              {healthQuery.data.health.ffmpeg ? 'Ready' : 'Missing'} · Media:{' '}
+              {formatBytes(healthQuery.data.health.media_bytes)} · Auth:{' '}
               {healthQuery.data.health.auth ? 'Verified' : 'Open'}
             </div>
           ) : healthQuery.data?.state === 'unauthorized' ? (

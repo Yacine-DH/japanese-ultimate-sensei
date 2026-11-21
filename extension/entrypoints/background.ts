@@ -1,10 +1,14 @@
 import {
+  type CaptureVisibleTabResponse,
   type EpisodeOut,
   executeApiCall,
+  executeMediaUpload,
   executeSubtitleUpload,
   isApiCallMessage,
+  isCaptureVisibleTabMessage,
   isGetTabStateMessage,
   isSetTabStateMessage,
+  isUploadMediaMessage,
   isUploadSubtitleMessage,
   type LineOut,
   markAsBackgroundContext,
@@ -66,7 +70,7 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener(
-    (message: unknown, sender: { tab?: { id?: number; url?: string } }) => {
+    (message: unknown, sender: { tab?: { id?: number; url?: string; windowId?: number } }) => {
       if (isApiCallMessage(message)) {
         const method = (message.init?.method ?? 'GET').toUpperCase();
         const epMatch = /^\/episodes\/(\d+)$/.exec(message.path);
@@ -156,6 +160,26 @@ export default defineBackground(() => {
 
       if (isUploadSubtitleMessage(message)) {
         return getSettings().then((settings) => executeSubtitleUpload(settings, message));
+      }
+
+      if (isUploadMediaMessage(message)) {
+        return getSettings().then((settings) => executeMediaUpload(settings, message));
+      }
+
+      if (isCaptureVisibleTabMessage(message)) {
+        return (async (): Promise<CaptureVisibleTabResponse> => {
+          try {
+            const dataUrl = await browser.tabs.captureVisibleTab(sender.tab?.windowId, {
+              format: 'png',
+            });
+            return { ok: true, dataUrl };
+          } catch (err) {
+            return {
+              ok: false,
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        })();
       }
 
       if (isGetTabStateMessage(message)) {

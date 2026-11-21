@@ -147,7 +147,14 @@ describe('API background proxy', () => {
         getHealth: async () => ({
           ok: true,
           status: 200,
-          data: { status: 'ok', version: '0.1.0', dictionary: true, auth: true },
+          data: {
+            status: 'ok',
+            version: '0.1.0',
+            dictionary: true,
+            auth: true,
+            ffmpeg: true,
+            media_bytes: 0,
+          },
         }),
         listEpisodes: async () => ({ ok: false, status: 401, error: 'Unauthorized' }),
       },
