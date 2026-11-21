@@ -7,7 +7,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 ## Owner actions
 - [x] **O-1** Install `uv` on the server: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - [x] **O-2** Install Node.js 22 LTS on the server (e.g. `fnm install 22` or nvm), plus `pnpm` (`corepack enable`) (antigravity, 2026-11-17: Node v22.23.5 + pnpm 12.21.0 installed in `~/.local/bin`)
-- [ ] **O-3** Make a free [jimaku.cc](https://jimaku.cc) account and API key → `SENSEI_JIMAKU_API_KEY` in `server/.env`
+- [x] **O-3** Make a free [jimaku.cc](https://jimaku.cc) account and API key → `SENSEI_JIMAKU_API_KEY` in `server/.env`
 - [x] **O-4** `SENSEI_API_TOKEN` in `server/.env`, required since #11; `bash deploy/install-service.sh` generates it (claude, 2026-11-19: set on the home server)
 - [ ] **O-5** Tell Claude your laptop specs (CPU/GPU/RAM), which decides which LLM runs where
 
@@ -18,7 +18,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 ## Phase 1: v0.1 core loop
 ### Server (Claude)
 - [ ] **S-1** Jimaku integration: `GET /subs/search?q=` (AniList/Jimaku), `POST /episodes/from-jimaku` (download + ingest). deps: O-3
-- [ ] **S-2** Media: `POST /media` (multipart screenshot/audio/clip upload) → ffmpeg transcode (WebP/Opus/VP9 360p) → `GET /media/{id}`
+- [x] **S-2** (#14) Media: `POST /media` (multipart screenshot/audio/clip upload) → ffmpeg transcode (WebP/Opus/VP9 360p) → `GET /media/{id}` (claude, 2026-11-21: signed URLs for <img>/<audio>, clips transcoded in background)
 - [x] **S-3** (#15) Cards + FSRS: `POST /cards` (word + line + media ids), `GET /reviews/due`, `POST /reviews` (rating), sets UserWord → learning/known (claude, 2026-11-19: py-fsrs, one card per word, auto-known at stability ≥ 21 d, `next_due` per rating, activity counters)
 - [ ] **S-4** Known-words import: from Anki (.apkg/.txt export, choose field) and plain word lists
 - [ ] **S-5** Anki export: `.apkg` (genanki) with media; card JSON for AnkiConnect push

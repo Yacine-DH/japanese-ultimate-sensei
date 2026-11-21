@@ -2,6 +2,15 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-21: Media storage + signed URLs (Claude)
+- **ffmpeg CLI via subprocess** (no Pillow/PyAV): one tool for images, audio and video, already on the server.
+- **Clips have no audio track**: the line audio is stored separately (Opus) and reused for
+  listening cards and Anki, which keeps clips GIF-like and small.
+- **Signed media URLs** (`/media/{id}?sig=HMAC(token, id)`): `<img>`/`<audio>` can't send an auth
+  header. The signature is per file, never reveals the token, and rotating the token revokes it.
+- **Agent channel** `/home/yacine/orca/projects/sensei-channel.md` (outside git) for direct
+  Claude ⇄ Antigravity messages; issues/PRs stay the record.
+
 ### 2026-11-19: Web app served by the API server, same origin (Claude)
 - The SPA's routes (`/words`, `/episodes/:id`) overlap API paths. Instead of an `/api` prefix
   (breaking both clients) the server serves `index.html` for **browser page loads**

@@ -48,7 +48,14 @@ def test_create_card_review_flow(client):
     assert rc["episode"] == {"id": ep["id"], "anime_title": "Test Anime", "number": 1.0}
     assert rc["entry"]["senses"]["ger"]
     assert rc["media"] == [
-        {"id": shot, "kind": "screenshot", "mime": "image/webp", "url": f"/media/{shot}"}
+        {
+            "id": shot,
+            "kind": "screenshot",
+            "mime": "image/webp",
+            "url": f"/media/{shot}",
+            "bytes": 0,
+            "ready": True,
+        }
     ]
     assert set(rc["next_due"]) == {"1", "2", "3", "4"}
 
