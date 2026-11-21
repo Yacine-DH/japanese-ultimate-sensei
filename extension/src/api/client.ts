@@ -26,6 +26,8 @@ export type WordPage = components['schemas']['WordPage'];
 export type CardCreate = components['schemas']['CardCreate'];
 export type CardCreated = components['schemas']['CardCreated'];
 export type CardOut = components['schemas']['CardOut'];
+export type MediaKind = components['schemas']['MediaKind'];
+export type MediaOut = components['schemas']['MediaOut'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -78,6 +80,25 @@ export interface UploadSubtitleMessage {
   title?: string | null;
 }
 
+export interface UploadMediaMessage {
+  type: 'SENSEI_UPLOAD_MEDIA';
+  kind: MediaKind;
+  filename: string;
+  mimeType: string;
+  contentBase64: string;
+  cardId?: number | null;
+}
+
+export interface CaptureVisibleTabMessage {
+  type: 'SENSEI_CAPTURE_VISIBLE_TAB';
+}
+
+export interface CaptureVisibleTabResponse {
+  ok: boolean;
+  dataUrl?: string;
+  error?: string;
+}
+
 export interface TabStateChangedMessage {
   type: 'SENSEI_TAB_STATE_CHANGED';
   state: TabEpisodeState;
@@ -117,6 +138,25 @@ export function isUploadSubtitleMessage(msg: unknown): msg is UploadSubtitleMess
     typeof (msg as { filename?: unknown }).filename === 'string' &&
     typeof (msg as { contentBase64?: unknown }).contentBase64 === 'string' &&
     typeof (msg as { animeTitle?: unknown }).animeTitle === 'string'
+  );
+}
+
+export function isUploadMediaMessage(msg: unknown): msg is UploadMediaMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_UPLOAD_MEDIA' &&
+    typeof (msg as { kind?: unknown }).kind === 'string' &&
+    typeof (msg as { filename?: unknown }).filename === 'string' &&
+    typeof (msg as { contentBase64?: unknown }).contentBase64 === 'string'
+  );
+}
+
+export function isCaptureVisibleTabMessage(msg: unknown): msg is CaptureVisibleTabMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_CAPTURE_VISIBLE_TAB'
   );
 }
 
@@ -263,6 +303,63 @@ export async function executeSubtitleUpload(
       return { ok: false, status: response.status, error: detail };
     }
     return { ok: true, status: response.status, data: parsed as EpisodeCreated };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function executeMediaUpload(
+  settings: Pick<ExtensionSettings, 'serverUrl' | 'apiToken'>,
+  msg: UploadMediaMessage,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ApiCallResponse<MediaOut>> {
+  const baseUrl = normalizeServerUrl(settings.serverUrl);
+  if (!isServerUrlConfigured(baseUrl)) {
+    return {
+      ok: false,
+      status: 0,
+      error: 'Server URL not configured',
+    };
+  }
+  const url = `${baseUrl}/media`;
+  const headers = buildApiHeaders(settings);
+  delete headers['Content-Type'];
+
+  const binary = atob(msg.contentBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  const form = new FormData();
+  form.append('file', new Blob([bytes], { type: msg.mimeType || 'application/octet-stream' }), msg.filename);
+  form.append('kind', msg.kind);
+  if (msg.cardId !== undefined && msg.cardId !== null) {
+    form.append('card_id', String(msg.cardId));
+  }
+
+  try {
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    const contentType = response.headers.get('content-type') ?? '';
+    const isJson = contentType.includes('application/json');
+    const parsed = isJson ? await response.json() : await response.text();
+
+    if (!response.ok) {
+      const detail =
+        typeof parsed === 'object' && parsed !== null && 'detail' in parsed
+          ? String((parsed as { detail: unknown }).detail)
+          : `HTTP ${response.status}`;
+      return { ok: false, status: response.status, error: detail };
+    }
+    return { ok: true, status: response.status, data: parsed as MediaOut };
   } catch (err) {
     return {
       ok: false,
@@ -462,6 +559,67 @@ export const api = {
       method: 'POST',
       json: payload,
     });
+  },
+
+  async uploadMedia(
+    msg: Omit<UploadMediaMessage, 'type'>,
+  ): Promise<ApiCallResponse<MediaOut>> {
+    if (isBackgroundContext) {
+      const settings = await getSettings();
+      return executeMediaUpload(settings, { type: 'SENSEI_UPLOAD_MEDIA', ...msg });
+    }
+
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return {
+        ok: false,
+        status: 0,
+        error: 'Extension background worker unavailable',
+      };
+    }
+
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_UPLOAD_MEDIA',
+        ...msg,
+      } satisfies UploadMediaMessage)) as ApiCallResponse<MediaOut> | undefined;
+      if (res && typeof res.ok === 'boolean') {
+        return res;
+      }
+      return {
+        ok: false,
+        status: 0,
+        error: 'Extension background worker returned an invalid response',
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        status: 0,
+        error: `Extension background worker unavailable: ${detail}`,
+      };
+    }
+  },
+
+  async captureVisibleTab(): Promise<CaptureVisibleTabResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { ok: false, error: 'Extension background worker unavailable' };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_CAPTURE_VISIBLE_TAB',
+      } satisfies CaptureVisibleTabMessage)) as CaptureVisibleTabResponse | undefined;
+      if (res && typeof res.ok === 'boolean') {
+        return res;
+      }
+      return { ok: false, error: 'Invalid capture response' };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   },
 };
 

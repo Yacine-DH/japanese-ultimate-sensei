@@ -19,9 +19,9 @@ describe('FSRS review session helpers (W-3, #24)', () => {
 
   it('groups card media by screenshot / audio / clip and resolves relative URLs', () => {
     const grouped = groupCardMedia([
-      { id: 1, kind: 'screenshot', mime: 'image/webp', url: '/media/1' },
-      { id: 2, kind: 'audio', mime: 'audio/ogg', url: '/media/2' },
-      { id: 3, kind: 'clip', mime: 'video/webm', url: '/media/3' },
+      { id: 1, kind: 'screenshot', mime: 'image/webp', url: '/media/1', bytes: 32000, ready: true },
+      { id: 2, kind: 'audio', mime: 'audio/ogg', url: '/media/2', bytes: 18000, ready: true },
+      { id: 3, kind: 'clip', mime: 'video/webm', url: '/media/3', bytes: 180000, ready: false },
     ]);
     expect(grouped.screenshot?.id).toBe(1);
     expect(grouped.audio?.id).toBe(2);

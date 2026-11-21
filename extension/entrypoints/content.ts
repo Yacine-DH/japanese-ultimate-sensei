@@ -6,6 +6,11 @@ import {
   type TokenOut,
   type WordStatus,
 } from '../src/api/client';
+import {
+  captureVideoScreenshot,
+  recordLineMedia,
+  saveWordWithSceneCapture,
+} from '../src/lib/capture';
 import { getLineRomaji, renderTokenSegments } from '../src/lib/furigana';
 import {
   isLookupableToken,
@@ -74,9 +79,10 @@ export default defineContentScript({
     let toastEl: HTMLDivElement | null = null;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let pausedByHover = false;
+    let capturingScene = false;
     let hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
     let activePopupToken: TokenOut | null = null;
-    let activePopupLineId: number | null = null;
+    let activePopupLine: LineOut | null = null;
     let positionRafId: number | null = null;
     let videoResizeObserver: ResizeObserver | null = null;
     const lookupCache = new Map<string, LookupResult>();
@@ -114,11 +120,15 @@ export default defineContentScript({
             position: absolute;
             top: 16px;
             right: 16px;
-            background: rgba(15, 23, 42, 0.88);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            max-width: 300px;
+            background: rgba(15, 23, 42, 0.92);
             color: #38bdf8;
             border: 1px solid rgba(56, 189, 248, 0.45);
-            border-radius: 6px;
-            padding: 4px 10px;
+            border-radius: 8px;
+            padding: 6px 12px;
             font-size: 13px;
             font-weight: 600;
             opacity: 0;
@@ -126,6 +136,21 @@ export default defineContentScript({
           }
           .sensei-toast.visible {
             opacity: 1;
+          }
+          .sensei-toast-thumb {
+            width: 56px;
+            height: 34px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            flex-shrink: 0;
+          }
+          .sensei-toast-meta {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: #94a3b8;
+            margin-top: 2px;
           }
           .sensei-sub-box {
             max-width: 86%;
@@ -318,17 +343,51 @@ export default defineContentScript({
       });
     }
 
-    function showToast(text: string): void {
+    function showToast(text: string, durationMs = 1600): void {
       if (!toastEl) return;
+      toastEl.innerHTML = '';
       toastEl.textContent = text;
       toastEl.classList.add('visible');
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(() => {
         toastEl?.classList.remove('visible');
-      }, 1600);
+      }, durationMs);
+    }
+
+    function showSavedToast(
+      title: string,
+      subtitle: string,
+      thumbnailDataUrl: string | null,
+    ): void {
+      if (!toastEl) return;
+      toastEl.innerHTML = '';
+      if (thumbnailDataUrl) {
+        const img = document.createElement('img');
+        img.className = 'sensei-toast-thumb';
+        img.src = thumbnailDataUrl;
+        img.alt = title;
+        toastEl.appendChild(img);
+      }
+      const wrap = document.createElement('div');
+      const main = document.createElement('div');
+      main.textContent = title;
+      wrap.appendChild(main);
+      if (subtitle) {
+        const meta = document.createElement('span');
+        meta.className = 'sensei-toast-meta';
+        meta.textContent = subtitle;
+        wrap.appendChild(meta);
+      }
+      toastEl.appendChild(wrap);
+      toastEl.classList.add('visible');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl?.classList.remove('visible');
+      }, 2800);
     }
 
     function pauseVideoOnHover(): void {
+      if (capturingScene) return;
       if (settings && !settings.pauseOnHover) {
         return;
       }
@@ -339,6 +398,7 @@ export default defineContentScript({
     }
 
     function resumeVideoAfterHover(): void {
+      if (capturingScene) return;
       if (currentVideo && pausedByHover) {
         pausedByHover = false;
         void currentVideo.play().catch(() => {
@@ -374,29 +434,66 @@ export default defineContentScript({
     async function handleStatusChange(
       token: TokenOut,
       status: WordStatus,
-      lineId: number | null = activePopupLineId,
+      line: LineOut | null = activePopupLine,
     ): Promise<void> {
       if (token.word_id === null) {
         showToast(status === 'learning' ? 'Saved for review' : `Marked ${status}`);
         return;
       }
       if (status === 'learning') {
-        const cardRes = await api.createCard({
-          word_id: token.word_id,
-          line_id: lineId,
-          media_ids: [],
+        if (capturingScene) {
+          showToast('Capture already in progress...');
+          return;
+        }
+        const video = currentVideo;
+        const wasPausedByHover = pausedByHover;
+        showToast(`Capturing scene for ${token.lemma}...`, 15_000);
+
+        const result = await saveWordWithSceneCapture({
+          wordId: token.word_id,
+          line,
+          captureScreenshot: () =>
+            video ? captureVideoScreenshot(video, () => api.captureVisibleTab()) : Promise.resolve(null),
+          captureLineMedia: () =>
+            video && line
+              ? recordLineMedia(video, line, subOffsetMs, {
+                  onStart: () => {
+                    capturingScene = true;
+                    skipAutoPauseOnce = true;
+                  },
+                  onEnd: () => {
+                    capturingScene = false;
+                    // Don't double-pause if user already left popup while recording
+                    if (wasPausedByHover && !activePopupToken && video.paused) {
+                      pausedByHover = false;
+                      void video.play().catch(() => {});
+                    }
+                  },
+                })
+              : Promise.resolve({ audio: null, clip: null }),
+          uploader: {
+            uploadMedia: (m) => api.uploadMedia(m),
+            createCard: (payload) => api.createCard(payload),
+          },
         });
-        if (cardRes.ok) {
+
+        if (result.cardRes.ok) {
           lines = updateWordStatusInLines(lines, token.word_id, 'learning');
           renderedLinesKey = null;
           syncSubtitleFrame();
-          showToast(
-            cardRes.data?.created === false
-              ? `Already in review: ${token.lemma}`
-              : `Saved card: ${token.lemma}`,
-          );
-          return;
+          const title =
+            result.cardRes.data?.created === false
+              ? `Updated ✓ ${token.lemma}`
+              : `Saved ✓ ${token.lemma}`;
+          const detail =
+            result.capturedKinds.length > 0
+              ? `Attached: ${result.capturedKinds.join(', ')}`
+              : 'Saved card to review queue';
+          showSavedToast(title, detail, result.thumbnailDataUrl);
+        } else {
+          showToast(`Error: ${result.cardRes.error ?? 'Failed to save card'}`);
         }
+        return;
       }
       const res = await api.setWordStatus(token.word_id, status);
       if (res.ok) {
@@ -415,11 +512,11 @@ export default defineContentScript({
       }
     }
 
-    async function openHoverPopup(token: TokenOut, lineId: number | null = null): Promise<void> {
+    async function openHoverPopup(token: TokenOut, line: LineOut | null = null): Promise<void> {
       if (!popupEl || !settings) return;
       cancelHoverClose();
       activePopupToken = token;
-      activePopupLineId = lineId;
+      activePopupLine = line;
       pauseVideoOnHover();
 
       popupEl.innerHTML = '';
@@ -577,7 +674,7 @@ export default defineContentScript({
             span.addEventListener('mouseenter', (ev) => {
               cancelHoverClose();
               hoverIntent.enter(token, ev.shiftKey, (t) => {
-                void openHoverPopup(t, line.id);
+                void openHoverPopup(t, line);
               });
             });
             span.addEventListener('mouseleave', () => {
@@ -656,6 +753,7 @@ export default defineContentScript({
       const activeIds = active.map((l) => l.id);
 
       if (
+        !capturingScene &&
         !currentVideo.paused &&
         !skipAutoPauseOnce &&
         shouldAutoPauseAfterLine(

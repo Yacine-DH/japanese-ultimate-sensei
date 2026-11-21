@@ -278,6 +278,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Media
+         * @description Store and compress scene media. Screenshots and audio are transcoded before the
+         *     response; clips are transcoded in the background (`ready: false` until done).
+         */
+        post: operations["upload_media_media_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Media
+         * @description Serve a media file. Auth: the usual token header, or the `sig` in `MediaOut.url`.
+         */
+        get: operations["read_media_media__media_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Media */
+        delete: operations["delete_media_media__media_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -295,6 +337,20 @@ export interface components {
             episode_number?: number | null;
             /** Title */
             title?: string | null;
+        };
+        /** Body_upload_media_media_post */
+        Body_upload_media_media_post: {
+            /**
+             * File
+             * @description PNG/JPEG/WebP image, or audio/video (webm, ogg, mp4…)
+             */
+            file: string;
+            kind: components["schemas"]["MediaKind"];
+            /**
+             * Card Id
+             * @description Attach to an existing card right away
+             */
+            card_id?: number | null;
         };
         /** BulkStatusIn */
         BulkStatusIn: {
@@ -531,6 +587,18 @@ export interface components {
              * @description True when an API token is required
              */
             auth: boolean;
+            /**
+             * Ffmpeg
+             * @description True when media uploads can be transcoded
+             * @default false
+             */
+            ffmpeg: boolean;
+            /**
+             * Media Bytes
+             * @description Total size of stored media
+             * @default 0
+             */
+            media_bytes: number;
         };
         /** LineOut */
         LineOut: {
@@ -580,9 +648,20 @@ export interface components {
             mime: string;
             /**
              * Url
-             * @description Relative to the server base URL, e.g. /media/12
+             * @description Relative to the server base URL, already signed (/media/12?sig=…): usable directly in <img>/<audio>/<video> without an auth header
              */
             url: string;
+            /**
+             * Bytes
+             * @default 0
+             */
+            bytes: number;
+            /**
+             * Ready
+             * @description False while a clip is still being transcoded (url serves the original)
+             * @default true
+             */
+            ready: boolean;
         };
         /** ReviewCard */
         ReviewCard: {
@@ -1371,6 +1450,100 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ReviewOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_media_media_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_media_media_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_media_media__media_id__get: {
+        parameters: {
+            query?: {
+                /** @description Signature from MediaOut.url */
+                sig?: string | null;
+            };
+            header?: never;
+            path: {
+                media_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The media file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_media_media__media_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
