@@ -5,9 +5,14 @@ Run (from server/):  uv run uvicorn app.main:create_app --factory --host 0.0.0.0
 
 import hmac
 import json
+import logging
+import re
 from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
 
 from fastapi import (
+    BackgroundTasks,
     Depends,
     FastAPI,
     File,
@@ -19,9 +24,11 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlmodel import Session, delete, func, or_, select
 
 from app import __version__, srs
+from app import media as media_lib
 from app.config import Settings, check_auth_settings, get_settings
 from app.db import get_session, make_engine
 from app.dictionary import Dictionary, load_dictionary
@@ -39,6 +46,7 @@ from app.models import (
     Card,
     Episode,
     Media,
+    MediaKind,
     ReviewLog,
     SubtitleLine,
     UserWord,
@@ -74,6 +82,7 @@ from app.schemas import (
 from app.subtitles import parse_bytes
 from app.webapp import mount_web
 
+log = logging.getLogger("sensei")
 MAX_SUBTITLE_BYTES = 5 * 1024 * 1024
 EXTENSION_ORIGINS = (
     r"^(chrome-extension|moz-extension|extension)://.*$|^http://(localhost|127\.0\.0\.1)(:\d+)?$"
@@ -99,13 +108,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ---- dependencies -------------------------------------------------------------------
 
-    def require_token(request: Request) -> None:
+    def token_ok(request: Request) -> bool:
         expected = settings.api_token.strip()
         if not expected:  # only reachable with SENSEI_ALLOW_NO_AUTH=true
-            return
+            return True
         header = request.headers.get("authorization", "")
         given = header.removeprefix("Bearer ").strip() or request.headers.get("x-sensei-token", "")
-        if not hmac.compare_digest(given, expected):
+        return hmac.compare_digest(given, expected)
+
+    def require_token(request: Request) -> None:
+        if not token_ok(request):
             raise HTTPException(401, "invalid or missing API token")
 
     def dictionary_dep() -> Dictionary:
@@ -186,10 +198,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health", response_model=Health, tags=["meta"])
     def health():
+        with Session(app.state.engine) as session:
+            media_bytes = session.exec(select(func.coalesce(func.sum(Media.bytes), 0))).one()
         return Health(
             version=__version__,
             dictionary=app.state.dictionary is not None,
-            auth=bool(settings.api_token),
+            auth=bool(settings.api_token.strip()),
+            ffmpeg=media_lib.ffmpeg_available(),
+            media_bytes=media_bytes,
         )
 
     @app.post(
@@ -516,5 +532,127 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.commit()
         session.refresh(card)
         return ReviewOut(card=card_out(session, card), word_status=status, graduated=graduated)
+
+    # ---- media (S-2) ----------------------------------------------------------------------
+
+    media_dir = settings.media_dir
+
+    def media_out(m: Media) -> MediaOut:
+        token = settings.api_token.strip()
+        url = f"/media/{m.id}" + (f"?sig={media_lib.sign(token, m.id)}" if token else "")
+        return MediaOut(
+            id=m.id, kind=m.kind, mime=m.mime, url=url, bytes=m.bytes, ready=not is_raw(m)
+        )
+
+    def is_raw(m: Media) -> bool:
+        return m.path.startswith("raw/")
+
+    def finish_media(session: Session, m: Media) -> None:
+        """Transcode the raw upload into its final format and replace it."""
+        src = media_dir / m.path
+        stem = media_dir / m.created_at.strftime("%Y/%m") / f"{m.id}-{m.kind.value}"
+        dst, mime = media_lib.transcode(m.kind, src, stem)
+        m.path, m.mime, m.bytes = dst.relative_to(media_dir).as_posix(), mime, dst.stat().st_size
+        session.add(m)
+        session.commit()
+        src.unlink(missing_ok=True)
+
+    def finish_media_later(media_id: int) -> None:
+        with Session(app.state.engine) as session:
+            m = session.get(Media, media_id)
+            if m is None or not is_raw(m):
+                return
+            try:
+                finish_media(session, m)
+            except media_lib.MediaError:
+                log.exception("clip %s: transcoding failed; keeping the original", media_id)
+
+    @app.post("/media", response_model=MediaOut, status_code=201, dependencies=auth, tags=["media"])
+    def upload_media(
+        background: BackgroundTasks,
+        file: UploadFile = File(
+            description="PNG/JPEG/WebP image, or audio/video (webm, ogg, mp4…)"
+        ),
+        kind: MediaKind = Form(),
+        card_id: int | None = Form(None, description="Attach to an existing card right away"),
+        session: Session = Depends(get_session),
+    ):
+        """Store and compress scene media. Screenshots and audio are transcoded before the
+        response; clips are transcoded in the background (`ready: false` until done)."""
+        if not media_lib.ffmpeg_available():
+            raise HTTPException(503, "ffmpeg is not installed on the server")
+        if card_id is not None:
+            get_card(session, card_id)
+        limit = media_lib.MAX_BYTES[kind]
+        raw = file.file.read(limit + 1)
+        if len(raw) > limit:
+            raise HTTPException(413, f"{kind.value} too large (max {limit // 1024 // 1024} MB)")
+        if not raw:
+            raise HTTPException(422, "empty file")
+        suffix = Path(file.filename or "").suffix
+        suffix = suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,6}", suffix) else ""
+        raw_rel = f"raw/{uuid4().hex}{suffix}"
+        raw_path = media_dir / raw_rel
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(raw)
+        try:
+            media_lib.probe(raw_path)
+        except media_lib.MediaError as e:
+            raw_path.unlink(missing_ok=True)
+            raise HTTPException(422, str(e)) from e
+
+        m = Media(
+            card_id=card_id,
+            kind=kind,
+            path=raw_rel,
+            mime=file.content_type or "application/octet-stream",
+            bytes=len(raw),
+        )
+        session.add(m)
+        session.commit()
+        session.refresh(m)
+        if kind == MediaKind.clip:
+            background.add_task(finish_media_later, m.id)
+            return media_out(m)
+        try:
+            finish_media(session, m)
+        except media_lib.MediaError as e:
+            raw_path.unlink(missing_ok=True)
+            session.delete(m)
+            session.commit()
+            raise HTTPException(422, str(e)) from e
+        return media_out(m)
+
+    @app.get(
+        "/media/{media_id}",
+        tags=["media"],
+        response_class=FileResponse,
+        responses={200: {"description": "The media file"}},
+    )
+    def read_media(
+        media_id: int,
+        request: Request,
+        sig: str | None = Query(None, description="Signature from MediaOut.url"),
+        session: Session = Depends(get_session),
+    ):
+        """Serve a media file. Auth: the usual token header, or the `sig` in `MediaOut.url`."""
+        token = settings.api_token.strip()
+        if not (token_ok(request) or media_lib.check_sig(token, media_id, sig)):
+            raise HTTPException(401, "invalid or missing API token / signature")
+        m = session.get(Media, media_id)
+        path = media_dir / m.path if m else None
+        if not m or not path or not path.is_file():
+            raise HTTPException(404, "media not found")
+        cache = "no-cache" if is_raw(m) else "private, max-age=31536000, immutable"
+        return FileResponse(path, media_type=m.mime, headers={"Cache-Control": cache})
+
+    @app.delete("/media/{media_id}", status_code=204, dependencies=auth, tags=["media"])
+    def delete_media(media_id: int, session: Session = Depends(get_session)):
+        m = session.get(Media, media_id)
+        if not m:
+            raise HTTPException(404, "media not found")
+        (media_dir / m.path).unlink(missing_ok=True)
+        session.delete(m)
+        session.commit()
 
     return app

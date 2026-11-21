@@ -14,6 +14,8 @@ class Health(BaseModel):
     version: str
     dictionary: bool = Field(description="True when data/jmdict.sqlite is available")
     auth: bool = Field(description="True when an API token is required")
+    ffmpeg: bool = Field(default=False, description="True when media uploads can be transcoded")
+    media_bytes: int = Field(default=0, description="Total size of stored media")
 
 
 class FuriganaSegment(BaseModel):
@@ -154,7 +156,15 @@ class MediaOut(BaseModel):
     id: int
     kind: MediaKind
     mime: str
-    url: str = Field(description="Relative to the server base URL, e.g. /media/12")
+    url: str = Field(
+        description="Relative to the server base URL, already signed (/media/12?sig=…): usable "
+        "directly in <img>/<audio>/<video> without an auth header"
+    )
+    bytes: int = 0
+    ready: bool = Field(
+        default=True,
+        description="False while a clip is still being transcoded (url serves the original)",
+    )
 
 
 class CardCreate(BaseModel):

@@ -13,7 +13,7 @@ so the web app talks to the API on the same origin.
 
 ## Meta
 ### `GET /health`
-`{"status":"ok","version":"0.1.0","dictionary":true,"auth":true}`. `dictionary:false` means
+`{"status":"ok","version":"0.1.0","dictionary":true,"auth":true,"ffmpeg":true,"media_bytes":123456}`. `dictionary:false` means
 `/dictionary/lookup` returns 503 until the dictionary is built.
 
 ## Episodes
@@ -129,7 +129,7 @@ the new `media_ids` are attached to it. 404 unknown word/line, 422 unknown media
   "next_due":{"1":"...+1m","2":"...+6m","3":"...+10m","4":"...+7d"}}]}
 ```
 `next_due` = when the card would come back for each rating: use it for button labels.
-`media[].url` is relative to the server base URL (served by `GET /media/{id}`, S-2 #14).
+`media[].url` is relative to the server base URL and pre-signed (see Media).
 `line`/`episode` are null for cards saved without a line.
 
 ### `POST /reviews` body `{"card_id":7,"rating":3,"duration_ms":4200}` → `ReviewOut`
@@ -140,6 +140,32 @@ review made the word `known` (good moment for a small celebration).
 ### `GET /cards/{id}` → `ReviewCard` · `DELETE /cards/{id}` → 204
 Delete removes the card + its review history; the word keeps its status.
 
+## Media (scene screenshot / line audio / clip)
+### `POST /media` (multipart/form-data) → 201 `MediaOut`
+Fields: `file`, `kind` = `screenshot | audio | clip`, `card_id` (optional, attach right away).
+Send whatever the browser produces (PNG/JPEG canvas blob; `MediaRecorder` webm). The server
+compresses it:
+
+| kind | input max | stored as | typical size |
+|---|---|---|---|
+| screenshot | 10 MB | WebP ≤ 640 px wide, q70 | ~40 KB |
+| audio | 15 MB (≤ 30 s used) | Opus 32 kbps mono (`audio/ogg`) | ~20 KB |
+| clip | 80 MB (≤ 20 s used) | VP9 WebM ≤ 360 p, 12 fps, **no audio** | ~150–300 KB |
+
+Screenshot/audio are transcoded before the response. Clips are transcoded in the background:
+the response has `"ready": false` and `url` serves the original until it's done.
+```json
+{"id":3,"kind":"screenshot","mime":"image/webp","url":"/media/3?sig=9f2c…","bytes":38211,"ready":true}
+```
+413 too large · 422 not a readable image/audio/video · 404 unknown `card_id` · 503 no ffmpeg.
+Typical Save flow: upload media first → `POST /cards` with `media_ids` (or upload with `card_id`).
+
+### `GET /media/{id}?sig=…` → the file
+`MediaOut.url` is **pre-signed**: use it as-is in `<img>`, `<audio>`, `<video>` (prefix the server
+base URL). No auth header needed with `sig`; the normal token header also works. Final files are
+cacheable forever (`immutable`).
+
+### `DELETE /media/{id}` → 204
+
 ## Coming in Phase 1 (not implemented yet; see TASKS.md)
-`/subs/search`, `/episodes/from-jimaku`, `/media` (#14), `/activity`, known-word import,
-Anki export.
+`/subs/search`, `/episodes/from-jimaku` (#13), `/activity` (#18), known-word import, Anki export.
