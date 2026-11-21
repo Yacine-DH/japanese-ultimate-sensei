@@ -64,3 +64,21 @@ def test_proper_nouns():
     assert not toks["フリーレン"].is_content and not toks["東京"].is_content
     assert line("フリーレン様、ヒンメルは勇者だった。") == "furiiren-sama, hinmeru wa yuusha datta."
     assert not by_surface(tokenize("テレビを見た"))["テレビ"].is_proper_noun  # known loanword
+
+
+def reading_of(text, surface):
+    return by_surface(tokenize(text))[surface].reading
+
+
+def test_colloquial_readings():
+    assert reading_of("私は勇者だ", "私") == "わたし"
+    assert reading_of("明日行こう", "明日") == "あした"
+    assert by_surface(tokenize("私は勇者だ"))["私"].furigana == [{"text": "私", "ruby": "わたし"}]
+    assert line("私は勇者だ") == "watashi wa yuusha da"
+    # 何: なん before d/t/n sounds, なに otherwise
+    for text, want in [
+        ("何を食べる", "なに"), ("何が好き", "なに"), ("何もない", "なに"), ("何か食べたい", "なに"),
+        ("何？", "なに"), ("何に使う", "なに"),
+        ("何で泣いてるの", "なん"), ("何の話", "なん"), ("何だと", "なん"), ("何と言った", "なん"),
+    ]:  # fmt: skip
+        assert reading_of(text, "何") == want, text

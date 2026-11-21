@@ -178,10 +178,11 @@ class Dictionary:
         self, text: str, reading: str | None = None, limit: int = 5, first: str | None = None
     ) -> list[dict]:
         """Entries for `text`; `first` (a known entry id, e.g. the word's link) goes first."""
-        ids = self.find_ids(text, reading, limit)
+        ids = self.find_ids(text, reading, limit + 1)
         if first:
-            ids = [first, *[i for i in ids if i != first]][:limit]
-        return [e for eid in ids if (e := self.entry(eid))]
+            ids = [first, *[i for i in ids if i != first]]
+        # resolve before trimming: a stale `first` (entry gone after a JMdict update) is skipped
+        return [e for eid in ids if (e := self.entry(eid))][:limit]
 
     def best(self, text: str, reading: str | None = None) -> tuple[str, bool] | None:
         """(entry_id, common) of the best entry, or None."""

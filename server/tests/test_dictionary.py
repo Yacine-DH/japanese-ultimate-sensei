@@ -25,3 +25,10 @@ def test_missing(dictionary):
 def test_lookup_puts_known_link_first(dictionary):
     ids = [e["id"] for e in dictionary.lookup("たべる", first="9999999")]
     assert ids[0] == "9999999" and "1358280" in ids
+
+
+def test_lookup_skips_stale_first_entry(dictionary):
+    # a word linked to an entry that no longer exists after a JMdict update
+    ids = [e["id"] for e in dictionary.lookup("たべる", limit=1, first="0000000")]
+    assert ids == ["1358280"]
+    assert len(dictionary.lookup("たべる", limit=5, first="0000000")) == 2  # nothing dropped

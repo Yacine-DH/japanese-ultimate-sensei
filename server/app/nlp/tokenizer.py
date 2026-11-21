@@ -82,6 +82,7 @@ def tokenize(text: str) -> list[Token]:
                 is_proper_noun=proper,
             )
         )
+    _fix_readings(out)
     _fix_trailing_sokuon(out)
     return out
 
@@ -98,6 +99,32 @@ def is_proper_noun(pos: list[str] | tuple[str, ...], surface: str, oov: bool = F
 
 def is_katakana_word(s: str) -> bool:
     return bool(s) and all("\u30a0" <= c <= "\u30ff" for c in s)
+
+
+# Sudachi gives dictionary-default readings with no context. Spoken (anime) Japanese mostly
+# uses these instead; showing the formal one as furigana would mislead a learner.
+_COLLOQUIAL = {"私": "わたし", "明日": "あした", "貴方": "あなた", "一昨日": "おととい"}
+# 何 is なん before d/t/n sounds and counters (なんで, なんと, なんの, なんだ, 何人), else なに.
+_NAN_NEXT = ("だ", "で", "と", "の", "て", "ど", "じ", "な", "に")
+_NANI_NEXT_EXCEPTIONS = ("に",)  # 何に → なにに
+
+
+def _fix_readings(tokens: list[Token]) -> None:
+    for i, t in enumerate(tokens):
+        new = None
+        if t.surface in _COLLOQUIAL and t.lemma == t.surface:
+            new = _COLLOQUIAL[t.surface]
+        elif t.surface == "何" and t.lemma == "何":
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else None
+            counter = nxt is not None and "助数詞" in "".join(nxt.pos_detail)
+            sound = nxt.reading[:1] if nxt else ""
+            nan = counter or (sound in _NAN_NEXT and nxt.reading not in _NANI_NEXT_EXCEPTIONS)
+            new = "なん" if nan else "なに"
+        if new and new != t.reading:
+            t.reading = new
+            t.lemma_reading = new
+            t.furigana = furigana(t.surface, new)
+            t.romaji = _romaji(t.surface, new, t.pos)
 
 
 # Particles are pronounced differently from how they're written.

@@ -181,8 +181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if word_ids
             else {}
         )
-        if any(w.zipf is None for w in words.values()):
-            fill_zipf(session, words.values())
+        if fill_zipf(session, words.values()):
             session.commit()
         out = []
         for line, toks in zip(lines, parsed, strict=True):
@@ -452,16 +451,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             stmt = stmt.where(or_(Word.lemma.contains(q), Word.reading.contains(q)))  # type: ignore[attr-defined]
         rows = session.exec(stmt).all()
         if sort == "frequency":
-            fill_zipf(session, [r[0] for r in rows])
-            session.commit()
+            if fill_zipf(session, [r[0] for r in rows]):
+                session.commit()
             rows = sorted(rows, key=lambda r: (-(r[0].zipf or 0), r[0].id))
         elif counts is not None:
             rows = sorted(rows, key=lambda r: (-counts.get(r[0].id, 0), r[0].id))
         else:
             rows = sorted(rows, key=lambda r: -(r[0].id or 0))
         page = rows[offset : offset + limit]
-        if any(w.zipf is None for w, _ in page):
-            fill_zipf(session, [w for w, _ in page])
+        if fill_zipf(session, [w for w, _ in page]):
             session.commit()
         return WordPage(
             total=len(rows),
@@ -1063,8 +1061,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             w.id: w
             for w in session.exec(select(Word).where(Word.id.in_(candidates))).all()  # type: ignore[union-attr]
         }
-        fill_zipf(session, words.values())
-        session.commit()
+        if fill_zipf(session, words.values()):
+            session.commit()
         ranked = sorted(
             words.values(),
             key=lambda w: (-usefulness(w.zipf, counts[w.id], anime_counts.get(w.id, 0)), w.id),
