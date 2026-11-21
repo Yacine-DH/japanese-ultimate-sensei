@@ -10,6 +10,18 @@ from app.nlp.kana import has_japanese
 ENCODINGS = ("utf-8-sig", "cp932", "euc_jp")
 _WS_RE = re.compile(r"[ \t　]+")
 _DRAWING_RE = re.compile(r"\\p[1-9]")
+# SDH annotations (Netflix/Amazon JP subs): a short speaker label before the dialogue,
+# e.g. （ヒンメル）帰ったら…, and bracketed sound cues like ［拍手］ or 〔笑い〕.
+_SPEAKER_RE = re.compile(r"^[（(][^（）()。、！？!?\s]{1,12}[）)]\s*")
+_CUE_RE = re.compile(r"[［\[〔][^］\]〕]{1,20}[］\]〕]")
+
+
+def strip_annotations(part: str) -> str:
+    """Remove SDH speaker labels and sound cues, but only when real dialogue remains:
+    a whole line in （…） is usually a thought or whisper, so it's kept."""
+    cleaned = _CUE_RE.sub("", part).strip()
+    cleaned = _SPEAKER_RE.sub("", cleaned).strip()
+    return cleaned if has_japanese(cleaned) else part.strip()
 
 
 @dataclass
@@ -43,9 +55,8 @@ def parse(text: str) -> list[ParsedLine]:
     for ev in subs:
         if ev.is_comment or _DRAWING_RE.search(ev.text):
             continue
-        clean = " ".join(
-            _WS_RE.sub(" ", part).strip() for part in ev.plaintext.splitlines() if part.strip()
-        )
+        parts = [strip_annotations(_WS_RE.sub(" ", p)) for p in ev.plaintext.splitlines()]
+        clean = strip_annotations(" ".join(p for p in parts if p))  # label on its own line
         if not clean or not has_japanese(clean):
             continue
         key = (ev.start, ev.end, clean)
