@@ -48,7 +48,7 @@ logged in on the server.
 - Breaking changes need a note in `docs/DECISIONS.md`.
 
 ## Code conventions
-- **Python (server):** 3.12, uv, type hints, ruff (`uv run ruff check . && uv run ruff format .`),
+- **Python (server):** 3.12, uv, type hints, schema changes via Alembic migrations (see DECISIONS), ruff (`uv run ruff check . && uv run ruff format .`),
   pytest for everything non-trivial (`uv run pytest`). Times in ms (int). Japanese readings in hiragana.
 - **TypeScript (extension, web):** strict mode, ESLint + Prettier, pnpm (or npm), Vitest for logic.
   Keep pure logic (subtitle timing, furigana rendering, highlight ranking) in framework-free modules

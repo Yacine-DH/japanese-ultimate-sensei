@@ -34,6 +34,7 @@ uv run uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
 bash deploy/install-service.sh                        # starts now + on boot, restarts on crash
 bash deploy/update.sh                                 # later: pull, rebuild, restart
 journalctl --user -u sensei -f                        # logs
+uv run python -m app.backup                           # manual DB backup → data/backups/ (nightly is automatic)
 ```
 Open `http://<server-tailscale-name>:8000/` for the web app; the extension uses the same URL.
 
