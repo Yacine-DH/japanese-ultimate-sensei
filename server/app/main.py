@@ -53,6 +53,7 @@ from app.models import (
     ReviewLog,
     SubtitleLine,
     UserWord,
+    WatchDay,
     Word,
     WordStatus,
 )
@@ -320,7 +321,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.delete("/episodes/{episode_id}", status_code=204, dependencies=auth, tags=["episodes"])
     def delete_episode(episode_id: int, session: Session = Depends(get_session)):
+        """Delete an episode and its lines. Cards saved from it are kept (their sentence text
+        stays; they just lose the link to the line). Watch time for it is removed."""
         ep = get_episode(session, episode_id)
+        line_ids = select(SubtitleLine.id).where(SubtitleLine.episode_id == episode_id)
+        for card in session.exec(select(Card).where(Card.line_id.in_(line_ids))).all():  # type: ignore[union-attr]
+            card.line_id = None
+            session.add(card)
+        session.exec(delete(WatchDay).where(WatchDay.episode_id == episode_id))
         session.exec(delete(SubtitleLine).where(SubtitleLine.episode_id == episode_id))
         session.delete(ep)
         session.commit()
@@ -491,9 +499,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if ep
             else None,
             entry=entry,
-            media=[
-                MediaOut(id=m.id, kind=m.kind, mime=m.mime, url=f"/media/{m.id}") for m in media
-            ],
+            media=[media_out(m) for m in media],
             next_due=srs.preview(card),
         )
 

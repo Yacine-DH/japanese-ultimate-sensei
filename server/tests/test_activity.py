@@ -83,3 +83,15 @@ def test_anime_list_and_progress(client):
     assert [e["number"] for e in p["episodes"]] == [1.0, 2.0]
     assert p["episodes"][1]["minutes_watched"] == 2
     assert client.get("/anime/999/progress").status_code == 404
+
+
+def test_delete_episode_with_watch_time_and_cards(client):
+    """#72: deleting an episode with heartbeats and saved cards must not hit FK errors."""
+    ep = upload(client).json()
+    line = client.get(f"/episodes/{ep['id']}/lines").json()[1]
+    tok = next(t for t in line["tokens"] if t["is_content"])
+    card = client.post("/cards", json={"word_id": tok["word_id"], "line_id": line["id"]}).json()
+    client.post("/activity/watch", json={"episode_id": ep["id"], "seconds": 60})
+    assert client.delete(f"/episodes/{ep['id']}").status_code == 204
+    kept = client.get(f"/cards/{card['id']}").json()
+    assert kept["card"]["line_id"] is None and kept["card"]["sentence"] == line["text"]

@@ -4,6 +4,8 @@ import pytest
 
 from app.media import ffmpeg_available, sign
 
+from .conftest import FIXTURES
+
 pytestmark = pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg not installed")
 TOKEN = "media-test-token-123456"
 
@@ -125,3 +127,26 @@ def test_upload_then_attach_to_card(client, samples):
     media = client.get(f"/cards/{card['id']}").json()["media"]
     assert [m["kind"] for m in media] == ["screenshot", "audio"]
     assert client.get(media[1]["url"]).status_code == 200
+
+
+def test_review_queue_media_urls_are_signed(make_client, samples):
+    """#71: review/card payloads must carry signed URLs usable in <img>/<audio> tags."""
+
+    c = make_client(token=TOKEN)
+    hdr = {"Authorization": f"Bearer {TOKEN}"}
+    with open(FIXTURES / "sample.ass", "rb") as f:
+        ep = c.post(
+            "/episodes", data={"anime_title": "A"}, files={"subtitle": ("s.ass", f)}, headers=hdr
+        ).json()
+    line = c.get(f"/episodes/{ep['id']}/lines", headers=hdr).json()[1]
+    tok = next(t for t in line["tokens"] if t["is_content"])
+    shot = post(c, samples / "shot.png", "screenshot").json()
+    c.post(
+        "/cards",
+        json={"word_id": tok["word_id"], "line_id": line["id"], "media_ids": [shot["id"]]},
+        headers=hdr,
+    )
+    media = c.get("/reviews/due", headers=hdr).json()["cards"][0]["media"]
+    assert media[0]["url"] == shot["url"] and "sig=" in media[0]["url"]
+    assert c.get(media[0]["url"]).status_code == 200  # no header, like an <img> tag
+    assert media[0]["bytes"] > 0 and media[0]["ready"]
