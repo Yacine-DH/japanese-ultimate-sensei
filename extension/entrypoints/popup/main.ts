@@ -3,6 +3,7 @@ import {
   type EpisodeOut,
   type JimakuEntry,
   type JimakuFile,
+  type OpenMissedPanelMessage,
   verifyServerConnection,
 } from '../../src/api/client';
 import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
@@ -41,6 +42,7 @@ const applySuggestBtn = document.getElementById('apply-suggest-btn') as HTMLButt
 const episodeSearch = document.getElementById('episode-search') as HTMLInputElement;
 const episodeSelect = document.getElementById('episode-select') as HTMLSelectElement;
 const primeEpisodeBtn = document.getElementById('prime-episode-btn') as HTMLButtonElement;
+const missedEpisodeBtn = document.getElementById('missed-episode-btn') as HTMLButtonElement;
 const uploadForm = document.getElementById('upload-form') as HTMLFormElement;
 const uploadAnime = document.getElementById('upload-anime') as HTMLInputElement;
 const uploadEpNum = document.getElementById('upload-ep-num') as HTMLInputElement;
@@ -77,6 +79,7 @@ function updatePrimerButton(): void {
   const url =
     attachedEpisodeId !== null ? buildPrimingUrl(currentServerUrl, attachedEpisodeId) : null;
   primeEpisodeBtn.style.display = url ? 'block' : 'none';
+  missedEpisodeBtn.style.display = url ? 'block' : 'none';
 }
 
 function formatEpisodeLabel(ep: EpisodeOut): string {
@@ -500,6 +503,27 @@ jimakuImportBtn.addEventListener('click', async () => {
 
 openOptionsBtn.addEventListener('click', () => {
   void browser.runtime.openOptionsPage();
+});
+
+missedEpisodeBtn.addEventListener('click', async () => {
+  if (attachedEpisodeId === null) return;
+  if (activeTabId !== null) {
+    try {
+      const res = (await browser.tabs.sendMessage(activeTabId, {
+        type: 'SENSEI_OPEN_MISSED_PANEL',
+      } satisfies OpenMissedPanelMessage)) as { ok?: boolean } | undefined;
+      if (res?.ok) {
+        window.close();
+        return;
+      }
+    } catch {
+      // Fallback to opening the web episode detail page with ?missed=1
+    }
+  }
+  const url = buildPrimingUrl(currentServerUrl, attachedEpisodeId);
+  if (url) {
+    void browser.tabs.create({ url: url.replace('?prime=1', '?missed=1') });
+  }
 });
 
 void refreshPopup();

@@ -67,6 +67,19 @@ describe('unknown content token highlighting (E-3, #9)', () => {
     expect(Array.from(top1)).toEqual([3]);
   });
 
+  it('ranks unknown content words by Zipf frequency desc ahead of common flag (#27)', () => {
+    const tokens: TokenOut[] = [
+      makeToken({ surface: '魔導書', lemma: '魔導書', word_id: 20, status: 'new', common: true, zipf: 2.1 }),
+      makeToken({ surface: '旅', lemma: '旅', word_id: 21, status: 'new', common: false, zipf: 4.9 }),
+      makeToken({ surface: '食べる', lemma: '食べる', word_id: 22, status: 'new', common: true, zipf: 5.8 }),
+      makeToken({ surface: '勇者', lemma: '勇者', word_id: 23, status: 'new', common: true, zipf: 3.4 }),
+    ];
+
+    const top2 = rankHighlightedTokenIndices(tokens, 2);
+    // Highest zipf: 食べる (5.8, idx 2) and 旅 (4.9, idx 1), even though 旅 has common=false
+    expect(Array.from(top2).sort()).toEqual([1, 2]);
+  });
+
   it('selects dictionary senses for preferred language with fallback', () => {
     const entry: DictEntry = {
       id: '1358280',

@@ -57,9 +57,9 @@ export function PreWatchPrimer({
   const currentWord: WordListItem | null = words[cursor] ?? null;
 
   const lookupQuery = useQuery({
-    queryKey: ['dict-lookup', currentWord?.lemma, currentWord?.reading],
+    queryKey: ['dict-lookup', currentWord?.id, currentWord?.lemma, currentWord?.reading],
     queryFn: () =>
-      apiClient.lookupDictionary(currentWord!.lemma, currentWord!.reading, 3),
+      apiClient.lookupDictionary(currentWord!.lemma, currentWord!.reading, 3, currentWord!.id),
     enabled: currentWord !== null,
     retry: false,
   });

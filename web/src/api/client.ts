@@ -46,6 +46,8 @@ export type AnkiCardsImport = components['schemas']['AnkiCardsImport'];
 export type AnkiNoteType = components['schemas']['AnkiNoteType'];
 export type ImportReport = components['schemas']['ImportReport'];
 export type WordListImport = components['schemas']['WordListImport'];
+export type ExampleLine = components['schemas']['ExampleLine'];
+export type MissedWord = components['schemas']['MissedWord'];
 
 export class SenseiApiError extends Error {
   readonly status: number;
@@ -166,9 +168,18 @@ export const apiClient = {
   getEpisodeUnderstanding: (id: number) =>
     apiRequest<Understanding>(`/episodes/${id}/understanding`),
 
-  lookupDictionary: (q: string, reading?: string | null, limit = 5) => {
+  getEpisodeMissedWords: (id: number, limit = 30, includeLearning = false) => {
+    const qs = new URLSearchParams({
+      limit: String(limit),
+      include_learning: includeLearning ? 'true' : 'false',
+    });
+    return apiRequest<MissedWord[]>(`/episodes/${id}/missed?${qs.toString()}`);
+  },
+
+  lookupDictionary: (q: string, reading?: string | null, limit = 5, wordId?: number | null) => {
     const params = new URLSearchParams({ q, limit: String(limit) });
     if (reading) params.set('reading', reading);
+    if (wordId !== undefined && wordId !== null) params.set('word_id', String(wordId));
     return apiRequest<LookupResult>(`/dictionary/lookup?${params.toString()}`);
   },
 
@@ -177,6 +188,7 @@ export const apiClient = {
     animeId?: number | null;
     episodeId?: number | null;
     q?: string;
+    sort?: 'frequency' | '';
     limit?: number;
     offset?: number;
   }) => {
@@ -189,6 +201,7 @@ export const apiClient = {
       qs.set('episode_id', String(params.episodeId));
     }
     if (params?.q && params.q.trim()) qs.set('q', params.q.trim());
+    if (params?.sort) qs.set('sort', params.sort);
     if (params?.limit !== undefined) qs.set('limit', String(params.limit));
     if (params?.offset !== undefined) qs.set('offset', String(params.offset));
     const suffix = qs.toString() ? `?${qs.toString()}` : '';

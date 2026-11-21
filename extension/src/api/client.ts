@@ -40,6 +40,10 @@ export type AnkiMediaFile = components['schemas']['AnkiMediaFile'];
 export type AnkiCardIn = components['schemas']['AnkiCardIn'];
 export type AnkiCardsImport = components['schemas']['AnkiCardsImport'];
 export type ImportReport = components['schemas']['ImportReport'];
+export type BulkStatusIn = components['schemas']['BulkStatusIn'];
+export type BulkStatusOut = components['schemas']['BulkStatusOut'];
+export type ExampleLine = components['schemas']['ExampleLine'];
+export type MissedWord = components['schemas']['MissedWord'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -114,6 +118,10 @@ export interface CaptureVisibleTabResponse {
 export interface TabStateChangedMessage {
   type: 'SENSEI_TAB_STATE_CHANGED';
   state: TabEpisodeState;
+}
+
+export interface OpenMissedPanelMessage {
+  type: 'SENSEI_OPEN_MISSED_PANEL';
 }
 
 export interface AnkiPushCardMessage {
@@ -232,6 +240,14 @@ export function isTabStateChangedMessage(msg: unknown): msg is TabStateChangedMe
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_TAB_STATE_CHANGED'
+  );
+}
+
+export function isOpenMissedPanelMessage(msg: unknown): msg is OpenMissedPanelMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_OPEN_MISSED_PANEL'
   );
 }
 
@@ -630,14 +646,30 @@ export const api = {
     return api.call<Understanding>(`/episodes/${episodeId}/understanding`);
   },
 
+  getEpisodeMissedWords(
+    episodeId: number,
+    limit = 30,
+    includeLearning = false,
+  ): Promise<ApiCallResponse<MissedWord[]>> {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      include_learning: includeLearning ? 'true' : 'false',
+    });
+    return api.call<MissedWord[]>(`/episodes/${episodeId}/missed?${params.toString()}`);
+  },
+
   lookupDictionary(
     q: string,
     reading?: string | null,
     limit = 5,
+    wordId?: number | null,
   ): Promise<ApiCallResponse<LookupResult>> {
     const params = new URLSearchParams({ q, limit: String(limit) });
     if (reading) {
       params.set('reading', reading);
+    }
+    if (wordId !== undefined && wordId !== null) {
+      params.set('word_id', String(wordId));
     }
     return api.call<LookupResult>(`/dictionary/lookup?${params.toString()}`);
   },
@@ -646,6 +678,13 @@ export const api = {
     return api.call<WordOut>(`/words/${wordId}/status`, {
       method: 'POST',
       json: { status },
+    });
+  },
+
+  bulkWordStatus(wordIds: number[], status: WordStatus): Promise<ApiCallResponse<BulkStatusOut>> {
+    return api.call<BulkStatusOut>('/words/bulk-status', {
+      method: 'POST',
+      json: { word_ids: wordIds, status } satisfies BulkStatusIn,
     });
   },
 
