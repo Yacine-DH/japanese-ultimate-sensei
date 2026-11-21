@@ -459,6 +459,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/import/words": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Words
+         * @description Mark a plain list of words (one per line) as known or learning.
+         */
+        post: operations["import_words_import_words_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/import/anki": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Anki
+         * @description Import an Anki deck: mature cards (interval ≥ `mature_days`) → known, studied
+         *     younger cards → learning, never-studied cards are skipped. Run with `dry_run` first to
+         *     check `note_types[].field_used`, then re-run with `field` if the wrong field was picked.
+         */
+        post: operations["import_anki_import_anki_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/import/anki/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Anki Cards
+         * @description Same as /import/anki but from AnkiConnect data the extension read on the laptop
+         *     (`findCards` + `cardsInfo`: the word field's value + `interval`).
+         */
+        post: operations["import_anki_cards_import_anki_cards_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -565,6 +628,51 @@ export interface components {
             /** Episodes */
             episodes: components["schemas"]["EpisodeProgress"][];
         };
+        /** AnkiCardIn */
+        AnkiCardIn: {
+            /** Expression */
+            expression: string;
+            /**
+             * Interval Days
+             * @description AnkiConnect cardsInfo `interval`
+             */
+            interval_days: number;
+            /**
+             * Studied
+             * @description False for new (type 0) cards
+             * @default true
+             */
+            studied: boolean;
+        };
+        /** AnkiCardsImport */
+        AnkiCardsImport: {
+            /** Cards */
+            cards: components["schemas"]["AnkiCardIn"][];
+            /**
+             * Mature Days
+             * @default 21
+             */
+            mature_days: number;
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
+        };
+        /** AnkiNoteType */
+        AnkiNoteType: {
+            /** Name */
+            name: string;
+            /** Fields */
+            fields: string[];
+            /**
+             * Field Used
+             * @description Field read as the Japanese word (pass `field` to change)
+             */
+            field_used: string;
+            /** Notes */
+            notes: number;
+        };
         /** Body_create_episode_episodes_post */
         Body_create_episode_episodes_post: {
             /**
@@ -578,6 +686,35 @@ export interface components {
             episode_number?: number | null;
             /** Title */
             title?: string | null;
+        };
+        /** Body_import_anki_import_anki_post */
+        Body_import_anki_import_anki_post: {
+            /**
+             * File
+             * @description Anki deck export (.apkg), any Anki version
+             */
+            file: string;
+            /**
+             * Field
+             * @description Field holding the Japanese word (auto if empty)
+             */
+            field?: string | null;
+            /**
+             * Deck
+             * @description Only this deck (and its subdecks)
+             */
+            deck?: string | null;
+            /**
+             * Mature Days
+             * @default 21
+             */
+            mature_days: number;
+            /**
+             * Dry Run
+             * @description Preview the report without saving
+             * @default false
+             */
+            dry_run: boolean;
         };
         /** Body_upload_media_media_post */
         Body_upload_media_media_post: {
@@ -855,6 +992,54 @@ export interface components {
              * @default 0
              */
             media_bytes: number;
+        };
+        /** ImportReport */
+        ImportReport: {
+            /**
+             * Total
+             * @description Distinct words in the input
+             */
+            total: number;
+            /**
+             * Matched
+             * @description Recognised as a single vocabulary word
+             */
+            matched: number;
+            /**
+             * Updated
+             * @description Status raised (new→learning/known, learning→known)
+             */
+            updated: number;
+            /**
+             * Already
+             * @description Matched but unchanged (already at that level, or ignored)
+             */
+            already: number;
+            /** Unmatched Count */
+            unmatched_count: number;
+            /**
+             * Unmatched
+             * @description First 200 entries that aren't a single word
+             */
+            unmatched: string[];
+            /**
+             * Skipped New
+             * @description Anki notes never studied (not imported)
+             * @default 0
+             */
+            skipped_new: number;
+            /** Dry Run */
+            dry_run: boolean;
+            /**
+             * Note Types
+             * @default []
+             */
+            note_types: components["schemas"]["AnkiNoteType"][];
+            /**
+             * Decks
+             * @default []
+             */
+            decks: string[];
         };
         /** JimakuEntry */
         JimakuEntry: {
@@ -1177,6 +1362,25 @@ export interface components {
              * @description All episodes, today
              */
             seconds_today: number;
+        };
+        /** WordListImport */
+        WordListImport: {
+            /**
+             * Text
+             * @description One word per line (Anki furigana/HTML ok)
+             */
+            text: string;
+            /**
+             * Status
+             * @default known
+             * @enum {string}
+             */
+            status: "known" | "learning";
+            /**
+             * Dry Run
+             * @default false
+             */
+            dry_run: boolean;
         };
         /** WordListItem */
         WordListItem: {
@@ -2135,6 +2339,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnimeProgress"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_words_import_words_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WordListImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_anki_import_anki_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_anki_import_anki_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_anki_cards_import_anki_cards_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnkiCardsImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportReport"];
                 };
             };
             /** @description Validation Error */

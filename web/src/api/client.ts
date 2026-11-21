@@ -40,6 +40,11 @@ export type AnimeOut = components['schemas']['AnimeOut'];
 export type ProgressPoint = components['schemas']['ProgressPoint'];
 export type EpisodeProgress = components['schemas']['EpisodeProgress'];
 export type AnimeProgress = components['schemas']['AnimeProgress'];
+export type AnkiCardIn = components['schemas']['AnkiCardIn'];
+export type AnkiCardsImport = components['schemas']['AnkiCardsImport'];
+export type AnkiNoteType = components['schemas']['AnkiNoteType'];
+export type ImportReport = components['schemas']['ImportReport'];
+export type WordListImport = components['schemas']['WordListImport'];
 
 export class SenseiApiError extends Error {
   readonly status: number;
@@ -245,6 +250,39 @@ export const apiClient = {
   listAnime: () => apiRequest<AnimeOut[]>('/anime'),
 
   getAnimeProgress: (animeId: number) => apiRequest<AnimeProgress>(`/anime/${animeId}/progress`),
+
+  importWordList: (payload: WordListImport) =>
+    apiRequest<ImportReport>('/import/words', {
+      method: 'POST',
+      json: payload,
+    }),
+
+  importAnkiApkg: (params: {
+    file: File;
+    field?: string;
+    deck?: string;
+    matureDays?: number;
+    dryRun?: boolean;
+  }) => {
+    const formData = new FormData();
+    formData.append('file', params.file);
+    if (params.field && params.field.trim()) {
+      formData.append('field', params.field.trim());
+    }
+    if (params.deck && params.deck.trim()) {
+      formData.append('deck', params.deck.trim());
+    }
+    if (params.matureDays !== undefined) {
+      formData.append('mature_days', String(params.matureDays));
+    }
+    if (params.dryRun !== undefined) {
+      formData.append('dry_run', params.dryRun ? 'true' : 'false');
+    }
+    return apiRequest<ImportReport>('/import/anki', {
+      method: 'POST',
+      formData,
+    });
+  },
 };
 
 export type WebConnectionCheck =
