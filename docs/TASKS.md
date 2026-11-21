@@ -22,7 +22,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **S-3** (#15) Cards + FSRS: `POST /cards` (word + line + media ids), `GET /reviews/due`, `POST /reviews` (rating), sets UserWord → learning/known (claude, 2026-11-19: py-fsrs, one card per word, auto-known at stability ≥ 21 d, `next_due` per rating, activity counters)
 - [ ] **S-4** Known-words import: from Anki (.apkg/.txt export, choose field) and plain word lists
 - [ ] **S-5** Anki export: `.apkg` (genanki) with media; card JSON for AnkiConnect push
-- [ ] **S-6** Activity tracking: `POST /activity/watch` (minutes), auto-count reviews/words; `GET /activity?from=&to=` for heatmap
+- [x] **S-6** (#18) Activity tracking: `POST /activity/watch` (minutes), auto-count reviews/words; `GET /activity?from=&to=` for heatmap (claude, 2026-11-21: + streaks, `GET /anime`, `GET /anime/{id}/progress` daily trend)
 - [~] **S-7** (#19) Serve `web/dist` at `/` from FastAPI; Alembic migrations; systemd user service (claude, 2026-11-19: web serving + `deploy/` service/update scripts done; Alembic + backups next)
 
 ### Extension (Antigravity)

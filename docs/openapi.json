@@ -1187,10 +1187,404 @@
           }
         }
       }
+    },
+    "/activity/watch": {
+      "post": {
+        "tags": [
+          "activity"
+        ],
+        "summary": "Watch Heartbeat",
+        "description": "Heartbeat from the extension while a video plays with the overlay attached\n(e.g. every 30 s with the seconds since the last one).",
+        "operationId": "watch_heartbeat_activity_watch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/activity": {
+      "get": {
+        "tags": [
+          "activity"
+        ],
+        "summary": "Read Activity",
+        "description": "Heatmap data: one row per active day + streaks and totals for the range.",
+        "operationId": "read_activity_activity_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Default: 364 days before `to`",
+              "title": "From"
+            },
+            "description": "Default: 364 days before `to`"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Default: today (server-local)",
+              "title": "To"
+            },
+            "description": "Default: today (server-local)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/anime": {
+      "get": {
+        "tags": [
+          "activity"
+        ],
+        "summary": "List Anime",
+        "operationId": "list_anime_anime_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AnimeOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Anime Anime Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/anime/{anime_id}/progress": {
+      "get": {
+        "tags": [
+          "activity"
+        ],
+        "summary": "Anime Progress",
+        "description": "'% understood' over time for one anime, plus where each episode stands now.",
+        "operationId": "anime_progress_anime__anime_id__progress_get",
+        "parameters": [
+          {
+            "name": "anime_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Anime Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnimeProgress"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActivityDayOut": {
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day"
+          },
+          "minutes": {
+            "type": "integer",
+            "title": "Minutes",
+            "description": "Watched with the overlay active"
+          },
+          "reviews": {
+            "type": "integer",
+            "title": "Reviews"
+          },
+          "words_added": {
+            "type": "integer",
+            "title": "Words Added",
+            "description": "Cards created"
+          },
+          "words_known": {
+            "type": "integer",
+            "title": "Words Known",
+            "description": "Words that became known (marked or graduated)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "day",
+          "minutes",
+          "reviews",
+          "words_added",
+          "words_known"
+        ],
+        "title": "ActivityDayOut"
+      },
+      "ActivityOut": {
+        "properties": {
+          "from_day": {
+            "type": "string",
+            "format": "date",
+            "title": "From Day"
+          },
+          "to_day": {
+            "type": "string",
+            "format": "date",
+            "title": "To Day"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityDayOut"
+            },
+            "type": "array",
+            "title": "Days",
+            "description": "Only days with activity, oldest first"
+          },
+          "active_days": {
+            "type": "integer",
+            "title": "Active Days"
+          },
+          "current_streak": {
+            "type": "integer",
+            "title": "Current Streak",
+            "description": "Consecutive active days up to today (or yesterday)"
+          },
+          "longest_streak": {
+            "type": "integer",
+            "title": "Longest Streak"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/ActivityTotals"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from_day",
+          "to_day",
+          "days",
+          "active_days",
+          "current_streak",
+          "longest_streak",
+          "totals"
+        ],
+        "title": "ActivityOut"
+      },
+      "ActivityTotals": {
+        "properties": {
+          "minutes": {
+            "type": "integer",
+            "title": "Minutes"
+          },
+          "reviews": {
+            "type": "integer",
+            "title": "Reviews"
+          },
+          "words_added": {
+            "type": "integer",
+            "title": "Words Added"
+          },
+          "words_known": {
+            "type": "integer",
+            "title": "Words Known"
+          }
+        },
+        "type": "object",
+        "required": [
+          "minutes",
+          "reviews",
+          "words_added",
+          "words_known"
+        ],
+        "title": "ActivityTotals"
+      },
+      "AnimeOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "title_jp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Jp"
+          },
+          "anilist_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anilist Id"
+          },
+          "episode_count": {
+            "type": "integer",
+            "title": "Episode Count"
+          },
+          "unique_words": {
+            "type": "integer",
+            "title": "Unique Words",
+            "description": "Distinct content words across its episodes"
+          },
+          "known_unique": {
+            "type": "integer",
+            "title": "Known Unique"
+          },
+          "token_pct": {
+            "type": "number",
+            "title": "Token Pct",
+            "description": "% understood across all its episodes (weighted)"
+          },
+          "unique_pct": {
+            "type": "number",
+            "title": "Unique Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "title_jp",
+          "anilist_id",
+          "episode_count",
+          "unique_words",
+          "known_unique",
+          "token_pct",
+          "unique_pct"
+        ],
+        "title": "AnimeOut"
+      },
+      "AnimeProgress": {
+        "properties": {
+          "anime": {
+            "$ref": "#/components/schemas/AnimeOut"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/ProgressPoint"
+            },
+            "type": "array",
+            "title": "Series",
+            "description": "Daily anime-level % understood, oldest first"
+          },
+          "episodes": {
+            "items": {
+              "$ref": "#/components/schemas/EpisodeProgress"
+            },
+            "type": "array",
+            "title": "Episodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "anime",
+          "series",
+          "episodes"
+        ],
+        "title": "AnimeProgress"
+      },
       "Body_create_episode_episodes_post": {
         "properties": {
           "subtitle": {
@@ -1811,6 +2205,58 @@
         "type": "object",
         "title": "EpisodePatch"
       },
+      "EpisodeProgress": {
+        "properties": {
+          "episode_id": {
+            "type": "integer",
+            "title": "Episode Id"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "token_pct": {
+            "type": "number",
+            "title": "Token Pct"
+          },
+          "unique_pct": {
+            "type": "number",
+            "title": "Unique Pct"
+          },
+          "minutes_watched": {
+            "type": "integer",
+            "title": "Minutes Watched"
+          }
+        },
+        "type": "object",
+        "required": [
+          "episode_id",
+          "number",
+          "title",
+          "token_pct",
+          "unique_pct",
+          "minutes_watched"
+        ],
+        "title": "EpisodeProgress"
+      },
       "EpisodeRef": {
         "properties": {
           "id": {
@@ -2245,6 +2691,40 @@
         ],
         "title": "MediaOut"
       },
+      "ProgressPoint": {
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day"
+          },
+          "token_pct": {
+            "type": "number",
+            "title": "Token Pct"
+          },
+          "unique_pct": {
+            "type": "number",
+            "title": "Unique Pct"
+          },
+          "unique_words": {
+            "type": "integer",
+            "title": "Unique Words"
+          },
+          "known_unique": {
+            "type": "integer",
+            "title": "Known Unique"
+          }
+        },
+        "type": "object",
+        "required": [
+          "day",
+          "token_pct",
+          "unique_pct",
+          "unique_words",
+          "known_unique"
+        ],
+        "title": "ProgressPoint"
+      },
       "ReviewCard": {
         "properties": {
           "card": {
@@ -2613,6 +3093,47 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WatchIn": {
+        "properties": {
+          "episode_id": {
+            "type": "integer",
+            "title": "Episode Id"
+          },
+          "seconds": {
+            "type": "integer",
+            "maximum": 600.0,
+            "minimum": 1.0,
+            "title": "Seconds",
+            "description": "Seconds watched since the last heartbeat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "episode_id",
+          "seconds"
+        ],
+        "title": "WatchIn"
+      },
+      "WatchOut": {
+        "properties": {
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day"
+          },
+          "seconds_today": {
+            "type": "integer",
+            "title": "Seconds Today",
+            "description": "All episodes, today"
+          }
+        },
+        "type": "object",
+        "required": [
+          "day",
+          "seconds_today"
+        ],
+        "title": "WatchOut"
       },
       "WordListItem": {
         "properties": {

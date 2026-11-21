@@ -7,7 +7,7 @@ import hmac
 import json
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse
 from sqlmodel import Session, delete, func, or_, select
 
 from app import __version__, srs
+from app import activity as act
 from app import media as media_lib
 from app.config import Settings, check_auth_settings, get_settings
 from app.db import get_session, make_engine
@@ -56,6 +57,9 @@ from app.models import (
 )
 from app.nlp.tokenizer import line_romaji
 from app.schemas import (
+    ActivityOut,
+    AnimeOut,
+    AnimeProgress,
     BulkStatusIn,
     BulkStatusOut,
     CardCreate,
@@ -64,6 +68,7 @@ from app.schemas import (
     EpisodeCreated,
     EpisodeOut,
     EpisodePatch,
+    EpisodeProgress,
     EpisodeRef,
     Health,
     JimakuEntry,
@@ -72,12 +77,15 @@ from app.schemas import (
     LineOut,
     LookupResult,
     MediaOut,
+    ProgressPoint,
     ReviewCard,
     ReviewIn,
     ReviewOut,
     ReviewQueue,
     TokenOut,
     Understanding,
+    WatchIn,
+    WatchOut,
     WordListItem,
     WordOut,
     WordPage,
@@ -232,6 +240,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.add(ep)
         session.flush()
         ingest_lines(session, ep, lines, app.state.dictionary)
+        session.flush()
+        act.snapshot(session, uid, anime.id)  # first point of the "% understood" trend
         session.commit()
         session.refresh(ep)
         return {**episode_out(session, ep), "understanding": understanding(session, uid, ep.id)}
@@ -360,6 +370,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).all()
         }
         now = datetime.now(UTC)
+        if status == WordStatus.known:
+            newly = sum(1 for w in word_ids if w not in existing or existing[w].status != status)
+            if newly:
+                srs.bump_activity(session, uid, words_known=newly)
         for wid in word_ids:
             uw = existing.get(wid) or UserWord(user_id=uid, word_id=wid)
             uw.status = status
@@ -751,6 +765,86 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             source="jimaku",
             anilist_id=entry.get("anilist_id"),
             title_jp=entry.get("japanese_name"),
+        )
+
+    # ---- activity + progress (S-6) --------------------------------------------------------
+
+    @app.post("/activity/watch", response_model=WatchOut, dependencies=auth, tags=["activity"])
+    def watch_heartbeat(body: WatchIn, session: Session = Depends(get_session)):
+        """Heartbeat from the extension while a video plays with the overlay attached
+        (e.g. every 30 s with the seconds since the last one)."""
+        ep = get_episode(session, body.episode_id)
+        total = act.add_watch(session, uid, ep.id, body.seconds)
+        if ep.anime_id:
+            act.snapshot_if_missing(session, uid, ep.anime_id)
+        session.commit()
+        return WatchOut(day=act.today(), seconds_today=total)
+
+    @app.get("/activity", response_model=ActivityOut, dependencies=auth, tags=["activity"])
+    def read_activity(
+        from_: date | None = Query(None, alias="from", description="Default: 364 days before `to`"),
+        to: date | None = Query(None, description="Default: today (server-local)"),
+        session: Session = Depends(get_session),
+    ):
+        """Heatmap data: one row per active day + streaks and totals for the range."""
+        end = to or act.today()
+        start = from_ or end - timedelta(days=364)
+        if start > end or (end - start).days > 3 * 366:
+            raise HTTPException(422, "from must be ≤ to and the range ≤ 3 years")
+        return act.activity(session, uid, start, end)
+
+    def anime_out(session: Session, anime: Anime, stats: dict | None = None) -> AnimeOut:
+        ids = act.anime_episode_ids(session, anime.id)
+        stats = stats or act.understanding_of(session, uid, ids)
+        return AnimeOut(
+            id=anime.id,
+            title=anime.title,
+            title_jp=anime.title_jp,
+            anilist_id=anime.anilist_id,
+            episode_count=len(ids),
+            **{k: stats[k] for k in ("unique_words", "known_unique", "token_pct", "unique_pct")},
+        )
+
+    @app.get("/anime", response_model=list[AnimeOut], dependencies=auth, tags=["activity"])
+    def list_anime(session: Session = Depends(get_session)):
+        animes = session.exec(select(Anime).order_by(Anime.title)).all()
+        return [anime_out(session, a) for a in animes]
+
+    @app.get(
+        "/anime/{anime_id}/progress",
+        response_model=AnimeProgress,
+        dependencies=auth,
+        tags=["activity"],
+    )
+    def anime_progress(anime_id: int, session: Session = Depends(get_session)):
+        """'% understood' over time for one anime, plus where each episode stands now."""
+        anime = session.get(Anime, anime_id)
+        if not anime:
+            raise HTTPException(404, "anime not found")
+        stats = act.snapshot(session, uid, anime_id)  # refresh today's point
+        session.commit()
+        eps = session.exec(select(Episode).where(Episode.anime_id == anime_id)).all()
+        secs = act.watch_seconds_by_episode(session, uid, [e.id for e in eps])
+        episodes = []
+        for e in sorted(eps, key=lambda e: (e.number is None, e.number or 0, e.id)):
+            u = understanding(session, uid, e.id)
+            episodes.append(
+                EpisodeProgress(
+                    episode_id=e.id,
+                    number=e.number,
+                    title=e.title,
+                    token_pct=u["token_pct"],
+                    unique_pct=u["unique_pct"],
+                    minutes_watched=round(secs.get(e.id, 0) / 60),
+                )
+            )
+        return AnimeProgress(
+            anime=anime_out(session, anime, stats),
+            series=[
+                ProgressPoint(**p.model_dump(include=set(ProgressPoint.model_fields)))
+                for p in act.series(session, uid, anime_id)
+            ],
+            episodes=episodes,
         )
 
     return app
