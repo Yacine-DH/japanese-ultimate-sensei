@@ -85,6 +85,24 @@ def transcode(kind: MediaKind, src: Path, dst_stem: Path) -> tuple[Path, str]:
     return dst, mime
 
 
+def ensure_mp3(src: Path) -> Path:
+    """MP3 copy of an audio file next to it (cached), for Anki clients without Opus support."""
+    dst = src.with_suffix(".mp3")
+    if dst.is_file() and dst.stat().st_mtime >= src.stat().st_mtime:
+        return dst
+    tmp = src.with_suffix(".part.mp3")
+    r = subprocess.run(
+        ["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(src), "-vn", "-ac", "1",
+         "-c:a", "libmp3lame", "-b:a", "64k", str(tmp)],
+        capture_output=True, text=True, timeout=TIMEOUT_S,
+    )  # fmt: skip
+    if r.returncode != 0 or not tmp.exists():
+        tmp.unlink(missing_ok=True)
+        raise MediaError(f"mp3 conversion failed: {r.stderr.strip()[-200:]}")
+    tmp.replace(dst)
+    return dst
+
+
 def sign(token: str, media_id: int) -> str:
     """Per-file URL signature so <img>/<audio> tags work without an auth header.
     Derived from the API token, so it never reveals it and rotating the token revokes it."""

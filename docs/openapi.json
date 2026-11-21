@@ -956,6 +956,25 @@
               "title": "Sig"
             },
             "description": "Signature from MediaOut.url"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "mp3",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "audio only: MP3 copy (for Anki)",
+              "title": "Format"
+            },
+            "description": "audio only: MP3 copy (for Anki)"
           }
         ],
         "responses": {
@@ -1495,6 +1514,144 @@
           }
         }
       }
+    },
+    "/export/anki.apkg": {
+      "get": {
+        "tags": [
+          "anki"
+        ],
+        "summary": "Export Apkg",
+        "description": "All cards (or those created since a date) as an .apkg with screenshot, MP3 audio\nand clip. Re-importing a newer export updates existing notes.",
+        "operationId": "export_apkg_export_anki_apkg_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only cards created at/after (ISO)",
+              "title": "Since"
+            },
+            "description": "Only cards created at/after (ISO)"
+          },
+          {
+            "name": "deck",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "default": "Sensei",
+              "title": "Deck"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Anki package",
+            "content": {
+              "application/apkg": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/anki/model": {
+      "get": {
+        "tags": [
+          "anki"
+        ],
+        "summary": "Anki Model",
+        "description": "AnkiConnect `createModel` params for the 'Sensei Japanese' note type.",
+        "operationId": "anki_model_anki_model_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkiModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cards/{card_id}/anki-note": {
+      "get": {
+        "tags": [
+          "anki"
+        ],
+        "summary": "Anki Note",
+        "description": "AnkiConnect payload for one card: `storeMediaFile` each `media` item, then\n`addNote` with `note`. Media URLs are absolute (this server's address as the client\nreached it) and signed, so Anki on the laptop can download them.",
+        "operationId": "anki_note_cards__card_id__anki_note_get",
+        "parameters": [
+          {
+            "name": "card_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Card Id"
+            }
+          },
+          {
+            "name": "deck",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "default": "Sensei",
+              "title": "Deck"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkiNotePayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1737,6 +1894,29 @@
         ],
         "title": "AnkiCardIn"
       },
+      "AnkiCardTemplate": {
+        "properties": {
+          "Name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "Front": {
+            "type": "string",
+            "title": "Front"
+          },
+          "Back": {
+            "type": "string",
+            "title": "Back"
+          }
+        },
+        "type": "object",
+        "required": [
+          "Name",
+          "Front",
+          "Back"
+        ],
+        "title": "AnkiCardTemplate"
+      },
       "AnkiCardsImport": {
         "properties": {
           "cards": {
@@ -1765,6 +1945,130 @@
           "cards"
         ],
         "title": "AnkiCardsImport"
+      },
+      "AnkiConnectNote": {
+        "properties": {
+          "deckName": {
+            "type": "string",
+            "title": "Deckname"
+          },
+          "modelName": {
+            "type": "string",
+            "title": "Modelname"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Fields"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Options",
+            "default": {
+              "allowDuplicate": false,
+              "duplicateScope": "deck"
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "deckName",
+          "modelName",
+          "fields",
+          "tags"
+        ],
+        "title": "AnkiConnectNote"
+      },
+      "AnkiMediaFile": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Absolute, signed: pass to AnkiConnect storeMediaFile {filename, url}"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "url"
+        ],
+        "title": "AnkiMediaFile"
+      },
+      "AnkiModel": {
+        "properties": {
+          "modelName": {
+            "type": "string",
+            "title": "Modelname"
+          },
+          "inOrderFields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Inorderfields"
+          },
+          "css": {
+            "type": "string",
+            "title": "Css"
+          },
+          "isCloze": {
+            "type": "boolean",
+            "title": "Iscloze"
+          },
+          "cardTemplates": {
+            "items": {
+              "$ref": "#/components/schemas/AnkiCardTemplate"
+            },
+            "type": "array",
+            "title": "Cardtemplates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "modelName",
+          "inOrderFields",
+          "css",
+          "isCloze",
+          "cardTemplates"
+        ],
+        "title": "AnkiModel",
+        "description": "AnkiConnect createModel params for the 'Sensei Japanese' note type."
+      },
+      "AnkiNotePayload": {
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/AnkiConnectNote",
+            "description": "Pass as AnkiConnect addNote {note}"
+          },
+          "media": {
+            "items": {
+              "$ref": "#/components/schemas/AnkiMediaFile"
+            },
+            "type": "array",
+            "title": "Media",
+            "description": "storeMediaFile each one before addNote"
+          }
+        },
+        "type": "object",
+        "required": [
+          "note",
+          "media"
+        ],
+        "title": "AnkiNotePayload"
       },
       "AnkiNoteType": {
         "properties": {
