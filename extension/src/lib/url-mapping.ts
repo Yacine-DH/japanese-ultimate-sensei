@@ -119,6 +119,14 @@ export function resolveEpisodeForUrl(
   return { pattern, matchedEpisodeId: null, suggestedEpisode: null };
 }
 
+export function buildPrimingUrl(serverUrl: string, episodeId: number): string | null {
+  const base = serverUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/.+/.test(base)) {
+    return null;
+  }
+  return `${base}/episodes/${episodeId}?prime=1`;
+}
+
 export function filterEpisodes(
   episodes: readonly EpisodeOut[],
   query: string,
