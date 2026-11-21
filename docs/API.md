@@ -237,6 +237,23 @@ graduated by reviews). `current_streak` stays alive until today ends.
 `series` = one point per day the anime was touched (import, watching, or opening this page),
 oldest first: the "% understood over time" line. Episodes are ordered by number.
 
+## LLM: line translations + grammar notes
+Any OpenAI-compatible endpoint, set on the server: `SENSEI_LLM_BASE_URL` (e.g. Ollama
+`http://localhost:11434/v1`, or the laptop over Tailscale) + `SENSEI_LLM_MODEL`. Unset → 503.
+
+### `GET /llm/status` → `{"configured":true,"reachable":true,"model":"qwen2.5:3b","base_url":"…","detail":"ok"}`
+
+### `POST /episodes/{id}/translate` → 202 `TranslationJob` · `GET /episodes/{id}/translate` → `TranslationJob`
+Background job (one episode at a time) translating every untranslated line to EN + DE in
+batches of 12 with 2 lines of context; results appear in `LineOut.translation_en/de`. Poll GET.
+`{"episode_id":1,"total_lines":255,"translated_lines":120,"queued":false,"running":true,"error":null,"failed_lines":0}`
+Slow on a small local model: start it before watching. Re-running only does missing lines.
+
+### `POST /lines/{id}/explain?lang=en|de&refresh=false` → `LineExplanation`
+`{"line_id":812,"lang":"de","text":"**Übersetzung:** …","model":"qwen2.5:3b","cached":false}`. Markdown
+with translation, word breakdown and grammar points; cached per line + language. Can take tens
+of seconds uncached: show a spinner.
+
 ## Known-word import (Anki / word lists)
 All three return `ImportReport`; all accept `dry_run` (preview, nothing saved).
 ```json

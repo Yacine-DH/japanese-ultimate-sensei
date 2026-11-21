@@ -44,10 +44,12 @@ from app.ingest import (
     word_counts,
 )
 from app.jimaku import Jimaku, JimakuError, extract_subtitle, guess_episode, rank
+from app.llm import LLM, LLMError, explain_line
 from app.models import (
     Anime,
     Card,
     Episode,
+    LineNote,
     Media,
     MediaKind,
     ReviewLog,
@@ -84,7 +86,9 @@ from app.schemas import (
     JimakuEntry,
     JimakuFile,
     JimakuImport,
+    LineExplanation,
     LineOut,
+    LLMStatus,
     LookupResult,
     MediaOut,
     MissedWord,
@@ -94,6 +98,7 @@ from app.schemas import (
     ReviewOut,
     ReviewQueue,
     TokenOut,
+    TranslationJob,
     Understanding,
     WatchIn,
     WatchOut,
@@ -104,6 +109,7 @@ from app.schemas import (
     WordStatusIn,
 )
 from app.subtitles import parse_bytes
+from app.translate_jobs import Translator
 from app.webapp import mount_web
 
 log = logging.getLogger("sensei")
@@ -121,6 +127,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = make_engine(settings.db_path)
     app.state.dictionary = load_dictionary(settings.dictionary_path)
     app.state.jimaku = Jimaku(settings.jimaku_api_key.strip())
+    app.state.llm = LLM(
+        settings.llm_base_url.strip(),
+        settings.llm_model.strip(),
+        settings.llm_api_key.strip(),
+        settings.llm_timeout_s,
+    )
+    app.state.translator = Translator(app.state.engine, app.state.llm)
 
     app.state.web = mount_web(app, settings.web_dist)
     app.add_middleware(
@@ -335,6 +348,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             card.line_id = None
             session.add(card)
         session.exec(delete(WatchDay).where(WatchDay.episode_id == episode_id))
+        session.exec(delete(LineNote).where(LineNote.line_id.in_(line_ids)))  # type: ignore[attr-defined]
         session.exec(delete(SubtitleLine).where(SubtitleLine.episode_id == episode_id))
         session.delete(ep)
         session.commit()
@@ -1097,5 +1111,106 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             )
         return out
+
+    # ---- LLM translations + grammar notes (S-9) -------------------------------------------
+
+    @app.get("/llm/status", response_model=LLMStatus, dependencies=auth, tags=["llm"])
+    def llm_status():
+        llm = app.state.llm
+        reachable, detail = llm.status()
+        return LLMStatus(
+            configured=llm.configured,
+            reachable=reachable,
+            model=llm.model or None,
+            base_url=llm.base_url or None,
+            detail=detail,
+        )
+
+    def job_out(session: Session, episode_id: int) -> TranslationJob:
+        total = session.exec(
+            select(func.count())
+            .select_from(SubtitleLine)
+            .where(SubtitleLine.episode_id == episode_id)
+        ).one()
+        done = session.exec(
+            select(func.count())
+            .select_from(SubtitleLine)
+            .where(SubtitleLine.episode_id == episode_id, SubtitleLine.translation_en.is_not(None))  # type: ignore[union-attr]
+        ).one()
+        job = app.state.translator.jobs.get(episode_id)
+        return TranslationJob(
+            episode_id=episode_id,
+            total_lines=total,
+            translated_lines=done,
+            queued=bool(job and job.queued),
+            running=bool(job and job.running),
+            error=job.error if job else None,
+            failed_lines=job.failed_lines if job else 0,
+        )
+
+    @app.post(
+        "/episodes/{episode_id}/translate",
+        response_model=TranslationJob,
+        status_code=202,
+        dependencies=auth,
+        tags=["llm"],
+    )
+    def start_translation(episode_id: int, session: Session = Depends(get_session)):
+        """Translate every untranslated line (EN + DE) in the background; results land in
+        `LineOut.translation_en/de`. Poll `GET` on the same path for progress. On a small
+        local model this takes a while (run it before watching / overnight)."""
+        get_episode(session, episode_id)
+        if not app.state.llm.configured:
+            raise HTTPException(503, "LLM not configured (SENSEI_LLM_BASE_URL + SENSEI_LLM_MODEL)")
+        app.state.translator.enqueue(episode_id)
+        return job_out(session, episode_id)
+
+    @app.get(
+        "/episodes/{episode_id}/translate",
+        response_model=TranslationJob,
+        dependencies=auth,
+        tags=["llm"],
+    )
+    def translation_progress(episode_id: int, session: Session = Depends(get_session)):
+        get_episode(session, episode_id)
+        return job_out(session, episode_id)
+
+    @app.post(
+        "/lines/{line_id}/explain",
+        response_model=LineExplanation,
+        dependencies=auth,
+        tags=["llm"],
+    )
+    def explain(
+        line_id: int,
+        lang: Literal["en", "de"] = "en",
+        refresh: bool = False,
+        session: Session = Depends(get_session),
+    ):
+        """Grammar note for one line (translation, word breakdown, grammar points), cached.
+        Slow on a small local model (tens of seconds): show a spinner."""
+        line = session.get(SubtitleLine, line_id)
+        if not line:
+            raise HTTPException(404, "line not found")
+        note = session.get(LineNote, (line_id, lang))
+        if note and not refresh:
+            return LineExplanation(
+                line_id=line_id, lang=lang, text=note.text, model=note.model, cached=True
+            )
+        neighbours = episode_lines(session, line.episode_id)
+        pos = next(i for i, x in enumerate(neighbours) if x.id == line_id)
+        before = [x.text for x in neighbours[max(0, pos - 2) : pos]]
+        after = [x.text for x in neighbours[pos + 1 : pos + 2]]
+        try:
+            text = explain_line(app.state.llm, line.text, before, after, lang)
+        except LLMError as e:
+            raise HTTPException(e.status, str(e)) from e
+        note = note or LineNote(line_id=line_id, lang=lang, text="", model="")
+        note.text, note.model, note.created_at = text, app.state.llm.model, datetime.now(UTC)
+        session.add(note)
+        session.commit()
+        return LineExplanation(
+            line_id=line_id, lang=lang, text=text, model=note.model, cached=False
+        )
 
     return app

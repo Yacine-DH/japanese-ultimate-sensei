@@ -438,3 +438,32 @@ class MissedWord(BaseModel):
     example: ExampleLine | None = Field(description="First line of the episode with the word")
     gloss_en: str | None = Field(description="First meaning (short), for a quick list")
     gloss_de: str | None
+
+
+# ---- LLM translations + grammar notes (S-9) -------------------------------------------
+
+
+class LLMStatus(BaseModel):
+    configured: bool
+    reachable: bool
+    model: str | None
+    base_url: str | None
+    detail: str
+
+
+class TranslationJob(BaseModel):
+    episode_id: int
+    total_lines: int
+    translated_lines: int = Field(description="Lines with an English translation")
+    queued: bool
+    running: bool
+    error: str | None = Field(description="Why the last run stopped (LLM unreachable, …)")
+    failed_lines: int = Field(description="Lines the model skipped in the last run (retry later)")
+
+
+class LineExplanation(BaseModel):
+    line_id: int
+    lang: Literal["en", "de"]
+    text: str = Field(description="Markdown: translation, word breakdown, grammar points")
+    model: str
+    cached: bool

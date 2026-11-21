@@ -1758,6 +1758,177 @@
           }
         }
       }
+    },
+    "/llm/status": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Llm Status",
+        "operationId": "llm_status_llm_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/episodes/{episode_id}/translate": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Start Translation",
+        "description": "Translate every untranslated line (EN + DE) in the background; results land in\n`LineOut.translation_en/de`. Poll `GET` on the same path for progress. On a small\nlocal model this takes a while (run it before watching / overnight).",
+        "operationId": "start_translation_episodes__episode_id__translate_post",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationJob"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Translation Progress",
+        "operationId": "translation_progress_episodes__episode_id__translate_get",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslationJob"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lines/{line_id}/explain": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Explain",
+        "description": "Grammar note for one line (translation, word breakdown, grammar points), cached.\nSlow on a small local model (tens of seconds): show a spinner.",
+        "operationId": "explain_lines__line_id__explain_post",
+        "parameters": [
+          {
+            "name": "line_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Line Id"
+            }
+          },
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "en",
+                "de"
+              ],
+              "type": "string",
+              "default": "en",
+              "title": "Lang"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineExplanation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3312,6 +3483,91 @@
         ],
         "title": "JimakuImport"
       },
+      "LLMStatus": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "reachable": {
+            "type": "boolean",
+            "title": "Reachable"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "reachable",
+          "model",
+          "base_url",
+          "detail"
+        ],
+        "title": "LLMStatus"
+      },
+      "LineExplanation": {
+        "properties": {
+          "line_id": {
+            "type": "integer",
+            "title": "Line Id"
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "en",
+              "de"
+            ],
+            "title": "Lang"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "Markdown: translation, word breakdown, grammar points"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_id",
+          "lang",
+          "text",
+          "model",
+          "cached"
+        ],
+        "title": "LineExplanation"
+      },
       "LineOut": {
         "properties": {
           "id": {
@@ -3843,6 +4099,59 @@
           "status"
         ],
         "title": "TokenOut"
+      },
+      "TranslationJob": {
+        "properties": {
+          "episode_id": {
+            "type": "integer",
+            "title": "Episode Id"
+          },
+          "total_lines": {
+            "type": "integer",
+            "title": "Total Lines"
+          },
+          "translated_lines": {
+            "type": "integer",
+            "title": "Translated Lines",
+            "description": "Lines with an English translation"
+          },
+          "queued": {
+            "type": "boolean",
+            "title": "Queued"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Why the last run stopped (LLM unreachable, …)"
+          },
+          "failed_lines": {
+            "type": "integer",
+            "title": "Failed Lines",
+            "description": "Lines the model skipped in the last run (retry later)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "episode_id",
+          "total_lines",
+          "translated_lines",
+          "queued",
+          "running",
+          "error",
+          "failed_lines"
+        ],
+        "title": "TranslationJob"
       },
       "Understanding": {
         "properties": {
