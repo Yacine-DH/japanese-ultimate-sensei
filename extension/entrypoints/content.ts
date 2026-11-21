@@ -1,12 +1,20 @@
 import {
   api,
+  isOpenMissedPanelMessage,
   isTabStateChangedMessage,
   type LineOut,
   type LookupResult,
+  type MissedWord,
   type TokenOut,
   type WatchIn,
   type WordStatus,
 } from '../src/api/client';
+import {
+  bulkSaveMissedWords,
+  formatMissedTimestamp,
+  pickMissedGloss,
+  shouldPromptMissedWordsPanel,
+} from '../src/lib/missed';
 import {
   WatchHeartbeatAccumulator,
   type WatchPlaybackSnapshot,
@@ -81,6 +89,8 @@ export default defineContentScript({
     let shadowRoot: ShadowRoot | null = null;
     let subBoxEl: HTMLDivElement | null = null;
     let popupEl: HTMLDivElement | null = null;
+    let missedPanelEl: HTMLDivElement | null = null;
+    let missedPromptedEpisodeId: number | null = null;
     let toastEl: HTMLDivElement | null = null;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let pausedByHover = false;
@@ -295,6 +305,125 @@ export default defineContentScript({
           .sensei-popup-actions button:hover {
             background: #334155;
           }
+          .sensei-missed-panel {
+            display: none;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: min(420px, calc(100% - 40px));
+            max-height: calc(100% - 96px);
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid #38bdf8;
+            border-radius: 12px;
+            padding: 14px 16px;
+            color: #f8fafc;
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
+            pointer-events: auto;
+            flex-direction: column;
+            gap: 10px;
+            font-size: 13px;
+            text-align: left;
+            z-index: 10;
+          }
+          .sensei-missed-panel.visible {
+            display: flex;
+          }
+          .sensei-missed-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+          }
+          .sensei-missed-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #7dd3fc;
+          }
+          .sensei-missed-close {
+            background: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 11px;
+            cursor: pointer;
+          }
+          .sensei-missed-list {
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 280px;
+            padding-right: 4px;
+          }
+          .sensei-missed-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 7px 9px;
+            cursor: pointer;
+          }
+          .sensei-missed-row input {
+            margin-top: 3px;
+            flex-shrink: 0;
+          }
+          .sensei-missed-word {
+            font-weight: 700;
+            color: #f8fafc;
+            font-size: 14px;
+          }
+          .sensei-missed-reading {
+            color: #38bdf8;
+            font-size: 12px;
+            margin-left: 5px;
+          }
+          .sensei-missed-meta {
+            color: #94a3b8;
+            font-size: 11px;
+            margin-left: 6px;
+          }
+          .sensei-missed-gloss {
+            color: #cbd5e1;
+            font-size: 12px;
+            margin-top: 2px;
+          }
+          .sensei-missed-example {
+            color: #94a3b8;
+            font-size: 11px;
+            margin-top: 2px;
+          }
+          .sensei-missed-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+          }
+          .sensei-missed-bar button {
+            padding: 5px 9px;
+            border-radius: 6px;
+            border: 1px solid #475569;
+            background: #1e293b;
+            color: #f8fafc;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+          }
+          .sensei-missed-bar button.primary {
+            background: #38bdf8;
+            border-color: #38bdf8;
+            color: #0f172a;
+          }
+          .sensei-missed-bar button.known {
+            border-color: #22c55e;
+            color: #86efac;
+          }
+          .sensei-missed-bar button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+          }
         `;
 
         const root = document.createElement('div');
@@ -302,6 +431,9 @@ export default defineContentScript({
 
         toastEl = document.createElement('div');
         toastEl.className = 'sensei-toast';
+
+        missedPanelEl = document.createElement('div');
+        missedPanelEl.className = 'sensei-missed-panel';
 
         popupEl = document.createElement('div');
         popupEl.className = 'sensei-hover-popup';
@@ -313,6 +445,7 @@ export default defineContentScript({
         subBoxEl.addEventListener('mouseleave', scheduleHoverClose);
 
         root.appendChild(toastEl);
+        root.appendChild(missedPanelEl);
         root.appendChild(popupEl);
         root.appendChild(subBoxEl);
         shadowRoot.appendChild(style);
@@ -599,10 +732,15 @@ export default defineContentScript({
       actions.appendChild(saveBtn);
       popupEl.appendChild(actions);
 
-      const cacheKey = `${token.lemma}:${token.lemma_reading}`;
+      const cacheKey = `${token.word_id ?? ''}:${token.lemma}:${token.lemma_reading}`;
       let lookup = lookupCache.get(cacheKey);
       if (!lookup) {
-        const res = await api.lookupDictionary(token.lemma, token.lemma_reading, 3);
+        const res = await api.lookupDictionary(
+          token.lemma,
+          token.lemma_reading,
+          3,
+          token.word_id,
+        );
         if (res.ok && res.data) {
           lookup = res.data;
           lookupCache.set(cacheKey, lookup);
@@ -758,6 +896,232 @@ export default defineContentScript({
       });
     }
 
+    function closeMissedWordsPanel(): void {
+      missedPanelEl?.classList.remove('visible');
+    }
+
+    async function openMissedWordsPanel(episodeId: number): Promise<void> {
+      if (!currentVideo || !settings) return;
+      ensureOverlayMounted(currentVideo);
+      if (!missedPanelEl) return;
+
+      missedPromptedEpisodeId = episodeId;
+      missedPanelEl.innerHTML = '';
+      missedPanelEl.classList.add('visible');
+
+      const header = document.createElement('div');
+      header.className = 'sensei-missed-header';
+      const title = document.createElement('div');
+      title.className = 'sensei-missed-title';
+      title.textContent = 'Words You Missed (Top Useful)';
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'sensei-missed-close';
+      closeBtn.textContent = 'Close';
+      closeBtn.addEventListener('click', closeMissedWordsPanel);
+      header.appendChild(title);
+      header.appendChild(closeBtn);
+      missedPanelEl.appendChild(header);
+
+      const statusLine = document.createElement('div');
+      statusLine.style.fontSize = '12px';
+      statusLine.style.color = '#94a3b8';
+      statusLine.textContent = 'Loading ranked unknown words…';
+      missedPanelEl.appendChild(statusLine);
+
+      const res = await api.getEpisodeMissedWords(episodeId, 25, false);
+      if (!res.ok || !res.data) {
+        statusLine.textContent = res.error ?? 'Could not load missed words.';
+        return;
+      }
+
+      let items: MissedWord[] = res.data;
+      if (items.length === 0) {
+        statusLine.textContent = 'Nice! No unknown words left in this episode.';
+        return;
+      }
+
+      const selectedIds = new Set<number>(items.slice(0, 5).map((i) => i.word.id));
+      const listEl = document.createElement('div');
+      listEl.className = 'sensei-missed-list';
+      const selectBar = document.createElement('div');
+      selectBar.className = 'sensei-missed-bar';
+      const actionBar = document.createElement('div');
+      actionBar.className = 'sensei-missed-bar';
+
+      const top5Btn = document.createElement('button');
+      top5Btn.type = 'button';
+      top5Btn.textContent = 'Top 5';
+      const allBtn = document.createElement('button');
+      allBtn.type = 'button';
+      allBtn.textContent = 'All';
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.textContent = 'Clear';
+      selectBar.append(top5Btn, allBtn, clearBtn);
+
+      const saveCardsBtn = document.createElement('button');
+      saveCardsBtn.type = 'button';
+      saveCardsBtn.className = 'primary';
+      const markKnownBtn = document.createElement('button');
+      markKnownBtn.type = 'button';
+      markKnownBtn.className = 'known';
+      const ignoreBtn = document.createElement('button');
+      ignoreBtn.type = 'button';
+      actionBar.append(saveCardsBtn, markKnownBtn, ignoreBtn);
+
+      missedPanelEl.append(selectBar, listEl, actionBar);
+
+      function updateButtons(): void {
+        const count = selectedIds.size;
+        saveCardsBtn.textContent = `Save Cards (${count})`;
+        markKnownBtn.textContent = `Mark Known (${count})`;
+        ignoreBtn.textContent = `Ignore (${count})`;
+        saveCardsBtn.disabled = count === 0;
+        markKnownBtn.disabled = count === 0;
+        ignoreBtn.disabled = count === 0;
+        statusLine.textContent = `${items.length} ranked unknown words · ${count} selected`;
+      }
+
+      function renderRows(): void {
+        listEl.innerHTML = '';
+        const lang = settings?.glossLang ?? 'eng';
+        for (const item of items) {
+          const row = document.createElement('label');
+          row.className = 'sensei-missed-row';
+
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = selectedIds.has(item.word.id);
+          cb.addEventListener('change', () => {
+            if (cb.checked) selectedIds.add(item.word.id);
+            else selectedIds.delete(item.word.id);
+            updateButtons();
+          });
+
+          const body = document.createElement('div');
+          body.style.minWidth = '0';
+          const top = document.createElement('div');
+          const wordSpan = document.createElement('span');
+          wordSpan.className = 'sensei-missed-word';
+          wordSpan.textContent = item.word.lemma;
+          top.appendChild(wordSpan);
+          if (item.word.reading && item.word.reading !== item.word.lemma) {
+            const readSpan = document.createElement('span');
+            readSpan.className = 'sensei-missed-reading';
+            readSpan.textContent = item.word.reading;
+            top.appendChild(readSpan);
+          }
+          const metaSpan = document.createElement('span');
+          metaSpan.className = 'sensei-missed-meta';
+          metaSpan.textContent = `×${item.word.occurrences ?? 1} ep · ×${item.anime_occurrences} anime`;
+          top.appendChild(metaSpan);
+          body.appendChild(top);
+
+          const gloss = pickMissedGloss(item, lang);
+          if (gloss) {
+            const glossEl = document.createElement('div');
+            glossEl.className = 'sensei-missed-gloss';
+            glossEl.textContent = gloss;
+            body.appendChild(glossEl);
+          }
+          if (item.example) {
+            const exEl = document.createElement('div');
+            exEl.className = 'sensei-missed-example';
+            exEl.textContent = `[${formatMissedTimestamp(item.example.start_ms)}] ${item.example.text}`;
+            body.appendChild(exEl);
+          }
+
+          row.append(cb, body);
+          listEl.appendChild(row);
+        }
+        updateButtons();
+      }
+
+      top5Btn.addEventListener('click', () => {
+        selectedIds.clear();
+        for (const item of items.slice(0, 5)) selectedIds.add(item.word.id);
+        renderRows();
+      });
+      allBtn.addEventListener('click', () => {
+        selectedIds.clear();
+        for (const item of items) selectedIds.add(item.word.id);
+        renderRows();
+      });
+      clearBtn.addEventListener('click', () => {
+        selectedIds.clear();
+        renderRows();
+      });
+
+      async function applyBulkStatus(status: WordStatus): Promise<void> {
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) return;
+        saveCardsBtn.disabled = markKnownBtn.disabled = ignoreBtn.disabled = true;
+        const bulkRes = await api.bulkWordStatus(ids, status);
+        if (bulkRes.ok) {
+          for (const wid of ids) {
+            lines = updateWordStatusInLines(lines, wid, status);
+          }
+          renderedLinesKey = null;
+          syncSubtitleFrame();
+          items = items.filter((i) => !selectedIds.has(i.word.id));
+          selectedIds.clear();
+          showToast(`Marked ${bulkRes.data?.updated ?? ids.length} words ${status}`);
+          renderRows();
+        } else {
+          statusLine.textContent = bulkRes.error ?? 'Bulk update failed';
+          updateButtons();
+        }
+      }
+
+      saveCardsBtn.addEventListener('click', async () => {
+        const chosen = items.filter((i) => selectedIds.has(i.word.id));
+        if (chosen.length === 0) return;
+        saveCardsBtn.disabled = markKnownBtn.disabled = ignoreBtn.disabled = true;
+        statusLine.textContent = `Saving ${chosen.length} cards…`;
+        const saveRes = await bulkSaveMissedWords(chosen, async (payload) => {
+          const created = await api.createCard(payload);
+          if (created.ok && created.data?.id && settings?.ankiConnectEnabled) {
+            void api.pushCardToAnki(created.data.id);
+          }
+          return created;
+        });
+        for (const wid of saveRes.savedWordIds) {
+          lines = updateWordStatusInLines(lines, wid, 'learning');
+        }
+        renderedLinesKey = null;
+        syncSubtitleFrame();
+        const savedSet = new Set(saveRes.savedWordIds);
+        items = items.filter((i) => !savedSet.has(i.word.id));
+        selectedIds.clear();
+        showToast(
+          `Saved ${saveRes.saved} new card${saveRes.saved === 1 ? '' : 's'}${saveRes.existing ? ` (${saveRes.existing} existing)` : ''}`,
+        );
+        renderRows();
+      });
+
+      markKnownBtn.addEventListener('click', () => void applyBulkStatus('known'));
+      ignoreBtn.addEventListener('click', () => void applyBulkStatus('ignored'));
+
+      renderRows();
+    }
+
+    function checkAutoOpenMissedPanel(ended = false): void {
+      if (!currentVideo || !currentEpisodeId) return;
+      if (
+        shouldPromptMissedWordsPanel({
+          currentTimeSec: currentVideo.currentTime,
+          durationSec: currentVideo.duration,
+          ended,
+          alreadyPrompted: missedPromptedEpisodeId === currentEpisodeId,
+          overlayEnabled: tabOverlayEnabled,
+          episodeId: currentEpisodeId,
+        })
+      ) {
+        void openMissedWordsPanel(currentEpisodeId);
+      }
+    }
+
     function syncSubtitleFrame(): void {
       if (!currentVideo || !tabOverlayEnabled || !currentEpisodeId || lines.length === 0) {
         if (renderedLinesKey !== null && renderedLinesKey !== '') {
@@ -793,6 +1157,7 @@ export default defineContentScript({
       if (nextKey !== renderedLinesKey) {
         renderLines(active);
       }
+      checkAutoOpenMissedPanel(false);
     }
 
     function stopFrameLoop(): void {
@@ -924,6 +1289,11 @@ export default defineContentScript({
       syncWatchHeartbeat();
     }
 
+    function handleVideoEnded(): void {
+      handleVideoPause();
+      checkAutoOpenMissedPanel(true);
+    }
+
     function handleVideoBuffering(): void {
       isVideoBuffering = true;
       syncWatchHeartbeat();
@@ -949,7 +1319,7 @@ export default defineContentScript({
           currentVideo.removeEventListener('play', handleVideoPlay);
           currentVideo.removeEventListener('playing', handleVideoPlay);
           currentVideo.removeEventListener('pause', handleVideoPause);
-          currentVideo.removeEventListener('ended', handleVideoPause);
+          currentVideo.removeEventListener('ended', handleVideoEnded);
           currentVideo.removeEventListener('waiting', handleVideoBuffering);
           currentVideo.removeEventListener('stalled', handleVideoBuffering);
           currentVideo.removeEventListener('volumechange', handleVideoVolumeChange);
@@ -966,7 +1336,7 @@ export default defineContentScript({
         currentVideo.addEventListener('play', handleVideoPlay);
         currentVideo.addEventListener('playing', handleVideoPlay);
         currentVideo.addEventListener('pause', handleVideoPause);
-        currentVideo.addEventListener('ended', handleVideoPause);
+        currentVideo.addEventListener('ended', handleVideoEnded);
         currentVideo.addEventListener('waiting', handleVideoBuffering);
         currentVideo.addEventListener('stalled', handleVideoBuffering);
         currentVideo.addEventListener('volumechange', handleVideoVolumeChange);
@@ -1097,8 +1467,19 @@ export default defineContentScript({
 
     browser.runtime.onMessage.addListener((msg: unknown) => {
       if (isTabStateChangedMessage(msg)) {
+        if (msg.state.episodeId !== currentEpisodeId) {
+          missedPromptedEpisodeId = null;
+          closeMissedWordsPanel();
+        }
         applyTabState(msg.state.episodeId, msg.state.enabled);
+      } else if (isOpenMissedPanelMessage(msg)) {
+        if (currentVideo && currentEpisodeId !== null) {
+          void openMissedWordsPanel(currentEpisodeId);
+          return Promise.resolve({ ok: true });
+        }
+        return Promise.resolve({ ok: false });
       }
+      return undefined;
     });
 
     browser.storage.onChanged.addListener((changes) => {

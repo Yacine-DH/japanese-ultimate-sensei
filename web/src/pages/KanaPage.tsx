@@ -86,8 +86,9 @@ export function KanaPage() {
 
   // Lookup gloss only after answering so we enrich the feedback without spoiling
   const lookupQuery = useQuery({
-    queryKey: ['kana-lookup', currentItem?.lemma, currentItem?.reading],
-    queryFn: () => apiClient.lookupDictionary(currentItem!.lemma, currentItem!.reading, 2),
+    queryKey: ['kana-lookup', currentItem?.wordId, currentItem?.lemma, currentItem?.reading],
+    queryFn: () =>
+      apiClient.lookupDictionary(currentItem!.lemma, currentItem!.reading, 2, currentItem!.wordId),
     enabled: Boolean(currentItem && resultState !== 'idle'),
     staleTime: 60_000,
   });

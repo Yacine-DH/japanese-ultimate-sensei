@@ -41,6 +41,7 @@ export function WordsPage() {
   const [animeId, setAnimeId] = useState<number | null>(null);
   const [episodeId, setEpisodeId] = useState<number | null>(null);
   const [searchText, setSearchText] = useState('');
+  const [sortMode, setSortMode] = useState<'' | 'frequency'>('');
   const [offset, setOffset] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [activeWord, setActiveWord] = useState<WordListItem | null>(null);
@@ -59,13 +60,14 @@ export function WordsPage() {
   const selectedAnime = animeOptions.find((a) => a.id === animeId) ?? null;
 
   const wordsQuery = useQuery({
-    queryKey: ['words', statusFilter, animeId, episodeId, searchText, offset],
+    queryKey: ['words', statusFilter, animeId, episodeId, searchText, sortMode, offset],
     queryFn: () =>
       apiClient.listWords({
         status: statusFilter,
         animeId,
         episodeId,
         q: searchText,
+        sort: sortMode,
         limit: PAGE_SIZE,
         offset,
       }),
@@ -73,8 +75,9 @@ export function WordsPage() {
   });
 
   const lookupQuery = useQuery({
-    queryKey: ['dict-lookup', activeWord?.lemma, activeWord?.reading],
-    queryFn: () => apiClient.lookupDictionary(activeWord!.lemma, activeWord!.reading, 5),
+    queryKey: ['dict-lookup', activeWord?.id, activeWord?.lemma, activeWord?.reading],
+    queryFn: () =>
+      apiClient.lookupDictionary(activeWord!.lemma, activeWord!.reading, 5, activeWord!.id),
     enabled: activeWord !== null,
     retry: false,
   });
@@ -195,24 +198,41 @@ export function WordsPage() {
 
       {/* Filters */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {WORD_STATUS_OPTIONS.map((opt) => (
-            <button
-              key={opt.value || 'all'}
-              type="button"
-              onClick={() => {
-                setStatusFilter(opt.value);
-                resetPageAndSelection();
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                statusFilter === opt.value
-                  ? 'bg-sky-400/20 border-sky-400 text-sky-200'
-                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {WORD_STATUS_OPTIONS.map((opt) => (
+              <button
+                key={opt.value || 'all'}
+                type="button"
+                onClick={() => {
+                  setStatusFilter(opt.value);
+                  resetPageAndSelection();
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                  statusFilter === opt.value
+                    ? 'bg-sky-400/20 border-sky-400 text-sky-200'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSortMode((prev) => (prev === 'frequency' ? '' : 'frequency'));
+              resetPageAndSelection();
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+              sortMode === 'frequency'
+                ? 'bg-indigo-500/20 border-indigo-400 text-indigo-200'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {sortMode === 'frequency' ? 'Sorted: Most Useful (Zipf)' : 'Sort by Frequency (Zipf)'}
+          </button>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">

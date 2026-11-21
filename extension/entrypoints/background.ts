@@ -126,6 +126,7 @@ export default defineBackground(() => {
         const reprocessMatch = /^\/episodes\/(\d+)\/reprocess$/.exec(message.path);
         const linesMatch = /^\/episodes\/(\d+)\/lines$/.exec(message.path);
         const wordStatusMatch = /^\/words\/(\d+)\/status$/.exec(message.path);
+        const isBulkWordStatus = message.path === '/words/bulk-status';
 
         if (method === 'POST' && reprocessMatch) {
           const epId = Number(reprocessMatch[1]);
@@ -197,6 +198,24 @@ export default defineBackground(() => {
                 ((message.init?.json as { status?: WordStatus } | undefined)?.status ??
                   'known');
               await transcriptCache.updateWordStatus(wordId, status);
+            }
+            return res;
+          })();
+        }
+
+        if (method === 'POST' && isBulkWordStatus) {
+          return (async () => {
+            const settings = await getSettings();
+            const res = await executeApiCall(settings, message.path, message.init);
+            if (res.ok) {
+              const body = message.init?.json as
+                | { word_ids?: number[]; status?: WordStatus }
+                | undefined;
+              if (Array.isArray(body?.word_ids) && body.status) {
+                for (const wid of body.word_ids) {
+                  await transcriptCache.updateWordStatus(wid, body.status);
+                }
+              }
             }
             return res;
           })();

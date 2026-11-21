@@ -31,6 +31,11 @@ export function rankHighlightedTokenIndices(
     .filter(({ token }) => isUnknownContentToken(token));
 
   candidates.sort((a, b) => {
+    const zipfA = a.token.zipf ?? -1;
+    const zipfB = b.token.zipf ?? -1;
+    if (zipfA !== zipfB) {
+      return zipfB - zipfA;
+    }
     if (a.token.common !== b.token.common) {
       return a.token.common ? -1 : 1;
     }

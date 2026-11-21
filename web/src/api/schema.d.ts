@@ -50,7 +50,11 @@ export interface paths {
         get: operations["read_episode_episodes__episode_id__get"];
         put?: never;
         post?: never;
-        /** Delete Episode */
+        /**
+         * Delete Episode
+         * @description Delete an episode and its lines. Cards saved from it are kept (their sentence text
+         *     stays; they just lose the link to the line). Watch time for it is removed.
+         */
         delete: operations["delete_episode_episodes__episode_id__delete"];
         options?: never;
         head?: never;
@@ -585,6 +589,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/episodes/{episode_id}/missed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Missed Words
+         * @description After an episode: the unknown words most worth learning, best first (general
+         *     frequency + how often this episode and anime use them). Names are excluded.
+         */
+        get: operations["missed_words_episodes__episode_id__missed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1077,6 +1102,15 @@ export interface components {
             /** Number */
             number: number | null;
         };
+        /** ExampleLine */
+        ExampleLine: {
+            /** Line Id */
+            line_id: number;
+            /** Text */
+            text: string;
+            /** Start Ms */
+            start_ms: number;
+        };
         /** FuriganaSegment */
         FuriganaSegment: {
             /** Text */
@@ -1315,6 +1349,30 @@ export interface components {
              */
             ready: boolean;
         };
+        /** MissedWord */
+        MissedWord: {
+            /** @description `occurrences` = times spoken in this episode */
+            word: components["schemas"]["WordListItem"];
+            /**
+             * Score
+             * @description Usefulness: general frequency + use in this episode/anime
+             */
+            score: number;
+            /**
+             * Anime Occurrences
+             * @description Times spoken across the whole anime
+             */
+            anime_occurrences: number;
+            /** @description First line of the episode with the word */
+            example: components["schemas"]["ExampleLine"] | null;
+            /**
+             * Gloss En
+             * @description First meaning (short), for a quick list
+             */
+            gloss_en: string | null;
+            /** Gloss De */
+            gloss_de: string | null;
+        };
         /** ProgressPoint */
         ProgressPoint: {
             /**
@@ -1426,10 +1484,15 @@ export interface components {
             status: components["schemas"]["WordStatus"] | null;
             /**
              * Common
-             * @description JMdict common word — highlight priority
+             * @description JMdict common word
              * @default false
              */
             common: boolean;
+            /**
+             * Zipf
+             * @description General frequency (Zipf 0–8; 5+ everyday, <3 rare, 0 unknown). Rank unknown words to highlight by this, highest first
+             */
+            zipf?: number | null;
         };
         /** Understanding */
         Understanding: {
@@ -1527,6 +1590,11 @@ export interface components {
             jmdict_id: string | null;
             /** Common */
             common: boolean;
+            /**
+             * Zipf
+             * @description General frequency (Zipf 0–8)
+             */
+            zipf?: number | null;
             status: components["schemas"]["WordStatus"];
             /**
              * Occurrences
@@ -1548,6 +1616,11 @@ export interface components {
             jmdict_id: string | null;
             /** Common */
             common: boolean;
+            /**
+             * Zipf
+             * @description General frequency (Zipf 0–8)
+             */
+            zipf?: number | null;
             status: components["schemas"]["WordStatus"];
         };
         /** WordPage */
@@ -1845,6 +1918,8 @@ export interface operations {
                 q: string;
                 reading?: string | null;
                 limit?: number;
+                /** @description Token's word_id: its linked entry comes first (exact homophone) */
+                word_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -1882,6 +1957,8 @@ export interface operations {
                 q?: string | null;
                 limit?: number;
                 offset?: number;
+                /** @description auto: by occurrences with anime/episode, else newest; frequency: zipf */
+                sort?: "auto" | "frequency";
             };
             header?: never;
             path?: never;
@@ -2657,6 +2734,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnkiNotePayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    missed_words_episodes__episode_id__missed_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description Also list words you're learning */
+                include_learning?: boolean;
+            };
+            header?: never;
+            path: {
+                episode_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MissedWord"][];
                 };
             };
             /** @description Validation Error */

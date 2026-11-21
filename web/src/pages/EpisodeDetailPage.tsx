@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type LineOut, type TokenOut, type WordStatus } from '../api/client';
+import { MissedWordsPanel } from '../components/MissedWordsPanel';
 import { PreWatchPrimer } from '../components/PreWatchPrimer';
 import { type GlossLanguage, loadWebSettings } from '../lib/settings';
 import {
@@ -33,7 +34,7 @@ function tokenClassName(token: TokenOut, isSelected: boolean): string {
   if (token.status === 'learning') {
     return `${base} cursor-pointer text-amber-200 border-b-2 border-dotted border-amber-400 hover:bg-amber-500/15${selectedRing}`;
   }
-  if (token.common) {
+  if ((token.zipf ?? 0) >= 4.0 || token.common) {
     return `${base} cursor-pointer text-sky-200 border-b-2 border-sky-400 hover:bg-sky-500/15${selectedRing}`;
   }
   return `${base} cursor-pointer text-indigo-200 border-b border-dashed border-indigo-400/70 hover:bg-indigo-500/15${selectedRing}`;
@@ -47,6 +48,7 @@ export function EpisodeDetailPage() {
 
   const initialSettings = loadWebSettings();
   const [showPrimer, setShowPrimer] = useState(() => searchParams.get('prime') === '1');
+  const [showMissed, setShowMissed] = useState(() => searchParams.get('missed') === '1');
   const [search, setSearch] = useState('');
   const [onlyUnknown, setOnlyUnknown] = useState(false);
   const [showRomaji, setShowRomaji] = useState(initialSettings.romaji);
@@ -77,9 +79,19 @@ export function EpisodeDetailPage() {
   });
 
   const lookupQuery = useQuery({
-    queryKey: ['dict-lookup', selectedToken?.lemma, selectedToken?.lemma_reading],
+    queryKey: [
+      'dict-lookup',
+      selectedToken?.word_id,
+      selectedToken?.lemma,
+      selectedToken?.lemma_reading,
+    ],
     queryFn: () =>
-      apiClient.lookupDictionary(selectedToken!.lemma, selectedToken!.lemma_reading, 5),
+      apiClient.lookupDictionary(
+        selectedToken!.lemma,
+        selectedToken!.lemma_reading,
+        5,
+        selectedToken!.word_id,
+      ),
     enabled: selectedToken !== null,
     retry: false,
   });
@@ -161,6 +173,13 @@ export function EpisodeDetailPage() {
             </button>
             <button
               type="button"
+              onClick={() => setShowMissed((v) => !v)}
+              className="px-3 py-1.5 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border border-amber-400/50 text-xs font-bold cursor-pointer"
+            >
+              {showMissed ? 'Hide Missed Words' : 'Words You Missed'}
+            </button>
+            <button
+              type="button"
               disabled={reprocessMutation.isPending}
               onClick={() => reprocessMutation.mutate()}
               className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
@@ -230,6 +249,15 @@ export function EpisodeDetailPage() {
           understanding={understanding}
           glossLang={glossLang}
           onClose={() => setShowPrimer(false)}
+        />
+      )}
+
+      {/* Post-Watch Missed Words (E-7 / #29) */}
+      {showMissed && (
+        <MissedWordsPanel
+          episodeId={episodeId}
+          glossLang={glossLang}
+          onClose={() => setShowMissed(false)}
         />
       )}
 
