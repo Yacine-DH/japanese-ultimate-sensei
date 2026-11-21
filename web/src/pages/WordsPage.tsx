@@ -9,6 +9,7 @@ import {
 } from '../api/client';
 import { type GlossLanguage, loadWebSettings } from '../lib/settings';
 import { pickEntrySenses } from '../lib/transcript';
+import { ImportWordsPanel } from '../components/ImportWordsPanel';
 import {
   computePagination,
   extractAnimeOptions,
@@ -45,6 +46,7 @@ export function WordsPage() {
   const [activeWord, setActiveWord] = useState<WordListItem | null>(null);
   const [glossLang, setGlossLang] = useState<GlossLanguage>(initialSettings.glossLang);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
 
   const episodesQuery = useQuery({
     queryKey: ['episodes'],
@@ -136,12 +138,28 @@ export function WordsPage() {
             known words.
           </p>
         </div>
-        {notice && (
-          <div className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
-            {notice}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {notice && (
+            <div className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+              {notice}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowImport((v) => !v)}
+            className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-sky-500/20 border border-sky-400/50 text-sky-200 hover:bg-sky-500/30 transition cursor-pointer"
+          >
+            {showImport ? 'Hide Import' : 'Import Anki / Words'}
+          </button>
+        </div>
       </div>
+
+      {showImport && (
+        <ImportWordsPanel
+          onImported={(summary) => setNotice(summary)}
+          onClose={() => setShowImport(false)}
+        />
+      )}
 
       {/* Filters */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
