@@ -37,6 +37,9 @@ export type AnkiModel = components['schemas']['AnkiModel'];
 export type AnkiNotePayload = components['schemas']['AnkiNotePayload'];
 export type AnkiConnectNote = components['schemas']['AnkiConnectNote'];
 export type AnkiMediaFile = components['schemas']['AnkiMediaFile'];
+export type AnkiCardIn = components['schemas']['AnkiCardIn'];
+export type AnkiCardsImport = components['schemas']['AnkiCardsImport'];
+export type ImportReport = components['schemas']['ImportReport'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -151,6 +154,23 @@ export interface AnkiTestResponse {
   error?: string;
 }
 
+export interface AnkiImportDeckMessage {
+  type: 'SENSEI_ANKI_IMPORT_DECK';
+  deck: string;
+  fieldName?: string;
+  matureDays?: number;
+  dryRun: boolean;
+}
+
+export interface AnkiImportDeckResponse {
+  ok: boolean;
+  report?: ImportReport;
+  fields?: string[];
+  fieldUsed?: string;
+  cardCount?: number;
+  error?: string;
+}
+
 export function isApiCallMessage(msg: unknown): msg is ApiCallMessage {
   return (
     typeof msg === 'object' &&
@@ -237,6 +257,15 @@ export function isAnkiTestMessage(msg: unknown): msg is AnkiTestMessage {
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_ANKI_TEST'
+  );
+}
+
+export function isAnkiImportDeckMessage(msg: unknown): msg is AnkiImportDeckMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_ANKI_IMPORT_DECK' &&
+    typeof (msg as { deck?: unknown }).deck === 'string'
   );
 }
 
@@ -729,6 +758,28 @@ export const api = {
       return {
         reachable: false,
         queueLength: 0,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  },
+
+  async importAnkiDeck(msg: Omit<AnkiImportDeckMessage, 'type'>): Promise<AnkiImportDeckResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { ok: false, error: 'Extension background worker unavailable' };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_ANKI_IMPORT_DECK',
+        ...msg,
+      } satisfies AnkiImportDeckMessage)) as AnkiImportDeckResponse | undefined;
+      if (res && typeof res.ok === 'boolean') {
+        return res;
+      }
+      return { ok: false, error: 'Invalid Anki import response' };
+    } catch (err) {
+      return {
+        ok: false,
         error: err instanceof Error ? err.message : String(err),
       };
     }

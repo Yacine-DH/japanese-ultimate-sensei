@@ -10,7 +10,7 @@ import {
 
 interface ImportWordsPanelProps {
   onImported: (summary: string) => void;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 type ImportTab = 'anki' | 'wordlist';
@@ -238,13 +238,15 @@ export function ImportWordsPanel({ onImported, onClose }: ImportWordsPanelProps)
             match what you already know. Statuses only move upward (ignored words stay untouched).
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-xs px-2.5 py-1 rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
-        >
-          Close
-        </button>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs px-2.5 py-1 rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+          >
+            Close
+          </button>
+        )}
       </div>
 
       {/* Mode tabs */}

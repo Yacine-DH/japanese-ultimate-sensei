@@ -1,13 +1,20 @@
 import type {
+  AnkiCardIn,
+  AnkiCardsImport,
+  AnkiImportDeckResponse,
   AnkiModel,
   AnkiNotePayload,
   ApiCallResponse,
+  ImportReport,
 } from '../api/client';
 import type { ExtensionSettings } from './settings';
 
 export const ANKI_CONNECT_VERSION = 6;
 export const ANKI_QUEUE_STORAGE_KEY = 'sensei_anki_push_queue';
 export const MAX_ANKI_QUEUE_ITEMS = 200;
+export const ANKI_IMPORT_CHUNK_SIZE = 5000;
+const ANKI_CARDS_INFO_BATCH = 1000;
+const FIELD_HINT_RE = /expression|vocab|word|kanji|term|japanese|front|単語|語彙|表現|日本語/i;
 
 export type AnkiErrorKind = 'unreachable' | 'duplicate' | 'api_error';
 
@@ -341,4 +348,197 @@ export class AnkiPushQueue {
       errors,
     };
   }
+}
+
+export function pickExpressionFieldName(
+  fieldNames: readonly string[],
+  preferred?: string,
+): string {
+  const wanted = preferred?.trim();
+  if (wanted) {
+    const exact = fieldNames.find((f) => f.toLowerCase() === wanted.toLowerCase());
+    if (exact) return exact;
+  }
+  const hinted = fieldNames.find((f) => FIELD_HINT_RE.test(f));
+  return hinted ?? fieldNames[0] ?? '';
+}
+
+export function chunkArray<T>(items: readonly T[], size = ANKI_IMPORT_CHUNK_SIZE): T[][] {
+  const safeSize = Math.max(1, size);
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += safeSize) {
+    chunks.push(items.slice(i, i + safeSize));
+  }
+  return chunks;
+}
+
+interface AnkiConnectCardInfo {
+  interval?: number;
+  type?: number;
+  fields?: Record<string, { value?: string; order?: number }>;
+}
+
+export interface ImportAnkiDeckDeps {
+  ankiUrl: string;
+  deck: string;
+  fieldName?: string;
+  matureDays?: number;
+  dryRun: boolean;
+  sendChunk: (payload: AnkiCardsImport) => Promise<ApiCallResponse<ImportReport>>;
+  fetchImpl?: typeof fetch;
+  chunkSize?: number;
+}
+
+/**
+ * Read cards from an Anki deck via AnkiConnect (`findCards` + `cardsInfo`) and submit them
+ * to `POST /import/anki/cards` in chunks of <= 5000 cards (#76).
+ */
+export async function importDeckFromAnkiConnect(
+  deps: ImportAnkiDeckDeps,
+): Promise<AnkiImportDeckResponse> {
+  const {
+    ankiUrl,
+    deck,
+    fieldName,
+    matureDays = 21,
+    dryRun,
+    sendChunk,
+    fetchImpl = fetch,
+    chunkSize = ANKI_IMPORT_CHUNK_SIZE,
+  } = deps;
+
+  const escapedDeck = deck.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  let cardIds: number[];
+  try {
+    cardIds = await invokeAnkiConnect<number[]>(
+      ankiUrl,
+      'findCards',
+      { query: `deck:"${escapedDeck}"` },
+      fetchImpl,
+    );
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (!Array.isArray(cardIds) || cardIds.length === 0) {
+    return {
+      ok: true,
+      cardCount: 0,
+      fields: [],
+      fieldUsed: '',
+      report: {
+        total: 0,
+        matched: 0,
+        updated: 0,
+        already: 0,
+        unmatched_count: 0,
+        unmatched: [],
+        skipped_new: 0,
+        dry_run: dryRun,
+        note_types: [],
+        decks: [deck],
+      },
+    };
+  }
+
+  const allInfos: AnkiConnectCardInfo[] = [];
+  for (const batch of chunkArray(cardIds, ANKI_CARDS_INFO_BATCH)) {
+    try {
+      const infos = await invokeAnkiConnect<AnkiConnectCardInfo[]>(
+        ankiUrl,
+        'cardsInfo',
+        { cards: batch },
+        fetchImpl,
+      );
+      if (Array.isArray(infos)) {
+        allInfos.push(...infos);
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  const fieldSet = new Set<string>();
+  for (const info of allInfos) {
+    if (!info.fields) continue;
+    const ordered = Object.entries(info.fields).sort(
+      (a, b) => (a[1]?.order ?? 0) - (b[1]?.order ?? 0),
+    );
+    for (const [name] of ordered) {
+      fieldSet.add(name);
+    }
+  }
+  const fields = Array.from(fieldSet);
+  const primaryFieldUsed = pickExpressionFieldName(fields, fieldName);
+
+  const cardsToSend: AnkiCardIn[] = [];
+  for (const info of allInfos) {
+    if (!info.fields) continue;
+    const orderedNames = Object.entries(info.fields)
+      .sort((a, b) => (a[1]?.order ?? 0) - (b[1]?.order ?? 0))
+      .map(([name]) => name);
+    const chosen = pickExpressionFieldName(orderedNames, fieldName);
+    const expression = info.fields[chosen]?.value ?? '';
+    if (!expression.trim()) continue;
+    cardsToSend.push({
+      expression,
+      interval_days: Math.max(0, Math.round(Number(info.interval) || 0)),
+      studied: Number(info.type ?? 0) !== 0,
+    });
+  }
+
+  const combined: ImportReport = {
+    total: 0,
+    matched: 0,
+    updated: 0,
+    already: 0,
+    unmatched_count: 0,
+    unmatched: [],
+    skipped_new: 0,
+    dry_run: dryRun,
+    note_types: [],
+    decks: [deck],
+  };
+
+  for (const chunk of chunkArray(cardsToSend, chunkSize)) {
+    const res = await sendChunk({
+      cards: chunk,
+      mature_days: matureDays,
+      dry_run: dryRun,
+    });
+    if (!res.ok || !res.data) {
+      return {
+        ok: false,
+        fields,
+        fieldUsed: primaryFieldUsed,
+        cardCount: cardsToSend.length,
+        error: res.error ?? 'Server rejected Anki card import',
+      };
+    }
+    combined.total += res.data.total;
+    combined.matched += res.data.matched;
+    combined.updated += res.data.updated;
+    combined.already += res.data.already;
+    combined.unmatched_count += res.data.unmatched_count;
+    combined.skipped_new += res.data.skipped_new;
+    for (const u of res.data.unmatched) {
+      if (combined.unmatched.length < 200) {
+        combined.unmatched.push(u);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    report: combined,
+    fields,
+    fieldUsed: primaryFieldUsed,
+    cardCount: cardsToSend.length,
+  };
 }

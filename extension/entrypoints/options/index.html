@@ -327,6 +327,36 @@
             </div>
             <div id="anki-status" class="status"></div>
           </form>
+
+          <hr style="border: none; border-top: 1px solid #334155; margin: 20px 0" />
+          <h2>Import Known Words from Anki</h2>
+          <p class="sub">
+            Read studied cards directly from a deck in Anki on this laptop and send them to your
+            Sensei server (dry-run preview first, chunks of 5,000).
+          </p>
+          <div class="field">
+            <label for="anki-import-deck">Anki Deck to Import</label>
+            <select id="anki-import-deck">
+              <option value="">Click "Test AnkiConnect" to load decks…</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="anki-import-field">Japanese Word Field (optional — auto-detected if empty)</label>
+            <input
+              id="anki-import-field"
+              type="text"
+              placeholder="Auto (Vocab / Expression / Word / Front)"
+            />
+          </div>
+          <div class="actions">
+            <button type="button" id="anki-import-preview-btn" class="secondary">
+              Preview Import
+            </button>
+            <button type="button" id="anki-import-confirm-btn" class="primary">
+              Import Known Words
+            </button>
+          </div>
+          <div id="anki-import-status" class="status"></div>
         </section>
       </div>
     </main>

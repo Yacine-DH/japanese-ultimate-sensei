@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AnkiModel, AnkiNotePayload } from '../src/api/client';
 import {
   AnkiPushQueue,
+  chunkArray,
+  importDeckFromAnkiConnect,
   invokeAnkiConnect,
+  pickExpressionFieldName,
   pushCardToAnki,
   testAnkiConnect,
 } from '../src/lib/anki-connect';
@@ -200,5 +203,87 @@ describe('AnkiConnect client & E-6 card push', () => {
         throw new Error('ECONNREFUSED');
       }) as unknown as typeof fetch),
     ).rejects.toMatchObject({ kind: 'unreachable' });
+  });
+
+  it('imports studied AnkiConnect deck cards in chunks and aggregates ImportReport (#76)', async () => {
+    expect(pickExpressionFieldName(['Meaning', 'Vocab', 'Reading'])).toBe('Vocab');
+    expect(pickExpressionFieldName(['Meaning', 'Vocab'], 'reading')).toBe('Vocab');
+    expect(pickExpressionFieldName(['Meaning', 'Vocab'], 'meaning')).toBe('Meaning');
+    expect(chunkArray([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+
+    const { fetchImpl } = makeAnkiFetch({
+      findCards: () => [101, 102, 103],
+      cardsInfo: () => [
+        {
+          interval: 45,
+          type: 2,
+          fields: {
+            Meaning: { value: 'to eat', order: 0 },
+            Word: { value: '食べる', order: 1 },
+          },
+        },
+        {
+          interval: 5,
+          type: 1,
+          fields: {
+            Meaning: { value: 'magic', order: 0 },
+            Word: { value: '魔法', order: 1 },
+          },
+        },
+        {
+          interval: 0,
+          type: 0,
+          fields: {
+            Meaning: { value: 'unstudied', order: 0 },
+            Word: { value: '海賊', order: 1 },
+          },
+        },
+      ],
+    });
+
+    const sentChunks: { count: number; dryRun: boolean }[] = [];
+    const res = await importDeckFromAnkiConnect({
+      ankiUrl: 'http://localhost:8765',
+      deck: 'Japanese::Core',
+      matureDays: 21,
+      dryRun: true,
+      chunkSize: 2,
+      fetchImpl,
+      sendChunk: async (payload) => {
+        sentChunks.push({ count: payload.cards.length, dryRun: payload.dry_run });
+        const studied = payload.cards.filter((c) => c.studied);
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            total: studied.length,
+            matched: studied.length,
+            updated: studied.length,
+            already: 0,
+            unmatched_count: 0,
+            unmatched: [],
+            skipped_new: payload.cards.length - studied.length,
+            dry_run: payload.dry_run,
+            note_types: [],
+            decks: [],
+          },
+        };
+      },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.fieldUsed).toBe('Word');
+    expect(res.fields).toEqual(['Meaning', 'Word']);
+    expect(sentChunks).toEqual([
+      { count: 2, dryRun: true },
+      { count: 1, dryRun: true },
+    ]);
+    expect(res.report).toMatchObject({
+      total: 2,
+      matched: 2,
+      updated: 2,
+      skipped_new: 1,
+      dry_run: true,
+    });
   });
 });
