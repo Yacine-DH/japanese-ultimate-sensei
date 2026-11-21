@@ -147,3 +147,13 @@ class UnderstandingSnapshot(SQLModel, table=True):
     unique_pct: float = 0
     unique_words: int = 0
     known_unique: int = 0
+
+
+class LineNote(SQLModel, table=True):
+    """Cached LLM grammar explanation of a subtitle line, per language."""
+
+    line_id: int = Field(primary_key=True, foreign_key="subtitleline.id")
+    lang: str = Field(primary_key=True)  # en | de
+    text: str
+    model: str
+    created_at: datetime = Field(default_factory=utcnow)

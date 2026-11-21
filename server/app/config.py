@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     api_token: str = ""
     # jimaku.cc API key for subtitle search/import (free account → API key).
     jimaku_api_key: str = ""
+    # LLM (OpenAI-compatible: Ollama → http://localhost:11434/v1, LM Studio, llama.cpp…).
+    # Empty = translations/explanations disabled.
+    llm_base_url: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_timeout_s: float = 900
     # Escape hatch for local development / tests only: run with auth disabled.
     allow_no_auth: bool = False
     data_dir: Path = REPO_ROOT / "data"
