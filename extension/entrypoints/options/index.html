@@ -242,6 +242,17 @@
             </select>
           </div>
           <div class="field">
+            <label for="translation-mode">Overlay Translation Line (LLM)</label>
+            <select id="translation-mode">
+              <option value="off">Off (default — read Japanese first)</option>
+              <option value="en">English (EN)</option>
+              <option value="de">German (DE)</option>
+            </select>
+            <p id="llm-status-hint" class="sub" style="margin: 6px 0 0; font-size: 0.78rem">
+              Tip: leave Off and use the Reveal Translation hotkey to peek at a single line.
+            </p>
+          </div>
+          <div class="field">
             <label for="highlight-limit">Highlighted Unknown Words per Line</label>
             <input id="highlight-limit" type="number" min="0" max="20" step="1" />
           </div>

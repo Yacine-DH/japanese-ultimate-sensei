@@ -116,7 +116,12 @@ export function filterTranscriptLines(
     if (!q) {
       return true;
     }
-    if (line.text.toLowerCase().includes(q) || line.romaji.toLowerCase().includes(q)) {
+    if (
+      line.text.toLowerCase().includes(q) ||
+      line.romaji.toLowerCase().includes(q) ||
+      (line.translation_en?.toLowerCase().includes(q) ?? false) ||
+      (line.translation_de?.toLowerCase().includes(q) ?? false)
+    ) {
       return true;
     }
     return line.tokens.some(

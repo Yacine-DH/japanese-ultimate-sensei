@@ -17,7 +17,12 @@ import {
   suggestNextEpisodeNumber,
 } from '../../src/lib/jimaku';
 import { getKeyboardLayoutMap } from '../../src/lib/keyboard-layout';
-import { getSettings, isServerUrlConfigured, saveSettings } from '../../src/lib/settings';
+import {
+  getSettings,
+  isServerUrlConfigured,
+  saveSettings,
+  type TranslationDisplayMode,
+} from '../../src/lib/settings';
 import {
   buildPrimingUrl,
   extractUrlEpisodeInfo,
@@ -33,8 +38,12 @@ const setupApiToken = document.getElementById('setup-api-token') as HTMLInputEle
 const setupStatus = document.getElementById('setup-status') as HTMLDivElement;
 const serverUrlText = document.getElementById('server-url-text') as HTMLSpanElement;
 const dictText = document.getElementById('dict-text') as HTMLSpanElement;
+const llmText = document.getElementById('llm-text') as HTMLSpanElement;
 const tabEnableToggle = document.getElementById('tab-enable-toggle') as HTMLInputElement;
 const autoPauseToggle = document.getElementById('auto-pause-toggle') as HTMLInputElement;
+const translationModeSelect = document.getElementById(
+  'translation-mode-select',
+) as HTMLSelectElement;
 const pagePatternText = document.getElementById('page-pattern-text') as HTMLSpanElement;
 const suggestBanner = document.getElementById('suggest-banner') as HTMLDivElement;
 const suggestText = document.getElementById('suggest-text') as HTMLSpanElement;
@@ -126,6 +135,7 @@ async function refreshPopup(): Promise<void> {
   setupServerUrl.value = settings.serverUrl;
   setupApiToken.value = settings.apiToken;
   autoPauseToggle.checked = settings.autoPauseEachLine;
+  translationModeSelect.value = settings.translationMode;
 
   void getKeyboardLayoutMap().then((layoutMap) => {
     hotkeySummary.innerHTML = '';
@@ -173,6 +183,7 @@ async function refreshPopup(): Promise<void> {
     healthBadge.textContent = 'Setup needed';
     healthBadge.className = 'badge offline';
     dictText.textContent = '-';
+    llmText.textContent = '-';
     setupCard.classList.add('visible');
     return;
   }
@@ -188,11 +199,29 @@ async function refreshPopup(): Promise<void> {
     healthBadge.textContent = 'Offline';
     healthBadge.className = 'badge offline';
     dictText.textContent = healthRes.error ?? 'Unreachable';
+    llmText.textContent = '-';
     setupCard.classList.add('visible');
     setupStatus.textContent = healthRes.error ?? 'Could not reach server';
     setupStatus.className = 'setup-status err';
     return;
   }
+
+  void api.getLlmStatus().then((llmRes) => {
+    if (llmRes.ok && llmRes.data) {
+      if (!llmRes.data.configured) {
+        llmText.textContent = 'Not configured';
+        llmText.title = 'Set up a model on the server';
+      } else if (llmRes.data.reachable) {
+        llmText.textContent = llmRes.data.model ?? 'Ready';
+        llmText.title = llmRes.data.detail;
+      } else {
+        llmText.textContent = 'Unreachable';
+        llmText.title = llmRes.data.detail;
+      }
+    } else {
+      llmText.textContent = '-';
+    }
+  });
 
   const episodesRes = await api.listEpisodes();
   if (episodesRes.ok && episodesRes.data) {
@@ -272,6 +301,10 @@ tabEnableToggle.addEventListener('change', async () => {
 
 autoPauseToggle.addEventListener('change', async () => {
   await saveSettings({ autoPauseEachLine: autoPauseToggle.checked });
+});
+
+translationModeSelect.addEventListener('change', async () => {
+  await saveSettings({ translationMode: translationModeSelect.value as TranslationDisplayMode });
 });
 
 applySuggestBtn.addEventListener('click', async () => {

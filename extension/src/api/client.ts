@@ -44,6 +44,9 @@ export type BulkStatusIn = components['schemas']['BulkStatusIn'];
 export type BulkStatusOut = components['schemas']['BulkStatusOut'];
 export type ExampleLine = components['schemas']['ExampleLine'];
 export type MissedWord = components['schemas']['MissedWord'];
+export type LLMStatus = components['schemas']['LLMStatus'];
+export type TranslationJob = components['schemas']['TranslationJob'];
+export type LineExplanation = components['schemas']['LineExplanation'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -656,6 +659,26 @@ export const api = {
       include_learning: includeLearning ? 'true' : 'false',
     });
     return api.call<MissedWord[]>(`/episodes/${episodeId}/missed?${params.toString()}`);
+  },
+
+  getLlmStatus(): Promise<ApiCallResponse<LLMStatus>> {
+    return api.call<LLMStatus>('/llm/status');
+  },
+
+  getTranslationJob(episodeId: number): Promise<ApiCallResponse<TranslationJob>> {
+    return api.call<TranslationJob>(`/episodes/${episodeId}/translate`);
+  },
+
+  explainLine(
+    lineId: number,
+    lang: 'en' | 'de' = 'en',
+    refresh = false,
+  ): Promise<ApiCallResponse<LineExplanation>> {
+    const params = new URLSearchParams({ lang });
+    if (refresh) params.set('refresh', 'true');
+    return api.call<LineExplanation>(`/lines/${lineId}/explain?${params.toString()}`, {
+      method: 'POST',
+    });
   },
 
   lookupDictionary(

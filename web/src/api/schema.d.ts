@@ -610,6 +610,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/llm/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Llm Status */
+        get: operations["llm_status_llm_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/episodes/{episode_id}/translate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Translation Progress */
+        get: operations["translation_progress_episodes__episode_id__translate_get"];
+        put?: never;
+        /**
+         * Start Translation
+         * @description Translate every untranslated line (EN + DE) in the background; results land in
+         *     `LineOut.translation_en/de`. Poll `GET` on the same path for progress. On a small
+         *     local model this takes a while (run it before watching / overnight).
+         */
+        post: operations["start_translation_episodes__episode_id__translate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lines/{line_id}/explain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Explain
+         * @description Grammar note for one line (translation, word breakdown, grammar points), cached.
+         *     Slow on a small local model (tens of seconds): show a spinner.
+         */
+        post: operations["explain_lines__line_id__explain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1286,6 +1347,38 @@ export interface components {
              */
             anime_title?: string | null;
         };
+        /** LLMStatus */
+        LLMStatus: {
+            /** Configured */
+            configured: boolean;
+            /** Reachable */
+            reachable: boolean;
+            /** Model */
+            model: string | null;
+            /** Base Url */
+            base_url: string | null;
+            /** Detail */
+            detail: string;
+        };
+        /** LineExplanation */
+        LineExplanation: {
+            /** Line Id */
+            line_id: number;
+            /**
+             * Lang
+             * @enum {string}
+             */
+            lang: "en" | "de";
+            /**
+             * Text
+             * @description Markdown: translation, word breakdown, grammar points
+             */
+            text: string;
+            /** Model */
+            model: string;
+            /** Cached */
+            cached: boolean;
+        };
         /** LineOut */
         LineOut: {
             /** Id */
@@ -1493,6 +1586,32 @@ export interface components {
              * @description General frequency (Zipf 0–8; 5+ everyday, <3 rare, 0 unknown). Rank unknown words to highlight by this, highest first
              */
             zipf?: number | null;
+        };
+        /** TranslationJob */
+        TranslationJob: {
+            /** Episode Id */
+            episode_id: number;
+            /** Total Lines */
+            total_lines: number;
+            /**
+             * Translated Lines
+             * @description Lines with an English translation
+             */
+            translated_lines: number;
+            /** Queued */
+            queued: boolean;
+            /** Running */
+            running: boolean;
+            /**
+             * Error
+             * @description Why the last run stopped (LLM unreachable, …)
+             */
+            error: string | null;
+            /**
+             * Failed Lines
+             * @description Lines the model skipped in the last run (retry later)
+             */
+            failed_lines: number;
         };
         /** Understanding */
         Understanding: {
@@ -2769,6 +2888,122 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MissedWord"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    llm_status_llm_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMStatus"];
+                };
+            };
+        };
+    };
+    translation_progress_episodes__episode_id__translate_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                episode_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_translation_episodes__episode_id__translate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                episode_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslationJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    explain_lines__line_id__explain_post: {
+        parameters: {
+            query?: {
+                lang?: "en" | "de";
+                refresh?: boolean;
+            };
+            header?: never;
+            path: {
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineExplanation"];
                 };
             };
             /** @description Validation Error */

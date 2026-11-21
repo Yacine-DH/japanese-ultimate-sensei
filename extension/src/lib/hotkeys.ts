@@ -10,7 +10,9 @@ export type HotkeyAction =
   | 'syncNow'
   | 'replayLine'
   | 'slowReplayLine'
-  | 'toggleAutoPause';
+  | 'toggleAutoPause'
+  | 'revealTranslation'
+  | 'explainLine';
 
 export interface HotkeyBinding {
   code: string;
@@ -29,6 +31,8 @@ export const HOTKEY_ACTIONS: readonly HotkeyAction[] = [
   'replayLine',
   'slowReplayLine',
   'toggleAutoPause',
+  'revealTranslation',
+  'explainLine',
 ];
 
 export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
@@ -38,6 +42,8 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
   replayLine: 'Replay current / last line',
   slowReplayLine: 'Slow replay line (0.75×)',
   toggleAutoPause: 'Toggle auto-pause after line',
+  revealTranslation: 'Reveal translation (current line)',
+  explainLine: 'Explain current line (LLM)',
 };
 
 function key(code: string, mods: Partial<Omit<HotkeyBinding, 'code'>> = {}): HotkeyBinding {
@@ -52,6 +58,8 @@ export const DEFAULT_HOTKEYS: HotkeyBindings = {
   replayLine: key('KeyR'),
   slowReplayLine: key('KeyR', { shift: true }),
   toggleAutoPause: key('KeyP', { alt: true }),
+  revealTranslation: key('KeyT'),
+  explainLine: key('KeyE'),
 };
 
 export interface KeyEventLike {

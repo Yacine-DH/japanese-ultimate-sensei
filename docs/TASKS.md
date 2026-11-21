@@ -50,6 +50,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **S-8** (#27) "Words you missed": `GET /episodes/{id}/missed` ranked by frequency (add a real frequency list) (claude, 2026-11-21: wordfreq zipf on words/tokens, `/missed`, better JMdict homophone linking; JLPT level not yet)
 - [~] **S-9** (#28) LLM layer (OpenAI-compatible; Ollama on server by default): batch line translations EN/DE + grammar notes, cached per line. deps: O-5 (claude, 2026-11-21: endpoints + jobs + cache done; model/host choice pending O-5)
 - [x] **E-7** (#29) Post-episode "missed words" panel with bulk add. deps: S-8 (antigravity, 2026-11-21: auto-triggered + on-demand Shadow DOM missed-words panel in extension + MissedWordsPanel on web EpisodeDetailPage with bulk Save Cards / Known / Ignore, plus Zipf highlight ranking, word_id dictionary lookups, and Words sort=frequency, unit tests)
+- [x] **E-9/W-9** (#87) LLM line translations + "Explain this line" grammar notes in web + extension overlay. deps: S-9 (antigravity, 2026-11-21: `/llm/status` graceful degradation, web Translate Episode polling progress bar + collapsible EN/DE line translations + sticky Markdown Explain Line panel, extension overlay translation setting off/EN/DE + reveal-line & explain-line hotkeys with video pause & spinner, unit tests)
 
 ## Phase 3
 - [ ] **S-10** STT fallback: episode audio (server fetch or extension upload) → faster-whisper / kotoba-whisper, overnight queue

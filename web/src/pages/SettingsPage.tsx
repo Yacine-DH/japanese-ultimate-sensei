@@ -75,6 +75,13 @@ export function SettingsPage() {
     retry: false,
   });
 
+  const llmStatusQuery = useQuery({
+    queryKey: ['llm-status', savedSettings.serverUrl, savedSettings.apiToken],
+    queryFn: () => apiClient.getLlmStatus(),
+    enabled: healthQuery.data?.state === 'connected',
+    retry: false,
+  });
+
   async function handleTestConnection() {
     setTestResult({ state: 'testing' });
     const res = await verifyWebConnection({ serverUrl, apiToken });
@@ -110,12 +117,30 @@ export function SettingsPage() {
           {healthQuery.isLoading ? (
             <div className="text-xs text-slate-400 mt-1">Checking connection...</div>
           ) : healthQuery.data?.state === 'connected' ? (
-            <div className="text-xs text-emerald-400 mt-1">
-              v{healthQuery.data.health.version} · JMdict:{' '}
-              {healthQuery.data.health.dictionary ? 'Ready' : 'Missing'} · ffmpeg:{' '}
-              {healthQuery.data.health.ffmpeg ? 'Ready' : 'Missing'} · Media:{' '}
-              {formatBytes(healthQuery.data.health.media_bytes)} · Auth:{' '}
-              {healthQuery.data.health.auth ? 'Verified' : 'Open'}
+            <div className="space-y-1 mt-1">
+              <div className="text-xs text-emerald-400">
+                v{healthQuery.data.health.version} · JMdict:{' '}
+                {healthQuery.data.health.dictionary ? 'Ready' : 'Missing'} · ffmpeg:{' '}
+                {healthQuery.data.health.ffmpeg ? 'Ready' : 'Missing'} · Media:{' '}
+                {formatBytes(healthQuery.data.health.media_bytes)} · Auth:{' '}
+                {healthQuery.data.health.auth ? 'Verified' : 'Open'}
+              </div>
+              {llmStatusQuery.data && (
+                <div
+                  className={`text-xs ${
+                    llmStatusQuery.data.configured && llmStatusQuery.data.reachable
+                      ? 'text-indigo-300'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  LLM:{' '}
+                  {!llmStatusQuery.data.configured
+                    ? 'Not configured (set up a model on the server)'
+                    : llmStatusQuery.data.reachable
+                      ? `Ready (${llmStatusQuery.data.model})`
+                      : `Configured (${llmStatusQuery.data.model}), unreachable: ${llmStatusQuery.data.detail}`}
+                </div>
+              )}
             </div>
           ) : healthQuery.data?.state === 'unauthorized' ? (
             <div className="text-xs text-amber-400 mt-1">{healthQuery.data.message}</div>
@@ -127,7 +152,10 @@ export function SettingsPage() {
         </div>
         <button
           type="button"
-          onClick={() => void healthQuery.refetch()}
+          onClick={() => {
+            void healthQuery.refetch();
+            void llmStatusQuery.refetch();
+          }}
           className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
         >
           Refresh
