@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EpisodeOut } from '../src/api/client';
 import {
+  buildPrimingUrl,
   extractUrlEpisodeInfo,
   filterEpisodes,
   normalizePageUrlPattern,
@@ -91,5 +92,12 @@ describe('page URL → episode mapping and E-4 picker logic (#2, #20)', () => {
     ];
     expect(filterEpisodes(episodes, 'dungeon').map((e) => e.id)).toEqual([3]);
     expect(filterEpisodes(episodes, 'ep 2').map((e) => e.id)).toEqual([2]);
+  });
+
+  it('builds the web pre-watch priming URL for an attached episode (#35)', () => {
+    expect(buildPrimingUrl('http://homeserver:8000/', 42)).toBe(
+      'http://homeserver:8000/episodes/42?prime=1',
+    );
+    expect(buildPrimingUrl('', 42)).toBeNull();
   });
 });

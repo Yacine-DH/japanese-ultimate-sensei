@@ -2,7 +2,11 @@ import { api, type EpisodeOut, verifyServerConnection } from '../../src/api/clie
 import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
 import { getKeyboardLayoutMap } from '../../src/lib/keyboard-layout';
 import { getSettings, isServerUrlConfigured, saveSettings } from '../../src/lib/settings';
-import { filterEpisodes, resolveEpisodeForUrl } from '../../src/lib/url-mapping';
+import {
+  buildPrimingUrl,
+  filterEpisodes,
+  resolveEpisodeForUrl,
+} from '../../src/lib/url-mapping';
 
 const healthBadge = document.getElementById('health-badge') as HTMLSpanElement;
 const setupCard = document.getElementById('setup-card') as HTMLDivElement;
@@ -20,6 +24,7 @@ const suggestText = document.getElementById('suggest-text') as HTMLSpanElement;
 const applySuggestBtn = document.getElementById('apply-suggest-btn') as HTMLButtonElement;
 const episodeSearch = document.getElementById('episode-search') as HTMLInputElement;
 const episodeSelect = document.getElementById('episode-select') as HTMLSelectElement;
+const primeEpisodeBtn = document.getElementById('prime-episode-btn') as HTMLButtonElement;
 const uploadForm = document.getElementById('upload-form') as HTMLFormElement;
 const uploadAnime = document.getElementById('upload-anime') as HTMLInputElement;
 const uploadEpNum = document.getElementById('upload-ep-num') as HTMLInputElement;
@@ -33,6 +38,13 @@ let activeTabUrl = '';
 let allEpisodes: EpisodeOut[] = [];
 let attachedEpisodeId: number | null = null;
 let suggestedEpisode: EpisodeOut | null = null;
+let currentServerUrl = '';
+
+function updatePrimerButton(): void {
+  const url =
+    attachedEpisodeId !== null ? buildPrimingUrl(currentServerUrl, attachedEpisodeId) : null;
+  primeEpisodeBtn.style.display = url ? 'block' : 'none';
+}
 
 function formatEpisodeLabel(ep: EpisodeOut): string {
   const anime = ep.anime_title ?? 'Anime';
@@ -65,10 +77,12 @@ async function applyTabSelection(episodeId: number | null, enabled: boolean): Pr
     enabled: enabled && episodeId !== null,
   });
   renderEpisodeOptions();
+  updatePrimerButton();
 }
 
 async function refreshPopup(): Promise<void> {
   const settings = await getSettings();
+  currentServerUrl = settings.serverUrl;
   const configured = isServerUrlConfigured(settings.serverUrl);
   serverUrlText.textContent = configured
     ? settings.serverUrl.replace(/^https?:\/\//, '')
@@ -103,6 +117,7 @@ async function refreshPopup(): Promise<void> {
   attachedEpisodeId = tabState.episodeId;
   tabEnableToggle.checked = tabState.enabled;
   pagePatternText.textContent = tabState.pattern ?? 'unsupported page';
+  updatePrimerButton();
 
   if (!configured) {
     healthBadge.textContent = 'Setup needed';
@@ -243,6 +258,14 @@ uploadForm.addEventListener('submit', async (event) => {
     uploadForm.reset();
   } else {
     uploadStatus.textContent = `Error: ${res.error ?? 'Upload failed'}`;
+  }
+});
+
+primeEpisodeBtn.addEventListener('click', () => {
+  if (attachedEpisodeId === null) return;
+  const url = buildPrimingUrl(currentServerUrl, attachedEpisodeId);
+  if (url) {
+    void browser.tabs.create({ url });
   }
 });
 

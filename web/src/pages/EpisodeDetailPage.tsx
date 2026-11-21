@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type LineOut, type TokenOut, type WordStatus } from '../api/client';
+import { PreWatchPrimer } from '../components/PreWatchPrimer';
 import { type GlossLanguage, loadWebSettings } from '../lib/settings';
 import {
   computeBarSegments,
@@ -40,10 +41,12 @@ function tokenClassName(token: TokenOut, isSelected: boolean): string {
 
 export function EpisodeDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const episodeId = Number(id);
   const queryClient = useQueryClient();
 
   const initialSettings = loadWebSettings();
+  const [showPrimer, setShowPrimer] = useState(() => searchParams.get('prime') === '1');
   const [search, setSearch] = useState('');
   const [onlyUnknown, setOnlyUnknown] = useState(false);
   const [showRomaji, setShowRomaji] = useState(initialSettings.romaji);
@@ -144,19 +147,28 @@ export function EpisodeDetailPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <Link to="/" className="text-xs font-medium text-sky-400 hover:text-sky-300">
             &larr; Back to Library
           </Link>
-          <button
-            type="button"
-            disabled={reprocessMutation.isPending}
-            onClick={() => reprocessMutation.mutate()}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
-            title="Re-tokenize lines with the latest server tokenizer, romaji grouping, and name detection"
-          >
-            {reprocessMutation.isPending ? 'Reprocessing...' : 'Reprocess Episode'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPrimer((v) => !v)}
+              className="px-3 py-1.5 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-xs font-bold cursor-pointer"
+            >
+              {showPrimer ? 'Hide Pre-Watch Primer' : 'Pre-Watch Primer (Top 10)'}
+            </button>
+            <button
+              type="button"
+              disabled={reprocessMutation.isPending}
+              onClick={() => reprocessMutation.mutate()}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
+              title="Re-tokenize lines with the latest server tokenizer, romaji grouping, and name detection"
+            >
+              {reprocessMutation.isPending ? 'Reprocessing...' : 'Reprocess Episode'}
+            </button>
+          </div>
         </div>
         {reprocessMutation.isError && (
           <div className="text-xs text-rose-400">
@@ -209,6 +221,17 @@ export function EpisodeDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Pre-Watch Primer (#35) */}
+      {showPrimer && (
+        <PreWatchPrimer
+          episodeId={episodeId}
+          lines={lines}
+          understanding={understanding}
+          glossLang={glossLang}
+          onClose={() => setShowPrimer(false)}
+        />
+      )}
 
       {/* Controls toolbar */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center gap-4">
