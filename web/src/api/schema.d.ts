@@ -320,6 +320,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/subs/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Subs Search
+         * @description Find the anime on jimaku.cc (Japanese subtitles).
+         */
+        get: operations["subs_search_subs_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/subs/{entry_id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Subs Files
+         * @description Subtitle files of an entry, best first: single-episode text subtitles from web/TV
+         *     releases rank highest; bundles (01-04), image subs and 7z/rar sink to the bottom.
+         */
+        get: operations["subs_files_subs__entry_id__files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/episodes/from-jimaku": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Episode From Jimaku
+         * @description Download a Jimaku file (zip archives are unpacked) and import it as an episode.
+         */
+        post: operations["episode_from_jimaku_episodes_from_jimaku_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -599,6 +660,86 @@ export interface components {
              * @default 0
              */
             media_bytes: number;
+        };
+        /** JimakuEntry */
+        JimakuEntry: {
+            /** Id */
+            id: number;
+            /**
+             * Name
+             * @description Romaji title
+             */
+            name: string;
+            /** English Name */
+            english_name?: string | null;
+            /** Japanese Name */
+            japanese_name?: string | null;
+            /** Anilist Id */
+            anilist_id?: number | null;
+            /**
+             * Movie
+             * @default false
+             */
+            movie: boolean;
+        };
+        /** JimakuFile */
+        JimakuFile: {
+            /**
+             * Name
+             * @description Pass this as file_name to POST /episodes/from-jimaku
+             */
+            name: string;
+            /** Size */
+            size: number;
+            /** Last Modified */
+            last_modified: string;
+            /**
+             * Format
+             * @description srt | ass | ssa | vtt | zip | 7z | rar | sup | other
+             */
+            format: string;
+            /**
+             * Supported
+             * @description Importable (text subtitles, or a zip of them)
+             */
+            supported: boolean;
+            /**
+             * Episode
+             * @description Episode number guessed from the file name
+             */
+            episode: number | null;
+            /**
+             * Multi Episode
+             * @description Several episodes in one file (e.g. 01-04): can't import
+             */
+            multi_episode: boolean;
+            /**
+             * Web Source
+             * @description Web/TV release: timing likely matches streaming sites
+             */
+            web_source: boolean;
+            /**
+             * Recommended
+             * @description Best pick (at most one per list)
+             */
+            recommended: boolean;
+        };
+        /** JimakuImport */
+        JimakuImport: {
+            /** Entry Id */
+            entry_id: number;
+            /** File Name */
+            file_name: string;
+            /**
+             * Episode Number
+             * @description Defaults to the number guessed from the file name
+             */
+            episode_number?: number | null;
+            /**
+             * Anime Title
+             * @description Defaults to the entry's English title (else romaji)
+             */
+            anime_title?: string | null;
         };
         /** LineOut */
         LineOut: {
@@ -1544,6 +1685,105 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    subs_search_subs_search_get: {
+        parameters: {
+            query?: {
+                /** @description Anime title (romaji/EN/JP) */
+                q?: string | null;
+                anilist_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JimakuEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    subs_files_subs__entry_id__files_get: {
+        parameters: {
+            query?: {
+                episode?: number | null;
+            };
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JimakuFile"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    episode_from_jimaku_episodes_from_jimaku_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JimakuImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EpisodeCreated"];
+                };
             };
             /** @description Validation Error */
             422: {

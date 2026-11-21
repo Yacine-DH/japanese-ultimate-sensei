@@ -28,6 +28,9 @@ export type CardCreated = components['schemas']['CardCreated'];
 export type CardOut = components['schemas']['CardOut'];
 export type MediaKind = components['schemas']['MediaKind'];
 export type MediaOut = components['schemas']['MediaOut'];
+export type JimakuEntry = components['schemas']['JimakuEntry'];
+export type JimakuFile = components['schemas']['JimakuFile'];
+export type JimakuImport = components['schemas']['JimakuImport'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -556,6 +559,27 @@ export const api = {
 
   createCard(payload: CardCreate): Promise<ApiCallResponse<CardCreated>> {
     return api.call<CardCreated>('/cards', {
+      method: 'POST',
+      json: payload,
+    });
+  },
+
+  searchJimaku(q: string): Promise<ApiCallResponse<JimakuEntry[]>> {
+    const params = new URLSearchParams({ q });
+    return api.call<JimakuEntry[]>(`/subs/search?${params.toString()}`);
+  },
+
+  listJimakuFiles(
+    entryId: number,
+    episode?: number | null,
+  ): Promise<ApiCallResponse<JimakuFile[]>> {
+    const qs =
+      episode !== undefined && episode !== null ? `?episode=${encodeURIComponent(String(episode))}` : '';
+    return api.call<JimakuFile[]>(`/subs/${entryId}/files${qs}`);
+  },
+
+  importFromJimaku(payload: JimakuImport): Promise<ApiCallResponse<EpisodeCreated>> {
+    return api.call<EpisodeCreated>('/episodes/from-jimaku', {
       method: 'POST',
       json: payload,
     });

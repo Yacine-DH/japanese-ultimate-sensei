@@ -2,6 +2,7 @@ import { type FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type EpisodeOut, SenseiApiError } from '../api/client';
+import { JimakuImportPanel } from '../components/JimakuImportPanel';
 import { computeBarSegments, groupEpisodesByAnime } from '../lib/transcript';
 
 function EpisodeUnderstandingBar({ episodeId }: { episodeId: number }) {
@@ -104,6 +105,7 @@ export function LibraryPage() {
   const navigate = useNavigate();
 
   const [showUpload, setShowUpload] = useState(false);
+  const [showJimaku, setShowJimaku] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [animeTitle, setAnimeTitle] = useState('');
   const [episodeNumber, setEpisodeNumber] = useState('');
@@ -179,14 +181,36 @@ export function LibraryPage() {
             transcripts.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowUpload((v) => !v)}
-          className="px-4 py-2 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm cursor-pointer"
-        >
-          {showUpload ? 'Close Upload' : '+ Upload Subtitle'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setShowJimaku((v) => !v);
+              setShowUpload(false);
+            }}
+            className="px-4 py-2 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm cursor-pointer"
+          >
+            {showJimaku ? 'Close Jimaku Search' : '+ Search Jimaku'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowUpload((v) => !v);
+              setShowJimaku(false);
+            }}
+            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-sm border border-slate-700 cursor-pointer"
+          >
+            {showUpload ? 'Close Upload' : '+ Upload File'}
+          </button>
+        </div>
       </div>
+
+      {showJimaku && (
+        <JimakuImportPanel
+          existingEpisodes={episodesQuery.data ?? []}
+          onClose={() => setShowJimaku(false)}
+        />
+      )}
 
       {showUpload && (
         <form
