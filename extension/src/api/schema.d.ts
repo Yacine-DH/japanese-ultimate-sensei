@@ -381,10 +381,190 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activity/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Watch Heartbeat
+         * @description Heartbeat from the extension while a video plays with the overlay attached
+         *     (e.g. every 30 s with the seconds since the last one).
+         */
+        post: operations["watch_heartbeat_activity_watch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Activity
+         * @description Heatmap data: one row per active day + streaks and totals for the range.
+         */
+        get: operations["read_activity_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/anime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Anime */
+        get: operations["list_anime_anime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/anime/{anime_id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Anime Progress
+         * @description '% understood' over time for one anime, plus where each episode stands now.
+         */
+        get: operations["anime_progress_anime__anime_id__progress_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityDayOut */
+        ActivityDayOut: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /**
+             * Minutes
+             * @description Watched with the overlay active
+             */
+            minutes: number;
+            /** Reviews */
+            reviews: number;
+            /**
+             * Words Added
+             * @description Cards created
+             */
+            words_added: number;
+            /**
+             * Words Known
+             * @description Words that became known (marked or graduated)
+             */
+            words_known: number;
+        };
+        /** ActivityOut */
+        ActivityOut: {
+            /**
+             * From Day
+             * Format: date
+             */
+            from_day: string;
+            /**
+             * To Day
+             * Format: date
+             */
+            to_day: string;
+            /**
+             * Days
+             * @description Only days with activity, oldest first
+             */
+            days: components["schemas"]["ActivityDayOut"][];
+            /** Active Days */
+            active_days: number;
+            /**
+             * Current Streak
+             * @description Consecutive active days up to today (or yesterday)
+             */
+            current_streak: number;
+            /** Longest Streak */
+            longest_streak: number;
+            totals: components["schemas"]["ActivityTotals"];
+        };
+        /** ActivityTotals */
+        ActivityTotals: {
+            /** Minutes */
+            minutes: number;
+            /** Reviews */
+            reviews: number;
+            /** Words Added */
+            words_added: number;
+            /** Words Known */
+            words_known: number;
+        };
+        /** AnimeOut */
+        AnimeOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Title Jp */
+            title_jp: string | null;
+            /** Anilist Id */
+            anilist_id: number | null;
+            /** Episode Count */
+            episode_count: number;
+            /**
+             * Unique Words
+             * @description Distinct content words across its episodes
+             */
+            unique_words: number;
+            /** Known Unique */
+            known_unique: number;
+            /**
+             * Token Pct
+             * @description % understood across all its episodes (weighted)
+             */
+            token_pct: number;
+            /** Unique Pct */
+            unique_pct: number;
+        };
+        /** AnimeProgress */
+        AnimeProgress: {
+            anime: components["schemas"]["AnimeOut"];
+            /**
+             * Series
+             * @description Daily anime-level % understood, oldest first
+             */
+            series: components["schemas"]["ProgressPoint"][];
+            /** Episodes */
+            episodes: components["schemas"]["EpisodeProgress"][];
+        };
         /** Body_create_episode_episodes_post */
         Body_create_episode_episodes_post: {
             /**
@@ -605,6 +785,21 @@ export interface components {
             /** Number */
             number?: number | null;
         };
+        /** EpisodeProgress */
+        EpisodeProgress: {
+            /** Episode Id */
+            episode_id: number;
+            /** Number */
+            number: number | null;
+            /** Title */
+            title: string | null;
+            /** Token Pct */
+            token_pct: number;
+            /** Unique Pct */
+            unique_pct: number;
+            /** Minutes Watched */
+            minutes_watched: number;
+        };
         /** EpisodeRef */
         EpisodeRef: {
             /** Id */
@@ -804,6 +999,22 @@ export interface components {
              */
             ready: boolean;
         };
+        /** ProgressPoint */
+        ProgressPoint: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Token Pct */
+            token_pct: number;
+            /** Unique Pct */
+            unique_pct: number;
+            /** Unique Words */
+            unique_words: number;
+            /** Known Unique */
+            known_unique: number;
+        };
         /** ReviewCard */
         ReviewCard: {
             card: components["schemas"]["CardOut"];
@@ -943,6 +1154,29 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WatchIn */
+        WatchIn: {
+            /** Episode Id */
+            episode_id: number;
+            /**
+             * Seconds
+             * @description Seconds watched since the last heartbeat
+             */
+            seconds: number;
+        };
+        /** WatchOut */
+        WatchOut: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /**
+             * Seconds Today
+             * @description All episodes, today
+             */
+            seconds_today: number;
         };
         /** WordListItem */
         WordListItem: {
@@ -1783,6 +2017,124 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EpisodeCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    watch_heartbeat_activity_watch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_activity_activity_get: {
+        parameters: {
+            query?: {
+                /** @description Default: 364 days before `to` */
+                from?: string | null;
+                /** @description Default: today (server-local) */
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_anime_anime_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimeOut"][];
+                };
+            };
+        };
+    };
+    anime_progress_anime__anime_id__progress_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                anime_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnimeProgress"];
                 };
             };
             /** @description Validation Error */

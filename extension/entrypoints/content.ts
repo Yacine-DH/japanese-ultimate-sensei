@@ -4,8 +4,13 @@ import {
   type LineOut,
   type LookupResult,
   type TokenOut,
+  type WatchIn,
   type WordStatus,
 } from '../src/api/client';
+import {
+  WatchHeartbeatAccumulator,
+  type WatchPlaybackSnapshot,
+} from '../src/lib/watch-heartbeat';
 import {
   captureVideoScreenshot,
   recordLineMedia,
@@ -80,6 +85,8 @@ export default defineContentScript({
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let pausedByHover = false;
     let capturingScene = false;
+    let isVideoBuffering = false;
+    const watchHeartbeat = new WatchHeartbeatAccumulator();
     let hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
     let activePopupToken: TokenOut | null = null;
     let activePopupLine: LineOut | null = null;
@@ -460,6 +467,7 @@ export default defineContentScript({
                   onStart: () => {
                     capturingScene = true;
                     skipAutoPauseOnce = true;
+                    syncWatchHeartbeat();
                   },
                   onEnd: () => {
                     capturingScene = false;
@@ -468,6 +476,7 @@ export default defineContentScript({
                       pausedByHover = false;
                       void video.play().catch(() => {});
                     }
+                    syncWatchHeartbeat();
                   },
                 })
               : Promise.resolve({ audio: null, clip: null }),
@@ -861,26 +870,94 @@ export default defineContentScript({
       startFrameLoop();
     }
 
+    function dispatchWatchHeartbeat(payload: WatchIn | null): void {
+      if (!payload) return;
+      // Fire-and-forget through the background worker; silently drop offline errors (#65).
+      void api.sendWatchHeartbeat(payload).catch(() => {});
+    }
+
+    function getWatchSnapshot(): WatchPlaybackSnapshot {
+      const video = currentVideo;
+      const isPlaying = Boolean(video && !video.paused && !video.ended && video.readyState >= 2);
+      const isAudible = Boolean(video && !video.muted && video.volume > 0);
+      const tabVisible = document.visibilityState !== 'hidden';
+      return {
+        episodeId: currentEpisodeId,
+        overlayEnabled: tabOverlayEnabled,
+        isPlaying,
+        isBuffering: isVideoBuffering,
+        isCapturing: capturingScene,
+        tabVisible,
+        isAudible,
+      };
+    }
+
+    function syncWatchHeartbeat(nowMs = Date.now()): void {
+      dispatchWatchHeartbeat(watchHeartbeat.update(getWatchSnapshot(), nowMs));
+    }
+
+    function flushWatchHeartbeat(nowMs = Date.now(), resetRemainder = false): void {
+      dispatchWatchHeartbeat(watchHeartbeat.flush(nowMs, resetRemainder));
+    }
+
+    function handleVideoPlay(): void {
+      isVideoBuffering = false;
+      startFrameLoop();
+      syncWatchHeartbeat();
+    }
+
+    function handleVideoPause(): void {
+      isVideoBuffering = false;
+      stopFrameLoop();
+      syncWatchHeartbeat();
+    }
+
+    function handleVideoBuffering(): void {
+      isVideoBuffering = true;
+      syncWatchHeartbeat();
+    }
+
+    function handleVideoVolumeChange(): void {
+      syncWatchHeartbeat();
+    }
+
     function applyTabState(episodeId: number | null, enabled: boolean): void {
       currentEpisodeId = episodeId;
       tabOverlayEnabled = enabled && episodeId !== null;
+      syncWatchHeartbeat();
       void maybeLoadTranscript();
     }
 
     function scanForVideo(): void {
       const best = findBestVideoInDocument(document);
       if (best && best !== currentVideo) {
+        if (currentVideo) {
+          currentVideo.removeEventListener('timeupdate', syncSubtitleFrame);
+          currentVideo.removeEventListener('seeked', syncSubtitleFrame);
+          currentVideo.removeEventListener('play', handleVideoPlay);
+          currentVideo.removeEventListener('playing', handleVideoPlay);
+          currentVideo.removeEventListener('pause', handleVideoPause);
+          currentVideo.removeEventListener('ended', handleVideoPause);
+          currentVideo.removeEventListener('waiting', handleVideoBuffering);
+          currentVideo.removeEventListener('stalled', handleVideoBuffering);
+          currentVideo.removeEventListener('volumechange', handleVideoVolumeChange);
+          flushWatchHeartbeat(Date.now(), false);
+        }
         stopFrameLoop();
         if (videoResizeObserver) {
           videoResizeObserver.disconnect();
         }
+        isVideoBuffering = false;
         currentVideo = best;
         currentVideo.addEventListener('timeupdate', syncSubtitleFrame);
         currentVideo.addEventListener('seeked', syncSubtitleFrame);
-        currentVideo.addEventListener('play', startFrameLoop);
-        currentVideo.addEventListener('playing', startFrameLoop);
-        currentVideo.addEventListener('pause', stopFrameLoop);
-        currentVideo.addEventListener('ended', stopFrameLoop);
+        currentVideo.addEventListener('play', handleVideoPlay);
+        currentVideo.addEventListener('playing', handleVideoPlay);
+        currentVideo.addEventListener('pause', handleVideoPause);
+        currentVideo.addEventListener('ended', handleVideoPause);
+        currentVideo.addEventListener('waiting', handleVideoBuffering);
+        currentVideo.addEventListener('stalled', handleVideoBuffering);
+        currentVideo.addEventListener('volumechange', handleVideoVolumeChange);
         if (typeof ResizeObserver !== 'undefined') {
           videoResizeObserver = new ResizeObserver(() => {
             scheduleOverlayPositionUpdate();
@@ -890,6 +967,7 @@ export default defineContentScript({
         ensureOverlayMounted(currentVideo);
         void maybeLoadTranscript();
         startFrameLoop();
+        syncWatchHeartbeat();
       } else if (currentVideo) {
         updateOverlayPosition(currentVideo);
       }
@@ -992,6 +1070,12 @@ export default defineContentScript({
     document.addEventListener('fullscreenchange', () => {
       scheduleOverlayPositionUpdate();
     });
+    document.addEventListener('visibilitychange', () => {
+      syncWatchHeartbeat();
+    });
+    window.addEventListener('pagehide', () => {
+      flushWatchHeartbeat(Date.now(), true);
+    });
 
     window.addEventListener('resize', scheduleOverlayPositionUpdate, { passive: true });
     window.addEventListener('scroll', scheduleOverlayPositionUpdate, {
@@ -1020,6 +1104,11 @@ export default defineContentScript({
       scanForVideo();
       applyTabState(tabState.episodeId, tabState.enabled);
       setInterval(scanForVideo, 1500);
+      setInterval(() => {
+        if (currentVideo) {
+          dispatchWatchHeartbeat(watchHeartbeat.tick(Date.now()));
+        }
+      }, 5000);
     });
   },
 });

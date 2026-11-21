@@ -33,6 +33,13 @@ export type ReviewOut = components['schemas']['ReviewOut'];
 export type JimakuEntry = components['schemas']['JimakuEntry'];
 export type JimakuFile = components['schemas']['JimakuFile'];
 export type JimakuImport = components['schemas']['JimakuImport'];
+export type ActivityDayOut = components['schemas']['ActivityDayOut'];
+export type ActivityTotals = components['schemas']['ActivityTotals'];
+export type ActivityOut = components['schemas']['ActivityOut'];
+export type AnimeOut = components['schemas']['AnimeOut'];
+export type ProgressPoint = components['schemas']['ProgressPoint'];
+export type EpisodeProgress = components['schemas']['EpisodeProgress'];
+export type AnimeProgress = components['schemas']['AnimeProgress'];
 
 export class SenseiApiError extends Error {
   readonly status: number;
@@ -226,6 +233,18 @@ export const apiClient = {
       method: 'POST',
       json: payload,
     }),
+
+  getActivity: (params?: { from?: string; to?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return apiRequest<ActivityOut>(`/activity${suffix}`);
+  },
+
+  listAnime: () => apiRequest<AnimeOut[]>('/anime'),
+
+  getAnimeProgress: (animeId: number) => apiRequest<AnimeProgress>(`/anime/${animeId}/progress`),
 };
 
 export type WebConnectionCheck =
