@@ -1,4 +1,5 @@
-"""Re-tokenize every stored episode after tokenizer or dictionary changes.
+"""Re-tokenize every stored episode and re-link words to JMdict after tokenizer or
+dictionary changes.
 
 Run (from server/):  uv run python -m app.reprocess
 """
@@ -8,7 +9,7 @@ from sqlmodel import Session, select
 from app.config import get_settings
 from app.db import make_engine
 from app.dictionary import load_dictionary
-from app.ingest import reprocess_episode
+from app.ingest import relink_words, reprocess_episode
 from app.models import Episode
 
 
@@ -21,6 +22,9 @@ def main() -> None:
             n = reprocess_episode(session, ep.id, dictionary)
             session.commit()
             print(f"episode {ep.id}: {n} lines")
+        if dictionary is not None:
+            print(f"re-linked {relink_words(session, dictionary)} words to JMdict")
+            session.commit()
 
 
 if __name__ == "__main__":

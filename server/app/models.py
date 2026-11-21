@@ -71,7 +71,10 @@ class Word(SQLModel, table=True):
     reading: str  # hiragana
     pos: str = ""
     jmdict_id: str | None = Field(default=None, index=True)
-    common: bool = False  # JMdict "common" flag; used to rank which unknown words to highlight
+    common: bool = False  # JMdict "common" flag
+    # wordfreq Zipf frequency (0–8, ~log10 per billion words; 0 = unknown, None = not computed).
+    # Main signal for which unknown words are worth learning first.
+    zipf: float | None = None
 
 
 class UserWord(SQLModel, table=True):

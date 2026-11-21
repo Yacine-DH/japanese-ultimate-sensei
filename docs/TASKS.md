@@ -47,7 +47,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **#11** server refuses to start without a ≥16-char token; `SENSEI_ALLOW_NO_AUTH=true` dev opt-out (claude, 2026-11-19)
 
 ## Phase 2
-- [ ] **S-8** "Words you missed": `GET /episodes/{id}/missed` ranked by frequency (add a real frequency list)
+- [x] **S-8** (#27) "Words you missed": `GET /episodes/{id}/missed` ranked by frequency (add a real frequency list) (claude, 2026-11-21: wordfreq zipf on words/tokens, `/missed`, better JMdict homophone linking; JLPT level not yet)
 - [ ] **S-9** LLM layer (OpenAI-compatible; Ollama on server by default): batch line translations EN/DE + grammar notes, cached per line. deps: O-5
 - [ ] **E-7** Post-episode "missed words" panel with bulk add. deps: S-8
 

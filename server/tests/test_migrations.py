@@ -1,12 +1,13 @@
 import sqlite3
 
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine
 from sqlmodel import SQLModel
 
 from app.backup import backup, prune
-from app.db import BASELINE_TABLES, make_engine
+from app.db import BASELINE, BASELINE_TABLES, alembic_config, make_engine
 
 
 def test_fresh_db_is_migrated_and_matches_models(tmp_path):
@@ -23,7 +24,13 @@ def test_fresh_db_is_migrated_and_matches_models(tmp_path):
 def test_legacy_create_all_db_is_backed_up_and_stamped(tmp_path):
     db = tmp_path / "sensei.sqlite"
     legacy = create_engine(f"sqlite:///{db}")
-    SQLModel.metadata.create_all(legacy)  # how databases were made before migrations
+    # A pre-migration database had exactly the baseline schema (create_all of that time):
+    # build it from migration 0001, then drop Alembic's bookkeeping.
+    cfg = alembic_config()
+    with legacy.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, BASELINE)
+        conn.exec_driver_sql("DROP TABLE alembic_version")
     with legacy.begin() as conn:
         conn.exec_driver_sql(
             "INSERT INTO anime (title, created_at) VALUES ('Frieren', '2026-11-01')"

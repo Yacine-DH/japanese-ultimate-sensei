@@ -2,6 +2,15 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-21: Frequency + homophones (Claude)
+- **wordfreq** (CC BY-SA 4.0, Japanese data incl. subtitles; needs `mecab-python3`+ipadic, pip
+  wheels) gives `Word.zipf`, the main "worth learning first" signal. Replaces the JMdict
+  `common` flag for highlight ranking. First schema migration: `0002` adds `word.zipf`.
+- **JMdict linking prefers Sudachi's normalized (kanji) form**, so kana words link to the right
+  homophone (いる → 居る not 射る, こと → 事 not 琴). Lookups accept `word_id` to return that link
+  first. `python -m app.reprocess` re-links existing words.
+- JLPT levels: not added (no clean, well-licensed list in a package yet).
+
 ### 2026-11-21: Anki import (Claude)
 - `.apkg` read directly with sqlite3 (+ `zstandard` for Anki ≥ 2.1.50's `collection.anki21b`);
   schema 11 (JSON in `col`) and 18 (`notetypes`/`fields`/`decks` tables) both supported.

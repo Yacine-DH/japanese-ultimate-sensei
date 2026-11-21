@@ -90,6 +90,10 @@ def _insert_words(con: sqlite3.Connection, words: list[dict]) -> None:
                 )
 
 
+def _is_kanji(c: str) -> bool:
+    return "\u4e00" <= c <= "\u9fff" or "\u3400" <= c <= "\u4dbf" or c in "々〆"
+
+
 class Dictionary:
     """Thread-safe-enough read-only lookups (one connection per call)."""
 
@@ -112,22 +116,31 @@ class Dictionary:
     def find_ids(self, text: str, reading: str | None = None, limit: int = 5) -> list[str]:
         """Entry ids whose kanji or kana form equals `text`, best match first.
 
-        Ranking: entries that also have `reading` as a kana form, then common entries,
-        then entries where `text` is a primary form (low `ord`).
+        Ranking: entries that also have `reading` as a kana form; common entries; for
+        kana-only queries, entries normally written in kana (first sense tagged `uk`, or no
+        kanji form: こと → 事, not 琴); then entries where `text` is a primary form (low `ord`).
+        Kana homophones stay ambiguous (いる: 居る/要る); pass the word's link where known.
         """
+        kana_query = not any(_is_kanji(c) for c in text)
         with self._con() as con:
             rows = con.execute(
                 """
                 SELECT f.entry_id AS id, e.common AS common, MIN(f.ord) AS ord,
                   EXISTS(SELECT 1 FROM forms r WHERE r.entry_id = f.entry_id
-                         AND r.is_kanji = 0 AND r.text = ?) AS reading_match
+                         AND r.is_kanji = 0 AND r.text = ?) AS reading_match,
+                  (? AND (
+                    NOT EXISTS(SELECT 1 FROM forms k WHERE k.entry_id = f.entry_id AND k.is_kanji = 1)
+                    OR EXISTS(SELECT 1 FROM senses s WHERE s.entry_id = f.entry_id
+                              AND s.lang = 'eng' AND s.idx = 0 AND s.misc LIKE '%"uk"%')
+                  )) AS kana_word
                 FROM forms f JOIN entries e ON e.id = f.entry_id
                 WHERE f.text = ?
                 GROUP BY f.entry_id
-                ORDER BY reading_match DESC, common DESC, ord ASC, CAST(f.entry_id AS INTEGER)
+                ORDER BY reading_match DESC, common DESC, kana_word DESC, ord ASC,
+                         CAST(f.entry_id AS INTEGER)
                 LIMIT ?
                 """,
-                (reading or "", text, limit),
+                (reading or "", int(kana_query), text, limit),
             ).fetchall()
         return [r["id"] for r in rows]
 
@@ -161,8 +174,14 @@ class Dictionary:
             )
         return out
 
-    def lookup(self, text: str, reading: str | None = None, limit: int = 5) -> list[dict]:
-        return [e for eid in self.find_ids(text, reading, limit) if (e := self.entry(eid))]
+    def lookup(
+        self, text: str, reading: str | None = None, limit: int = 5, first: str | None = None
+    ) -> list[dict]:
+        """Entries for `text`; `first` (a known entry id, e.g. the word's link) goes first."""
+        ids = self.find_ids(text, reading, limit)
+        if first:
+            ids = [first, *[i for i in ids if i != first]][:limit]
+        return [e for eid in ids if (e := self.entry(eid))]
 
     def best(self, text: str, reading: str | None = None) -> tuple[str, bool] | None:
         """(entry_id, common) of the best entry, or None."""
