@@ -1007,6 +1007,186 @@
           }
         }
       }
+    },
+    "/subs/search": {
+      "get": {
+        "tags": [
+          "subs"
+        ],
+        "summary": "Subs Search",
+        "description": "Find the anime on jimaku.cc (Japanese subtitles).",
+        "operationId": "subs_search_subs_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Anime title (romaji/EN/JP)",
+              "title": "Q"
+            },
+            "description": "Anime title (romaji/EN/JP)"
+          },
+          {
+            "name": "anilist_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Anilist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JimakuEntry"
+                  },
+                  "title": "Response Subs Search Subs Search Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subs/{entry_id}/files": {
+      "get": {
+        "tags": [
+          "subs"
+        ],
+        "summary": "Subs Files",
+        "description": "Subtitle files of an entry, best first: single-episode text subtitles from web/TV\nreleases rank highest; bundles (01-04), image subs and 7z/rar sink to the bottom.",
+        "operationId": "subs_files_subs__entry_id__files_get",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Entry Id"
+            }
+          },
+          {
+            "name": "episode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Episode"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JimakuFile"
+                  },
+                  "title": "Response Subs Files Subs  Entry Id  Files Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/episodes/from-jimaku": {
+      "post": {
+        "tags": [
+          "episodes",
+          "subs"
+        ],
+        "summary": "Episode From Jimaku",
+        "description": "Download a Jimaku file (zip archives are unpacked) and import it as an episode.",
+        "operationId": "episode_from_jimaku_episodes_from_jimaku_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JimakuImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1748,6 +1928,172 @@
           "auth"
         ],
         "title": "Health"
+      },
+      "JimakuEntry": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Romaji title"
+          },
+          "english_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "English Name"
+          },
+          "japanese_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Japanese Name"
+          },
+          "anilist_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anilist Id"
+          },
+          "movie": {
+            "type": "boolean",
+            "title": "Movie",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "JimakuEntry"
+      },
+      "JimakuFile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Pass this as file_name to POST /episodes/from-jimaku"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "last_modified": {
+            "type": "string",
+            "title": "Last Modified"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format",
+            "description": "srt | ass | ssa | vtt | zip | 7z | rar | sup | other"
+          },
+          "supported": {
+            "type": "boolean",
+            "title": "Supported",
+            "description": "Importable (text subtitles, or a zip of them)"
+          },
+          "episode": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode",
+            "description": "Episode number guessed from the file name"
+          },
+          "multi_episode": {
+            "type": "boolean",
+            "title": "Multi Episode",
+            "description": "Several episodes in one file (e.g. 01-04): can't import"
+          },
+          "web_source": {
+            "type": "boolean",
+            "title": "Web Source",
+            "description": "Web/TV release: timing likely matches streaming sites"
+          },
+          "recommended": {
+            "type": "boolean",
+            "title": "Recommended",
+            "description": "Best pick (at most one per list)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "size",
+          "last_modified",
+          "format",
+          "supported",
+          "episode",
+          "multi_episode",
+          "web_source",
+          "recommended"
+        ],
+        "title": "JimakuFile"
+      },
+      "JimakuImport": {
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "title": "Entry Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "episode_number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Number",
+            "description": "Defaults to the number guessed from the file name"
+          },
+          "anime_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anime Title",
+            "description": "Defaults to the entry's English title (else romaji)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_id",
+          "file_name"
+        ],
+        "title": "JimakuImport"
       },
       "LineOut": {
         "properties": {

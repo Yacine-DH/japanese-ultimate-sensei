@@ -167,5 +167,29 @@ cacheable forever (`immutable`).
 
 ### `DELETE /media/{id}` → 204
 
+## Subtitle search (Jimaku)
+Needs `SENSEI_JIMAKU_API_KEY` on the server (503 otherwise; 502 if jimaku.cc rejects it or is down).
+
+### `GET /subs/search?q=<title>` (or `?anilist_id=`) → `JimakuEntry[]`
+`[{"id":729,"name":"Sousou no Frieren","english_name":"Frieren: Beyond Journey's End","japanese_name":"葬送のフリーレン","anilist_id":154587,"movie":false}]`
+
+### `GET /subs/{entry_id}/files?episode=<n>` → `JimakuFile[]` (best first)
+```json
+[{"name":"Sousou no Frieren - 01 「冒険の終わり 」 (AT-X 1280x720 x264 AAC).srt","size":23195,
+  "last_modified":"2024-03-03T14:43:52Z","format":"srt","supported":true,"episode":1,
+  "multi_episode":false,"web_source":true,"recommended":true}]
+```
+Ranking: importable single-episode text subs from web/TV releases first (their timing usually
+matches streaming sites), then Blu-ray; multi-episode bundles (`01-04`), image subs (`.sup`) and
+`.7z`/`.rar` last with `supported:false` or `multi_episode:true`. At most one `recommended`.
+Omit `episode` to list every file of the entry.
+
+### `POST /episodes/from-jimaku` body `{"entry_id":729,"file_name":"<JimakuFile.name>","episode_number"?:1,"anime_title"?:str}` → 201 `EpisodeCreated`
+Downloads the file (only files listed for that entry), unpacks `.zip` (picks the file for
+`episode_number`), and imports it like `POST /episodes`. Defaults: `episode_number` guessed from
+the file name, `anime_title` = English title (else romaji). The anime is matched by AniList id,
+so episodes from Jimaku and manual uploads with the same title end up together.
+422: unsupported format / ambiguous zip / no Japanese lines.
+
 ## Coming in Phase 1 (not implemented yet; see TASKS.md)
-`/subs/search`, `/episodes/from-jimaku` (#13), `/activity` (#18), known-word import, Anki export.
+`/activity` (#18), known-word import (#16), Anki export (#17).
