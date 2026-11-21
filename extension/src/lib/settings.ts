@@ -2,11 +2,13 @@ import { DEFAULT_HOTKEYS, type HotkeyBindings, sanitizeHotkeys } from './hotkeys
 import { DEFAULT_HOVER_CONFIG, sanitizeHoverDelayMs } from './hover-intent';
 
 export type GlossLanguage = 'eng' | 'ger';
+export type TranslationDisplayMode = 'off' | 'en' | 'de';
 
 export interface ExtensionSettings {
   serverUrl: string;
   apiToken: string;
   glossLang: GlossLanguage;
+  translationMode: TranslationDisplayMode;
   romaji: boolean;
   highlightLimit: number;
   hoverDelayMs: number;
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   serverUrl: DEFAULT_SERVER_URL,
   apiToken: '',
   glossLang: 'eng',
+  translationMode: 'off',
   romaji: false,
   highlightLimit: 3,
   hoverDelayMs: DEFAULT_HOVER_CONFIG.hoverDelayMs,
@@ -75,6 +78,10 @@ export function sanitizeUrlMappings(raw: unknown): Record<string, number> {
 export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): ExtensionSettings {
   const merged = { ...DEFAULT_SETTINGS, ...(partial ?? {}) };
   const glossLang: GlossLanguage = merged.glossLang === 'ger' ? 'ger' : 'eng';
+  const translationMode: TranslationDisplayMode =
+    merged.translationMode === 'en' || merged.translationMode === 'de'
+      ? merged.translationMode
+      : 'off';
   const rawLimit = Number(merged.highlightLimit);
   const highlightLimit = Number.isFinite(rawLimit)
     ? Math.max(0, Math.min(20, Math.round(rawLimit)))
@@ -88,6 +95,7 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     serverUrl: normalizeServerUrl(String(merged.serverUrl ?? DEFAULT_SERVER_URL)),
     apiToken: String(merged.apiToken ?? '').trim(),
     glossLang,
+    translationMode,
     romaji: Boolean(merged.romaji),
     highlightLimit,
     hoverDelayMs: sanitizeHoverDelayMs(merged.hoverDelayMs),

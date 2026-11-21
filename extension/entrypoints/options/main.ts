@@ -14,12 +14,15 @@ import {
   getSettings,
   isServerUrlConfigured,
   saveSettings,
+  type TranslationDisplayMode,
 } from '../../src/lib/settings';
 
 const form = document.getElementById('settings-form') as HTMLFormElement;
 const serverUrlInput = document.getElementById('server-url') as HTMLInputElement;
 const apiTokenInput = document.getElementById('api-token') as HTMLInputElement;
 const glossLangSelect = document.getElementById('gloss-lang') as HTMLSelectElement;
+const translationModeSelect = document.getElementById('translation-mode') as HTMLSelectElement;
+const llmStatusHint = document.getElementById('llm-status-hint') as HTMLParagraphElement;
 const highlightLimitInput = document.getElementById('highlight-limit') as HTMLInputElement;
 const hoverDelayInput = document.getElementById('hover-delay') as HTMLInputElement;
 const pauseOnHoverToggle = document.getElementById('pause-on-hover-toggle') as HTMLInputElement;
@@ -91,11 +94,32 @@ function showStatus(message: string, ok: boolean): void {
   statusBox.className = `status ${ok ? 'ok' : 'err'}`;
 }
 
+async function refreshLlmHint(serverUrl: string): Promise<void> {
+  if (!isServerUrlConfigured(serverUrl)) {
+    llmStatusHint.textContent =
+      'Tip: leave Off and use the Reveal Translation hotkey to peek at a single line.';
+    return;
+  }
+  const res = await api.getLlmStatus();
+  if (!res.ok || !res.data) {
+    return;
+  }
+  if (!res.data.configured) {
+    llmStatusHint.textContent =
+      'Server LLM not configured — set up a model on the server to enable translations & Explain Line.';
+  } else if (res.data.reachable) {
+    llmStatusHint.textContent = `Server LLM ready (${res.data.model}). Tip: leave Off and use the Reveal Translation hotkey to peek.`;
+  } else {
+    llmStatusHint.textContent = `Server LLM configured (${res.data.model}) but unreachable: ${res.data.detail}`;
+  }
+}
+
 async function init(): Promise<void> {
   const settings = await getSettings();
   serverUrlInput.value = settings.serverUrl;
   apiTokenInput.value = settings.apiToken;
   glossLangSelect.value = settings.glossLang;
+  translationModeSelect.value = settings.translationMode;
   highlightLimitInput.value = String(settings.highlightLimit);
   hoverDelayInput.value = String(settings.hoverDelayMs);
   pauseOnHoverToggle.checked = settings.pauseOnHover;
@@ -107,6 +131,7 @@ async function init(): Promise<void> {
   ankiDeckInput.value = settings.ankiDeckName;
   ankiModelInput.value = settings.ankiModelName;
   updateFirstRunBanner(settings.serverUrl);
+  void refreshLlmHint(settings.serverUrl);
   const probe = await api.testAnkiConnect(settings.ankiConnectUrl);
   updateAnkiQueueBadge(probe.queueLength);
   if (probe.reachable) {
@@ -120,6 +145,7 @@ form.addEventListener('submit', async (event) => {
     serverUrl: serverUrlInput.value,
     apiToken: apiTokenInput.value,
     glossLang: glossLangSelect.value as GlossLanguage,
+    translationMode: translationModeSelect.value as TranslationDisplayMode,
     highlightLimit: Number(highlightLimitInput.value),
     hoverDelayMs: Number(hoverDelayInput.value),
     pauseOnHover: pauseOnHoverToggle.checked,
@@ -139,6 +165,7 @@ testBtn.addEventListener('click', async () => {
     serverUrl: serverUrlInput.value,
     apiToken: apiTokenInput.value,
     glossLang: glossLangSelect.value as GlossLanguage,
+    translationMode: translationModeSelect.value as TranslationDisplayMode,
     highlightLimit: Number(highlightLimitInput.value),
     hoverDelayMs: Number(hoverDelayInput.value),
     pauseOnHover: pauseOnHoverToggle.checked,
@@ -155,6 +182,7 @@ testBtn.addEventListener('click', async () => {
       `Connected: v${h.version} · dictionary: ${h.dictionary ? 'ready' : 'missing'} · auth: ${h.auth ? 'verified' : 'off'}`,
       true,
     );
+    void refreshLlmHint(saved.serverUrl);
   } else if (check.state === 'unauthorized') {
     showStatus(check.message, false);
   } else {

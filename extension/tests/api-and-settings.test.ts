@@ -40,6 +40,7 @@ describe('settings utilities', () => {
       serverUrl: 'http://100.64.0.1:8000',
       apiToken: 'secret-token',
       glossLang: 'ger',
+      translationMode: 'off',
       romaji: true,
       highlightLimit: 20,
       hoverDelayMs: 200,

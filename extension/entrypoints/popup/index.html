@@ -307,6 +307,17 @@
         <span>Auto-pause after each line</span>
         <input id="auto-pause-toggle" type="checkbox" />
       </div>
+      <div class="toggle-row">
+        <span>Overlay translation</span>
+        <select
+          id="translation-mode-select"
+          style="width: auto; margin-bottom: 0; padding: 3px 6px; font-size: 0.75rem"
+        >
+          <option value="off">Off</option>
+          <option value="en">EN</option>
+          <option value="de">DE</option>
+        </select>
+      </div>
       <div class="row" style="margin-bottom: 8px">
         <span class="muted">Page URL</span>
         <span id="page-pattern-text" class="pattern-pill">-</span>
@@ -413,6 +424,10 @@
       <div class="row">
         <span class="muted">JMdict</span>
         <span id="dict-text">-</span>
+      </div>
+      <div class="row">
+        <span class="muted">LLM</span>
+        <span id="llm-text">-</span>
       </div>
     </div>
 

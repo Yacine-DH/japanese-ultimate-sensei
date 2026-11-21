@@ -2,13 +2,22 @@ import {
   api,
   isOpenMissedPanelMessage,
   isTabStateChangedMessage,
+  type LineExplanation,
   type LineOut,
+  type LLMStatus,
   type LookupResult,
   type MissedWord,
   type TokenOut,
   type WatchIn,
   type WordStatus,
 } from '../src/api/client';
+import {
+  findLineForAction,
+  glossLangToLlmLang,
+  type LlmLang,
+  renderMarkdownToFragment,
+  resolveOverlayTranslation,
+} from '../src/lib/llm';
 import {
   bulkSaveMissedWords,
   formatMissedTimestamp,
@@ -90,6 +99,14 @@ export default defineContentScript({
     let subBoxEl: HTMLDivElement | null = null;
     let popupEl: HTMLDivElement | null = null;
     let missedPanelEl: HTMLDivElement | null = null;
+    let explainPanelEl: HTMLDivElement | null = null;
+    let explainPanelOpen = false;
+    let pausedByExplain = false;
+    let llmStatus: LLMStatus | null = null;
+    let llmStatusChecked = false;
+    let explainRequestSeq = 0;
+    const revealedTranslationLineIds = new Set<number>();
+    const explainCache = new Map<string, LineExplanation>();
     let missedPromptedEpisodeId: number | null = null;
     let toastEl: HTMLDivElement | null = null;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -226,6 +243,176 @@ export default defineContentScript({
             font-size: 0.56em;
             color: #94a3b8;
             letter-spacing: 0.02em;
+          }
+          .sensei-translation-line {
+            margin-top: 4px;
+            font-size: 0.58em;
+            color: #bae6fd;
+            line-height: 1.38;
+            font-weight: 400;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+          }
+          .sensei-line-explain-btn {
+            margin-left: 8px;
+            vertical-align: middle;
+            font-size: 0.44em;
+            line-height: 1.2;
+            padding: 2px 7px;
+            border-radius: 999px;
+            border: 1px solid rgba(129, 140, 248, 0.55);
+            background: rgba(30, 41, 59, 0.85);
+            color: #c7d2fe;
+            font-weight: 600;
+            cursor: pointer;
+            opacity: 0.35;
+            transition: opacity 0.15s ease, background 0.15s ease;
+          }
+          .sensei-sub-box:hover .sensei-line-explain-btn,
+          .sensei-line-explain-btn:focus {
+            opacity: 1;
+          }
+          .sensei-line-explain-btn:hover {
+            background: rgba(79, 70, 229, 0.55);
+          }
+          .sensei-explain-panel {
+            display: none;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: min(460px, calc(100% - 40px));
+            max-height: calc(100% - 96px);
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid #818cf8;
+            border-radius: 12px;
+            padding: 14px 16px;
+            color: #f8fafc;
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.72);
+            pointer-events: auto;
+            user-select: text;
+            flex-direction: column;
+            gap: 10px;
+            font-size: 13px;
+            text-align: left;
+            z-index: 12;
+          }
+          .sensei-explain-panel.visible {
+            display: flex;
+          }
+          .sensei-explain-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+          }
+          .sensei-explain-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #a5b4fc;
+          }
+          .sensei-explain-jp {
+            font-size: 15px;
+            font-weight: 600;
+            color: #f8fafc;
+            margin-top: 3px;
+            line-height: 1.45;
+          }
+          .sensei-explain-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+          }
+          .sensei-explain-btn {
+            background: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+          }
+          .sensei-explain-btn:hover {
+            background: #334155;
+            color: #f8fafc;
+          }
+          .sensei-explain-body {
+            overflow-y: auto;
+            max-height: 320px;
+            padding-right: 4px;
+            line-height: 1.55;
+            color: #e2e8f0;
+          }
+          .sensei-explain-body h3,
+          .sensei-explain-body h4,
+          .sensei-explain-body h5 {
+            margin: 8px 0 4px;
+            color: #7dd3fc;
+            font-size: 13px;
+          }
+          .sensei-explain-body p {
+            margin: 6px 0;
+          }
+          .sensei-explain-body ul,
+          .sensei-explain-body ol {
+            margin: 6px 0;
+            padding-left: 18px;
+          }
+          .sensei-explain-body li {
+            margin-bottom: 4px;
+          }
+          .sensei-explain-body strong {
+            color: #f8fafc;
+          }
+          .sensei-explain-body code {
+            background: #1e293b;
+            color: #7dd3fc;
+            padding: 1px 4px;
+            border-radius: 4px;
+            font-size: 12px;
+          }
+          .sensei-explain-body pre {
+            background: #020617;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+          }
+          .sensei-explain-body blockquote {
+            border-left: 2px solid #818cf8;
+            margin: 6px 0;
+            padding-left: 10px;
+            color: #cbd5e1;
+          }
+          .sensei-explain-loading {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 0;
+            color: #cbd5e1;
+          }
+          .sensei-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(129, 140, 248, 0.35);
+            border-top-color: #818cf8;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 2px;
+            animation: sensei-spin 0.8s linear infinite;
+          }
+          @keyframes sensei-spin {
+            to {
+              transform: rotate(360deg);
+            }
+          }
+          .sensei-explain-footer {
+            font-size: 11px;
+            color: #94a3b8;
+            border-top: 1px solid #1e293b;
+            padding-top: 6px;
           }
           .sensei-hover-popup {
             display: none;
@@ -435,6 +622,9 @@ export default defineContentScript({
         missedPanelEl = document.createElement('div');
         missedPanelEl.className = 'sensei-missed-panel';
 
+        explainPanelEl = document.createElement('div');
+        explainPanelEl.className = 'sensei-explain-panel';
+
         popupEl = document.createElement('div');
         popupEl.className = 'sensei-hover-popup';
         popupEl.addEventListener('mouseenter', cancelHoverClose);
@@ -445,6 +635,7 @@ export default defineContentScript({
         subBoxEl.addEventListener('mouseleave', scheduleHoverClose);
 
         root.appendChild(toastEl);
+        root.appendChild(explainPanelEl);
         root.appendChild(missedPanelEl);
         root.appendChild(popupEl);
         root.appendChild(subBoxEl);
@@ -538,7 +729,7 @@ export default defineContentScript({
     }
 
     function resumeVideoAfterHover(): void {
-      if (capturingScene) return;
+      if (capturingScene || explainPanelOpen) return;
       if (currentVideo && pausedByHover) {
         pausedByHover = false;
         void currentVideo.play().catch(() => {
@@ -844,6 +1035,19 @@ export default defineContentScript({
           jpLine.appendChild(span);
         });
 
+        if (llmStatus?.configured) {
+          const explainBtn = document.createElement('button');
+          explainBtn.type = 'button';
+          explainBtn.className = 'sensei-line-explain-btn';
+          explainBtn.textContent = 'Explain';
+          explainBtn.title = 'Explain this line (LLM grammar note)';
+          explainBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            void openExplainPanel(line, false);
+          });
+          jpLine.appendChild(explainBtn);
+        }
+
         lineContainer.appendChild(jpLine);
 
         if (settings.romaji) {
@@ -854,6 +1058,19 @@ export default defineContentScript({
             romajiDiv.textContent = romajiText;
             lineContainer.appendChild(romajiDiv);
           }
+        }
+
+        const translation = resolveOverlayTranslation(
+          line,
+          settings.translationMode,
+          revealedTranslationLineIds,
+          settings.glossLang,
+        );
+        if (translation) {
+          const transDiv = document.createElement('div');
+          transDiv.className = 'sensei-translation-line';
+          transDiv.textContent = translation.text;
+          lineContainer.appendChild(transDiv);
         }
 
         subBoxEl.appendChild(lineContainer);
@@ -894,6 +1111,197 @@ export default defineContentScript({
       void currentVideo.play().catch(() => {
         // Ignore autoplay restrictions
       });
+    }
+
+    async function ensureLlmStatus(force = false): Promise<LLMStatus | null> {
+      if (llmStatusChecked && !force) {
+        return llmStatus;
+      }
+      const prevConfigured = llmStatus?.configured ?? false;
+      const res = await api.getLlmStatus();
+      llmStatusChecked = true;
+      llmStatus = res.ok && res.data ? res.data : null;
+      if ((llmStatus?.configured ?? false) !== prevConfigured) {
+        renderedLinesKey = null;
+        syncSubtitleFrame();
+      }
+      return llmStatus;
+    }
+
+    function closeExplainPanel(): void {
+      if (!explainPanelOpen) return;
+      explainPanelOpen = false;
+      explainRequestSeq += 1;
+      explainPanelEl?.classList.remove('visible');
+      if (currentVideo && pausedByExplain) {
+        pausedByExplain = false;
+        void currentVideo.play().catch(() => {
+          // Ignore autoplay restrictions
+        });
+      }
+    }
+
+    async function openExplainPanel(line: LineOut, refresh = false): Promise<void> {
+      if (!currentVideo || !settings) return;
+      ensureOverlayMounted(currentVideo);
+      if (!explainPanelEl) return;
+
+      const status = await ensureLlmStatus();
+      if (!status?.configured) {
+        showToast('LLM not configured — set up a model on the server', 2600);
+        return;
+      }
+
+      // Transfer pause ownership if hover popup already paused the video
+      if (activePopupToken) {
+        if (pausedByHover) {
+          pausedByExplain = true;
+          pausedByHover = false;
+        }
+        hoverIntent.leave();
+        cancelHoverClose();
+        activePopupToken = null;
+        popupEl?.classList.remove('visible');
+      } else if (!explainPanelOpen && !currentVideo.paused) {
+        currentVideo.pause();
+        pausedByExplain = true;
+      }
+
+      explainPanelOpen = true;
+      const lang: LlmLang = glossLangToLlmLang(settings.glossLang);
+      const cacheKey = `${line.id}:${lang}`;
+      const seq = ++explainRequestSeq;
+
+      explainPanelEl.innerHTML = '';
+      explainPanelEl.classList.add('visible');
+
+      const header = document.createElement('div');
+      header.className = 'sensei-explain-header';
+
+      const titleWrap = document.createElement('div');
+      titleWrap.style.minWidth = '0';
+      const titleEl = document.createElement('div');
+      titleEl.className = 'sensei-explain-title';
+      titleEl.textContent = `Explain Line (${lang.toUpperCase()})`;
+      const jpEl = document.createElement('div');
+      jpEl.className = 'sensei-explain-jp';
+      jpEl.textContent = line.text;
+      titleWrap.append(titleEl, jpEl);
+
+      const actions = document.createElement('div');
+      actions.className = 'sensei-explain-actions';
+      const refreshBtn = document.createElement('button');
+      refreshBtn.type = 'button';
+      refreshBtn.className = 'sensei-explain-btn';
+      refreshBtn.textContent = 'Regenerate';
+      refreshBtn.addEventListener('click', () => void openExplainPanel(line, true));
+
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'sensei-explain-btn';
+      closeBtn.textContent = 'Close (Esc)';
+      closeBtn.addEventListener('click', closeExplainPanel);
+
+      actions.append(refreshBtn, closeBtn);
+      header.append(titleWrap, actions);
+
+      const body = document.createElement('div');
+      body.className = 'sensei-explain-body';
+      const footer = document.createElement('div');
+      footer.className = 'sensei-explain-footer';
+
+      explainPanelEl.append(header, body, footer);
+
+      function renderExplanation(explanation: LineExplanation): void {
+        body.innerHTML = '';
+        body.appendChild(renderMarkdownToFragment(document, explanation.text));
+        footer.textContent = `Model: ${explanation.model} · ${explanation.cached ? 'Cached' : 'Fresh'}`;
+      }
+
+      const cached = !refresh ? explainCache.get(cacheKey) : undefined;
+      if (cached) {
+        renderExplanation(cached);
+        return;
+      }
+
+      const loading = document.createElement('div');
+      loading.className = 'sensei-explain-loading';
+      const spinner = document.createElement('div');
+      spinner.className = 'sensei-spinner';
+      const msgWrap = document.createElement('div');
+      const msgTitle = document.createElement('div');
+      msgTitle.style.fontWeight = '600';
+      msgTitle.style.color = '#c7d2fe';
+      msgTitle.textContent = 'Explaining this line…';
+      const msgHint = document.createElement('div');
+      msgHint.style.fontSize = '11px';
+      msgHint.style.color = '#94a3b8';
+      msgHint.style.marginTop = '2px';
+      msgHint.textContent = 'Uncached calls can take 10–60 s on a small local model.';
+      msgWrap.append(msgTitle, msgHint);
+      loading.append(spinner, msgWrap);
+      body.appendChild(loading);
+      footer.textContent = 'Video paused while open · Press Esc to close';
+
+      const res = await api.explainLine(line.id, lang, refresh);
+      if (seq !== explainRequestSeq || !explainPanelOpen) {
+        return;
+      }
+      if (res.ok && res.data) {
+        explainCache.set(cacheKey, res.data);
+        renderExplanation(res.data);
+      } else {
+        body.innerHTML = '';
+        const errEl = document.createElement('div');
+        errEl.style.color = '#fca5a5';
+        errEl.style.marginBottom = '8px';
+        errEl.textContent = res.error ?? 'Failed to explain line.';
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'sensei-explain-btn';
+        retryBtn.textContent = 'Retry';
+        retryBtn.addEventListener('click', () => void openExplainPanel(line, false));
+        body.append(errEl, retryBtn);
+        footer.textContent = 'Press Esc to close';
+      }
+    }
+
+    function revealTranslationForCurrentLine(): void {
+      if (!currentVideo || !settings || lines.length === 0) return;
+      if (settings.translationMode !== 'off') {
+        showToast(`Translations are already ON (${settings.translationMode.toUpperCase()})`);
+        return;
+      }
+      const videoMs = currentVideo.currentTime * 1000;
+      const active = findActiveLines(lines, videoMs, subOffsetMs);
+      const targets =
+        active.length > 0 ? active : ([findLineForAction(lines, videoMs, subOffsetMs)].filter(Boolean) as LineOut[]);
+      if (targets.length === 0) {
+        showToast('No subtitle line to translate');
+        return;
+      }
+      const anyTranslated = targets.some(
+        (l) => Boolean(l.translation_en?.trim()) || Boolean(l.translation_de?.trim()),
+      );
+      if (!anyTranslated) {
+        showToast(
+          llmStatusChecked && !llmStatus?.configured
+            ? 'No translation available — set up a model on the server'
+            : 'No translation for this line yet (translate episode in web app)',
+          2400,
+        );
+        return;
+      }
+      const allRevealed = targets.every((l) => revealedTranslationLineIds.has(l.id));
+      for (const l of targets) {
+        if (allRevealed) {
+          revealedTranslationLineIds.delete(l.id);
+        } else {
+          revealedTranslationLineIds.add(l.id);
+        }
+      }
+      renderedLinesKey = null;
+      syncSubtitleFrame();
     }
 
     function closeMissedWordsPanel(): void {
@@ -1155,6 +1563,14 @@ export default defineContentScript({
 
       const nextKey = formatActiveLinesKey(active);
       if (nextKey !== renderedLinesKey) {
+        if (revealedTranslationLineIds.size > 0) {
+          const activeSet = new Set(activeIds);
+          for (const id of Array.from(revealedTranslationLineIds)) {
+            if (!activeSet.has(id)) {
+              revealedTranslationLineIds.delete(id);
+            }
+          }
+        }
         renderLines(active);
       }
       checkAutoOpenMissedPanel(false);
@@ -1243,6 +1659,7 @@ export default defineContentScript({
       if (linesRes.ok && linesRes.data) {
         lines = linesRes.data;
       }
+      void ensureLlmStatus();
       syncSubtitleFrame();
       startFrameLoop();
     }
@@ -1383,6 +1800,15 @@ export default defineContentScript({
           return;
         }
 
+        // Escape closes Explain Line panel first
+        if (explainPanelOpen && event.code === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          closeExplainPanel();
+          return;
+        }
+
         // Keyboard actions on the currently open word popup: K (Known), I (Ignore), S (Save), Esc (Close)
         if (activePopupToken) {
           if (event.code === 'Escape') {
@@ -1422,6 +1848,23 @@ export default defineContentScript({
           settings = { ...settings, autoPauseEachLine: next };
           void saveSettings({ autoPauseEachLine: next });
           showToast(`Study auto-pause: ${next ? 'ON' : 'OFF'}`);
+          return;
+        }
+        if (action === 'revealTranslation') {
+          revealTranslationForCurrentLine();
+          return;
+        }
+        if (action === 'explainLine') {
+          if (explainPanelOpen) {
+            closeExplainPanel();
+            return;
+          }
+          const target = findLineForAction(lines, currentVideo.currentTime * 1000, subOffsetMs);
+          if (!target) {
+            showToast('No subtitle line to explain');
+            return;
+          }
+          void openExplainPanel(target, false);
           return;
         }
 
@@ -1469,7 +1912,9 @@ export default defineContentScript({
       if (isTabStateChangedMessage(msg)) {
         if (msg.state.episodeId !== currentEpisodeId) {
           missedPromptedEpisodeId = null;
+          revealedTranslationLineIds.clear();
           closeMissedWordsPanel();
+          closeExplainPanel();
         }
         applyTabState(msg.state.episodeId, msg.state.enabled);
       } else if (isOpenMissedPanelMessage(msg)) {

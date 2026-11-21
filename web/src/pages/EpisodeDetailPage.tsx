@@ -1,9 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, type LineOut, type TokenOut, type WordStatus } from '../api/client';
+import {
+  apiClient,
+  type LineExplanation,
+  type LineOut,
+  type TokenOut,
+  type WordStatus,
+} from '../api/client';
+import { MarkdownContent } from '../components/MarkdownContent';
 import { MissedWordsPanel } from '../components/MissedWordsPanel';
 import { PreWatchPrimer } from '../components/PreWatchPrimer';
+import {
+  computeTranslationProgress,
+  countTranslatedLines,
+  glossLangToLlmLang,
+  isTranslationJobActive,
+  type LlmLang,
+  pickLineTranslation,
+} from '../lib/llm';
 import { type GlossLanguage, loadWebSettings } from '../lib/settings';
 import {
   computeBarSegments,
@@ -53,9 +68,19 @@ export function EpisodeDetailPage() {
   const [onlyUnknown, setOnlyUnknown] = useState(false);
   const [showRomaji, setShowRomaji] = useState(initialSettings.romaji);
   const [glossLang, setGlossLang] = useState<GlossLanguage>(initialSettings.glossLang);
+  const [showAllTranslations, setShowAllTranslations] = useState(false);
+  const [lineTranslationOverrides, setLineTranslationOverrides] = useState<Record<number, boolean>>(
+    {},
+  );
   const [selectedToken, setSelectedToken] = useState<TokenOut | null>(null);
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
+  const [inspectorTab, setInspectorTab] = useState<'word' | 'explain'>('word');
+  const [explainedLine, setExplainedLine] = useState<LineOut | null>(null);
+  const [explainCache, setExplainCache] = useState<Record<string, LineExplanation>>({});
+  const [explainError, setExplainError] = useState<string | null>(null);
   const [cardNotice, setCardNotice] = useState<string | null>(null);
+
+  const llmLang: LlmLang = glossLangToLlmLang(glossLang);
 
   const episodeQuery = useQuery({
     queryKey: ['episode', episodeId],
@@ -77,6 +102,94 @@ export function EpisodeDetailPage() {
     enabled: Number.isFinite(episodeId),
     retry: false,
   });
+
+  const llmStatusQuery = useQuery({
+    queryKey: ['llm-status'],
+    queryFn: () => apiClient.getLlmStatus(),
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  const translationJobQuery = useQuery({
+    queryKey: ['episode-translation-job', episodeId],
+    queryFn: () => apiClient.getTranslationJob(episodeId),
+    enabled: Number.isFinite(episodeId),
+    retry: false,
+    refetchInterval: (query) => (isTranslationJobActive(query.state.data) ? 2500 : false),
+  });
+
+  const prevJobSnapshotRef = useRef<{ translated: number; active: boolean } | null>(null);
+  useEffect(() => {
+    const job = translationJobQuery.data;
+    if (!job) return;
+    const active = isTranslationJobActive(job);
+    const prev = prevJobSnapshotRef.current;
+    if (prev && (job.translated_lines !== prev.translated || (prev.active && !active))) {
+      void queryClient.invalidateQueries({ queryKey: ['episode-lines', episodeId] });
+    }
+    prevJobSnapshotRef.current = { translated: job.translated_lines, active };
+  }, [translationJobQuery.data, episodeId, queryClient]);
+
+  const startTranslationMutation = useMutation({
+    mutationFn: () => apiClient.startEpisodeTranslation(episodeId),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['episode-translation-job', episodeId], job);
+      setShowAllTranslations(true);
+      setLineTranslationOverrides({});
+    },
+  });
+
+  const explainRequestSeqRef = useRef(0);
+  const explainMutation = useMutation({
+    mutationFn: async ({
+      lineId,
+      lang,
+      refresh,
+    }: {
+      lineId: number;
+      lang: LlmLang;
+      refresh: boolean;
+    }) => {
+      const seq = ++explainRequestSeqRef.current;
+      const data = await apiClient.explainLine(lineId, lang, refresh);
+      return { seq, data };
+    },
+    onSuccess: ({ seq, data }) => {
+      setExplainCache((prev) => ({
+        ...prev,
+        [`${data.line_id}:${data.lang}`]: data,
+      }));
+      if (seq === explainRequestSeqRef.current) {
+        setExplainError(null);
+      }
+    },
+    onError: (err) => {
+      setExplainError(err instanceof Error ? err.message : 'Failed to explain line');
+    },
+  });
+
+  function requestExplainLine(line: LineOut, lang: LlmLang, refresh = false) {
+    setExplainedLine(line);
+    setInspectorTab('explain');
+    setExplainError(null);
+    const key = `${line.id}:${lang}`;
+    if (!refresh && explainCache[key]) {
+      return;
+    }
+    explainMutation.mutate({ lineId: line.id, lang, refresh });
+  }
+
+  function isLineTranslationExpanded(lineId: number): boolean {
+    if (lineId in lineTranslationOverrides) {
+      return lineTranslationOverrides[lineId]!;
+    }
+    return showAllTranslations;
+  }
+
+  function toggleLineTranslation(lineId: number) {
+    const currentlyExpanded = isLineTranslationExpanded(lineId);
+    setLineTranslationOverrides((prev) => ({ ...prev, [lineId]: !currentlyExpanded }));
+  }
 
   const lookupQuery = useQuery({
     queryKey: [
@@ -155,6 +268,33 @@ export function EpisodeDetailPage() {
   const ep = episodeQuery.data;
   const understanding = understandingQuery.data;
   const segments = understanding ? computeBarSegments(understanding) : null;
+  const llmStatus = llmStatusQuery.data;
+  const llmConfigured = llmStatus?.configured ?? false;
+  const llmUnconfigured = llmStatus !== undefined && !llmStatus.configured;
+  const translationJob = translationJobQuery.data;
+  const translationActive = isTranslationJobActive(translationJob);
+  const translationPct = computeTranslationProgress(translationJob);
+  const translatedLineCount = countTranslatedLines(lines);
+  const allLinesTranslated =
+    translationJob !== undefined &&
+    translationJob.total_lines > 0 &&
+    translationJob.translated_lines >= translationJob.total_lines;
+  const currentExplainKey = explainedLine ? `${explainedLine.id}:${llmLang}` : null;
+  const currentExplanation = currentExplainKey ? explainCache[currentExplainKey] ?? null : null;
+  const isExplainingCurrent =
+    explainMutation.isPending &&
+    explainMutation.variables?.lineId === explainedLine?.id &&
+    explainMutation.variables?.lang === llmLang;
+
+  const translateBtnLabel = translationJob?.running
+    ? `Translating… (${translationJob.translated_lines}/${translationJob.total_lines})`
+    : translationJob?.queued
+      ? 'Queued for translation…'
+      : allLinesTranslated
+        ? 'Translated ✓'
+        : translationJob && translationJob.translated_lines > 0
+          ? `Resume Translation (${translationJob.translated_lines}/${translationJob.total_lines})`
+          : 'Translate Episode';
 
   return (
     <div className="space-y-6">
@@ -180,6 +320,26 @@ export function EpisodeDetailPage() {
             </button>
             <button
               type="button"
+              disabled={
+                !llmConfigured ||
+                translationActive ||
+                allLinesTranslated ||
+                startTranslationMutation.isPending
+              }
+              onClick={() => startTranslationMutation.mutate()}
+              className="px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-indigo-200 border border-indigo-400/50 text-xs font-bold cursor-pointer"
+              title={
+                llmUnconfigured
+                  ? 'Set up a model on the server'
+                  : llmStatus && !llmStatus.reachable
+                    ? `LLM unreachable: ${llmStatus.detail}`
+                    : 'Translate untranslated lines (EN + DE) in the background using the server LLM'
+              }
+            >
+              {startTranslationMutation.isPending ? 'Starting…' : translateBtnLabel}
+            </button>
+            <button
+              type="button"
               disabled={reprocessMutation.isPending}
               onClick={() => reprocessMutation.mutate()}
               className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
@@ -189,6 +349,66 @@ export function EpisodeDetailPage() {
             </button>
           </div>
         </div>
+        {llmUnconfigured && (
+          <div className="text-xs text-slate-400">
+            LLM translations &amp; grammar notes disabled — set up a model on the server (
+            <code>SENSEI_LLM_BASE_URL</code> + <code>SENSEI_LLM_MODEL</code>).
+          </div>
+        )}
+        {startTranslationMutation.isError && (
+          <div className="text-xs text-rose-400">
+            Translation could not start:{' '}
+            {(startTranslationMutation.error as Error)?.message ?? 'Error'}
+          </div>
+        )}
+        {translationJob &&
+          (translationActive ||
+            Boolean(translationJob.error) ||
+            translationJob.failed_lines > 0 ||
+            (translationJob.translated_lines > 0 && !allLinesTranslated)) && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 font-medium text-slate-200">
+                  {translationActive && (
+                    <span className="inline-block w-3 h-3 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+                  )}
+                  <span>
+                    {translationJob.running
+                      ? 'Translating episode in background…'
+                      : translationJob.queued
+                        ? 'Translation queued (waiting for active episode job)…'
+                        : translationJob.error
+                          ? 'Translation stopped with an error'
+                          : 'Episode translation progress'}
+                  </span>
+                </div>
+                <span className="font-mono text-slate-400">
+                  {translationJob.translated_lines}/{translationJob.total_lines} lines (
+                  {translationPct}%)
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  className={`h-full transition-all ${
+                    translationJob.error ? 'bg-rose-500' : 'bg-indigo-400'
+                  }`}
+                  style={{ width: `${translationPct}%` }}
+                />
+              </div>
+              {translationJob.error && (
+                <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-1.5">
+                  Error: {translationJob.error}
+                </div>
+              )}
+              {translationJob.failed_lines > 0 && (
+                <div className="text-xs text-amber-300">
+                  {translationJob.failed_lines} line
+                  {translationJob.failed_lines === 1 ? '' : 's'} skipped in the last run — click{' '}
+                  <strong>Resume Translation</strong> to retry.
+                </div>
+              )}
+            </div>
+          )}
         {reprocessMutation.isError && (
           <div className="text-xs text-rose-400">
             Reprocess failed: {(reprocessMutation.error as Error)?.message ?? 'Error'}
@@ -288,6 +508,28 @@ export function EpisodeDetailPage() {
           />
           <span>Romaji</span>
         </label>
+        <label
+          className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer"
+          title={
+            translatedLineCount === 0
+              ? 'No translations saved for this episode yet'
+              : 'Expand or collapse translations under every transcript line'
+          }
+        >
+          <input
+            type="checkbox"
+            checked={showAllTranslations}
+            onChange={(e) => {
+              setShowAllTranslations(e.target.checked);
+              setLineTranslationOverrides({});
+            }}
+            className="rounded border-slate-700 bg-slate-950"
+          />
+          <span>
+            Translations
+            {translatedLineCount > 0 ? ` (${translatedLineCount}/${lines.length})` : ''}
+          </span>
+        </label>
         <select
           value={glossLang}
           onChange={(e) => setGlossLang(e.target.value as GlossLanguage)}
@@ -335,69 +577,237 @@ export function EpisodeDetailPage() {
               No transcript lines match the current filter.
             </div>
           ) : (
-            filteredLines.map((line) => (
-              <div
-                key={line.id}
-                className="bg-slate-900/80 border border-slate-800/80 rounded-xl px-4 py-3 flex gap-3 items-baseline"
-              >
-                <span className="text-xs font-mono text-slate-500 shrink-0 w-12">
-                  {formatTimestampMs(line.start_ms)}
-                </span>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="text-lg leading-loose tracking-wide break-words">
-                    {line.tokens.map((token, idx) => {
-                      const isSelected =
-                        selectedToken !== null &&
-                        ((token.word_id !== null && token.word_id === selectedToken.word_id) ||
-                          (token.lemma === selectedToken.lemma &&
-                            token.lemma_reading === selectedToken.lemma_reading));
-                      return (
-                        <span
-                          key={`${line.id}-${idx}`}
-                          className={tokenClassName(token, isSelected)}
-                          onClick={() => {
-                            if (isTokenLookupable(token)) {
-                              setSelectedToken(token);
-                              setSelectedLineId(line.id);
-                              setCardNotice(null);
-                            }
-                          }}
-                        >
-                          {token.furigana.map((seg, sIdx) =>
-                            shouldShowFurigana(token, seg.ruby) ? (
-                              <ruby key={sIdx}>
-                                {seg.text}
-                                <rt className="text-[11px] text-slate-400 font-normal">
-                                  {seg.ruby}
-                                </rt>
-                              </ruby>
-                            ) : (
-                              <span key={sIdx}>{seg.text}</span>
-                            ),
-                          )}
-                        </span>
-                      );
-                    })}
-                  </div>
-                  {showRomaji && (
-                    <div className="text-xs text-slate-400 font-mono">
-                      {getTranscriptLineRomaji(line)}
+            filteredLines.map((line) => {
+              const translation = pickLineTranslation(line, glossLang);
+              const translationExpanded = translation !== null && isLineTranslationExpanded(line.id);
+              const isExplainedRow = explainedLine?.id === line.id && inspectorTab === 'explain';
+              return (
+                <div
+                  key={line.id}
+                  className={`bg-slate-900/80 border rounded-xl px-4 py-3 flex gap-3 items-baseline transition ${
+                    isExplainedRow ? 'border-indigo-400/70 bg-indigo-950/20' : 'border-slate-800/80'
+                  }`}
+                >
+                  <span className="text-xs font-mono text-slate-500 shrink-0 w-12">
+                    {formatTimestampMs(line.start_ms)}
+                  </span>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="text-lg leading-loose tracking-wide break-words">
+                      {line.tokens.map((token, idx) => {
+                        const isSelected =
+                          selectedToken !== null &&
+                          ((token.word_id !== null && token.word_id === selectedToken.word_id) ||
+                            (token.lemma === selectedToken.lemma &&
+                              token.lemma_reading === selectedToken.lemma_reading));
+                        return (
+                          <span
+                            key={`${line.id}-${idx}`}
+                            className={tokenClassName(token, isSelected)}
+                            onClick={() => {
+                              if (isTokenLookupable(token)) {
+                                setSelectedToken(token);
+                                setSelectedLineId(line.id);
+                                setInspectorTab('word');
+                                setCardNotice(null);
+                              }
+                            }}
+                          >
+                            {token.furigana.map((seg, sIdx) =>
+                              shouldShowFurigana(token, seg.ruby) ? (
+                                <ruby key={sIdx}>
+                                  {seg.text}
+                                  <rt className="text-[11px] text-slate-400 font-normal">
+                                    {seg.ruby}
+                                  </rt>
+                                </ruby>
+                              ) : (
+                                <span key={sIdx}>{seg.text}</span>
+                              ),
+                            )}
+                          </span>
+                        );
+                      })}
                     </div>
-                  )}
+                    {showRomaji && (
+                      <div className="text-xs text-slate-400 font-mono">
+                        {getTranscriptLineRomaji(line)}
+                      </div>
+                    )}
+                    {translation && (
+                      <div className="pt-0.5">
+                        {translationExpanded ? (
+                          <div className="flex items-start justify-between gap-2 text-xs text-sky-200/90 bg-slate-950/60 border border-slate-800/80 rounded-lg px-2.5 py-1.5">
+                            <span className="leading-relaxed">
+                              <span className="uppercase text-[10px] font-semibold text-sky-400 mr-1.5">
+                                {translation.lang}
+                              </span>
+                              {translation.text}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => toggleLineTranslation(line.id)}
+                              className="text-[11px] text-slate-500 hover:text-slate-300 shrink-0 cursor-pointer"
+                            >
+                              Hide
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => toggleLineTranslation(line.id)}
+                            className="text-[11px] text-slate-500 hover:text-sky-300 cursor-pointer"
+                          >
+                            ▸ Translation ({translation.lang.toUpperCase()})
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!llmConfigured}
+                    onClick={() => requestExplainLine(line, llmLang)}
+                    title={
+                      llmUnconfigured
+                        ? 'Set up a model on the server'
+                        : 'Explain this line (translation, word breakdown & grammar notes)'
+                    }
+                    className={`shrink-0 px-2 py-1 rounded-md text-[11px] font-semibold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isExplainedRow
+                        ? 'bg-indigo-500/25 border-indigo-400 text-indigo-200'
+                        : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-indigo-200 hover:border-indigo-400/60'
+                    }`}
+                  >
+                    Explain
+                  </button>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
-        {/* Sticky Dictionary & Word Status Inspector */}
+        {/* Sticky Dictionary & Line Explanation Inspector */}
         <aside className="bg-slate-900 border border-slate-800 rounded-xl p-5 lg:sticky lg:top-20 space-y-4">
-          {!selectedToken ? (
+          {selectedToken && explainedLine && (
+            <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setInspectorTab('word')}
+                className={`py-1 rounded-md cursor-pointer transition ${
+                  inspectorTab === 'word'
+                    ? 'bg-slate-800 text-sky-300'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Word Lookup
+              </button>
+              <button
+                type="button"
+                onClick={() => setInspectorTab('explain')}
+                className={`py-1 rounded-md cursor-pointer transition ${
+                  inspectorTab === 'explain'
+                    ? 'bg-slate-800 text-indigo-300'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Explain Line
+              </button>
+            </div>
+          )}
+
+          {inspectorTab === 'explain' && explainedLine ? (
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-indigo-300">
+                      Explain Line ({llmLang.toUpperCase()})
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-500">
+                      {formatTimestampMs(explainedLine.start_ms)}
+                    </span>
+                  </div>
+                  <div className="text-base font-medium text-slate-100 mt-1 break-words">
+                    {explainedLine.text}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExplainedLine(null);
+                    setInspectorTab('word');
+                  }}
+                  className="text-xs text-slate-500 hover:text-slate-300 shrink-0 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!llmConfigured || isExplainingCurrent}
+                  onClick={() => requestExplainLine(explainedLine, llmLang, true)}
+                  className="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs text-slate-200 border border-slate-700 cursor-pointer"
+                >
+                  {currentExplanation ? 'Regenerate' : `Explain (${llmLang.toUpperCase()})`}
+                </button>
+                {currentExplanation && (
+                  <span className="text-[11px] text-slate-500">
+                    {currentExplanation.model} · {currentExplanation.cached ? 'Cached' : 'Fresh'}
+                  </span>
+                )}
+              </div>
+
+              <div className="border-t border-slate-800 pt-3">
+                {isExplainingCurrent ? (
+                  <div className="flex items-start gap-2.5 text-xs text-slate-300 py-2">
+                    <span className="inline-block w-4 h-4 mt-0.5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin shrink-0" />
+                    <div>
+                      <div className="font-medium text-indigo-200">Explaining this line…</div>
+                      <div className="text-slate-500 mt-0.5">
+                        Uncached calls can take 10–60 s on a small local model.
+                      </div>
+                    </div>
+                  </div>
+                ) : explainError ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg p-2.5">
+                      {explainError}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!llmConfigured}
+                      onClick={() => requestExplainLine(explainedLine, llmLang, false)}
+                      className="px-3 py-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/50 text-xs font-semibold cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : currentExplanation ? (
+                  <MarkdownContent text={currentExplanation.text} />
+                ) : (
+                  <div className="text-xs text-slate-400 space-y-2">
+                    <p>No {llmLang.toUpperCase()} explanation loaded yet for this line.</p>
+                    <button
+                      type="button"
+                      disabled={!llmConfigured}
+                      onClick={() => requestExplainLine(explainedLine, llmLang, false)}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-400/50 text-xs font-semibold cursor-pointer"
+                    >
+                      Explain in {llmLang.toUpperCase()}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : !selectedToken ? (
             <div className="text-sm text-slate-400 space-y-1">
-              <div className="font-semibold text-slate-200">Dictionary Inspector</div>
+              <div className="font-semibold text-slate-200">Dictionary &amp; Grammar Inspector</div>
               <p className="text-xs text-slate-500">
-                Click any content word in the transcript to view JMdict EN/DE definitions and mark
-                it Known, Ignore, or Learning.
+                Click any content word in the transcript for JMdict EN/DE definitions, or click{' '}
+                <strong className="text-slate-300">Explain</strong> on any line for an LLM grammar
+                breakdown.
               </p>
             </div>
           ) : (

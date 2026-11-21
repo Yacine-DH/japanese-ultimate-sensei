@@ -48,6 +48,9 @@ export type ImportReport = components['schemas']['ImportReport'];
 export type WordListImport = components['schemas']['WordListImport'];
 export type ExampleLine = components['schemas']['ExampleLine'];
 export type MissedWord = components['schemas']['MissedWord'];
+export type LLMStatus = components['schemas']['LLMStatus'];
+export type TranslationJob = components['schemas']['TranslationJob'];
+export type LineExplanation = components['schemas']['LineExplanation'];
 
 export class SenseiApiError extends Error {
   readonly status: number;
@@ -174,6 +177,22 @@ export const apiClient = {
       include_learning: includeLearning ? 'true' : 'false',
     });
     return apiRequest<MissedWord[]>(`/episodes/${id}/missed?${qs.toString()}`);
+  },
+
+  getLlmStatus: () => apiRequest<LLMStatus>('/llm/status'),
+
+  getTranslationJob: (episodeId: number) =>
+    apiRequest<TranslationJob>(`/episodes/${episodeId}/translate`),
+
+  startEpisodeTranslation: (episodeId: number) =>
+    apiRequest<TranslationJob>(`/episodes/${episodeId}/translate`, { method: 'POST' }),
+
+  explainLine: (lineId: number, lang: 'en' | 'de' = 'en', refresh = false) => {
+    const qs = new URLSearchParams({ lang });
+    if (refresh) qs.set('refresh', 'true');
+    return apiRequest<LineExplanation>(`/lines/${lineId}/explain?${qs.toString()}`, {
+      method: 'POST',
+    });
   },
 
   lookupDictionary: (q: string, reading?: string | null, limit = 5, wordId?: number | null) => {
