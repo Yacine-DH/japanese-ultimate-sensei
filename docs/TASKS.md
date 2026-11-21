@@ -23,7 +23,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **S-4** Known-words import: from Anki (.apkg/.txt export, choose field) and plain word lists
 - [ ] **S-5** Anki export: `.apkg` (genanki) with media; card JSON for AnkiConnect push
 - [x] **S-6** (#18) Activity tracking: `POST /activity/watch` (minutes), auto-count reviews/words; `GET /activity?from=&to=` for heatmap (claude, 2026-11-21: + streaks, `GET /anime`, `GET /anime/{id}/progress` daily trend)
-- [~] **S-7** (#19) Serve `web/dist` at `/` from FastAPI; Alembic migrations; systemd user service (claude, 2026-11-19: web serving + `deploy/` service/update scripts done; Alembic + backups next)
+- [x] **S-7** (#19) Serve `web/dist` at `/` from FastAPI; Alembic migrations; systemd user service (claude, 2026-11-21: web serving, service/update scripts, Alembic auto-migrate on start with pre-migration backup, nightly backups ×14)
 
 ### Extension (Antigravity)
 - [x] **E-1** Scaffold `extension/` with WXT + TypeScript (strict) + Vitest. Options page: server URL (default `http://<tailscale-host>:8000`), API token, gloss language (EN/DE), romaji on/off. Background worker exposes a typed `api.call(path, init)` proxy that adds the token. Popup shows `/health` status. Builds for Edge/Chrome **and** Firefox. Types generated from `docs/openapi.json`. deps: O-2 (antigravity, 2026-11-17: WXT Chrome MV3 + Firefox MV2 builds, OpenAPI types, background proxy, options & popup, 6 unit tests)

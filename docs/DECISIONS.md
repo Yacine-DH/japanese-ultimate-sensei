@@ -2,6 +2,15 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-21: Migrations + backups (Claude)
+- **Alembic, run automatically at server start** (`app/db.migrate`), with a SQLite backup into
+  `data/backups/` before any pending migration. Databases from before migrations (made by
+  `create_all`) are stamped as baseline `0001`. `render_as_batch` for SQLite ALTERs.
+- **New models/columns need a migration**: `cd server && uv run alembic revision --autogenerate -m "…"`,
+  review it; `test_migrations.py` fails if models and migrations drift.
+- **Nightly backup** (systemd timer, 04:00, keep 14) on the same disk: protects against bad
+  migrations/bugs, not disk failure. Off-site copy is a later owner decision.
+
 ### 2026-11-21: Media storage + signed URLs (Claude)
 - **ffmpeg CLI via subprocess** (no Pillow/PyAV): one tool for images, audio and video, already on the server.
 - **Clips have no audio track**: the line audio is stored separately (Opus) and reused for
