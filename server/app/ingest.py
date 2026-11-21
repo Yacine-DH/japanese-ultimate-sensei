@@ -1,6 +1,7 @@
 """Episode ingestion: subtitle lines → tokens → vocabulary rows. Plus read-time helpers."""
 
 import json
+from collections import Counter
 from collections.abc import Iterable
 
 from sqlmodel import Session, select
@@ -244,21 +245,40 @@ def understanding_of(session: Session, user_id: int, episode_ids: Iterable[int])
 
 
 def relink_words(session: Session, dictionary: Dictionary) -> int:
-    """Recompute every word's JMdict link with the current rules. Returns words changed."""
+    """Recompute every word's JMdict link with the current rules. Returns words changed.
+
+    Uses the word's tokens as they appear in subtitles (POS + normalized form in context): a
+    lemma tokenized alone can come out as another word (ほう → interjection, した → し|た).
+    Words never seen in a line (Anki imports) fall back to the lemma alone, but only when
+    Sudachi reads it as exactly one token.
+    """
     resolver = WordResolver(session, dictionary)
+    seen: dict[int, Counter[tuple[str, str]]] = {}
+    for raw in session.exec(select(SubtitleLine.tokens_json)).all():
+        for t in json.loads(raw):
+            if t.get("word_id"):
+                seen.setdefault(t["word_id"], Counter())[(t["pos"], t.get("normalized") or "")] += 1
     changed = 0
     for word in session.exec(select(Word)).all():
-        toks = [t for t in tokenize(word.lemma) if t.is_content or t.is_proper_noun] or tokenize(
-            word.lemma
+        if word.id in seen:
+            pos, normalized = seen[word.id].most_common(1)[0][0]
+        else:
+            alone = tokenize(word.lemma)
+            single = len(alone) == 1 and alone[0].surface == word.lemma
+            pos = word.pos or (alone[0].pos if single else "")
+            normalized = alone[0].normalized if single else word.lemma
+        tok = Token(
+            surface=word.lemma,
+            lemma=word.lemma,
+            reading=word.reading,
+            lemma_reading=word.reading,
+            normalized=normalized or word.lemma,
+            pos=pos,
         )
-        if not toks:
-            continue
-        tok = toks[0]
-        tok.lemma, tok.lemma_reading = word.lemma, word.reading
         hit = resolver._jmdict(tok)
-        pos = tok.pos if tok.is_content or tok.is_proper_noun else word.pos
-        if hit and ((word.jmdict_id, word.common) != hit or word.pos != pos):
-            (word.jmdict_id, word.common), word.pos = hit, pos  # pos: the link was chosen by it
+        if hit and ((word.jmdict_id, word.common) != hit or (pos and word.pos != pos)):
+            (word.jmdict_id, word.common) = hit
+            word.pos = pos or word.pos  # dominant POS in context: the link was chosen by it
             session.add(word)
             changed += 1
     return changed

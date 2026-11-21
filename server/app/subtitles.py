@@ -37,10 +37,10 @@ def strip_annotations(part: str) -> str:
     labels only go when real dialogue remains: a whole line in （…） is usually a thought or
     whisper, so it's kept, unless it is a sound cue."""
     part = _INLINE_READING_RE.sub("", _MARKS_RE.sub("", part)).strip()
-    if is_sound_cue(part):
+    part = _CUE_RE.sub("", part).strip()  # ［拍手］ 〔笑い声〕: always cues
+    if not part or is_sound_cue(part):
         return ""
-    cleaned = _CUE_RE.sub("", part).strip()
-    cleaned = _SPEAKER_RE.sub("", cleaned).strip()
+    cleaned = _SPEAKER_RE.sub("", part).strip()
     return cleaned if has_japanese(cleaned) else part
 
 

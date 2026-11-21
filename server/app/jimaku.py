@@ -16,15 +16,16 @@ MAX_DOWNLOAD = 25 * 1024 * 1024
 # Release tags whose timing usually matches streaming sites: web rips. Free sites mostly
 # re-host Crunchyroll/Netflix/Amazon encodes (SubsPlease and Erai-raws rip Crunchyroll).
 # TV broadcast rips (AT-X, TOKYO MX…) are neutral, Blu-ray gets a malus (different cut).
+# Tag boundaries: not \b, because "_" is a word character (Show_02_WebRip.ass).
 WEB_TAGS = re.compile(
-    r"\b(web|webrip|web-?dl|netflix|nf|amzn|amazon|cr|crunchyroll|b-global|hulu|abema|hidive"
-    r"|disney|dsnp|subsplease|erai|erai-raws)\b",
+    r"(?<![a-z0-9])(web|webrip|web-?dl|netflix|nf|amzn|amazon|cr|crunchyroll|b-global|hulu"
+    r"|abema|hidive|disney|dsnp|subsplease|erai|erai-raws)(?![a-z0-9])",
     re.I,
 )
-BD_TAGS = re.compile(r"\b(bd|bdrip|bd-?rip|blu-?ray|bdmv|bdremux)\b", re.I)
+BD_TAGS = re.compile(r"(?<![a-z0-9])(bd|bdrip|bd-?rip|blu-?ray|bdmv|bdremux)(?![a-z0-9])", re.I)
 # Dual-language files (_ja-en.ass, [CHS, JPN], JPSC) would import English/Chinese lines.
 DUAL_TAGS = re.compile(
-    r"(?:^|[^a-z])(ja[-_+]en|en[-_+]ja|jpsc|jptc|jpn?[-_+]?(?:chs|cht|sc|tc)|chs|cht|eng)(?:[^a-z]|$)",
+    r"(?:^|[^a-z])((?:ja|jpn?)[-_+]en|en[-_+](?:ja|jpn?)|jpsc|jptc|jpn?[-_+]?(?:chs|cht|sc|tc)|chs|cht|eng)(?:[^a-z]|$)",
     re.I,
 )
 SDH_TAGS = re.compile(r"[\[(](sdh|cc)[\])]", re.I)

@@ -56,6 +56,8 @@ def test_real_tv_and_sdh_cleanup():
     ):
         assert strip_annotations(cue) == ""
     assert strip_annotations("（何だ この声）") == "（何だ この声）"  # a thought, not a cue
+    for cue in ("［拍手］", "［足音］", "〔笑い声〕"):  # review of #95
+        assert strip_annotations(cue) == ""
     assert strip_annotations("いや 蒼月草(そうげつそう)の花がいいか") == "いや 蒼月草の花がいいか"
     assert strip_annotations("（ヒンメル）帰ったら") == "帰ったら"
     srt = (

@@ -53,3 +53,33 @@ def test_no_per_word_queries_when_listing(client):
         event.remove(engine, "before_cursor_execute", count)
     per_word = [s for s in statements if "FROM word" in s and "word.id = ?" in s]
     assert per_word == [], f"{len(per_word)} per-word reloads"
+
+
+def test_relink_uses_tokens_in_context(client, dictionary):
+    """Review of #95: relinking must not re-tokenize a lemma alone (した → し|た, 為る)."""
+    from sqlmodel import Session, select
+
+    from app.ingest import relink_words
+    from app.models import SubtitleLine, Word
+
+    srt = b"1\n00:00:01,000 --> 00:00:02,000\n\xe9\xad\x94\xe7\x8e\x8b\xe3\x82\x92\xe5\x80\x92\xe3\x81\x99\n"
+    ep = client.post(
+        "/episodes", data={"anime_title": "x"}, files={"subtitle": ("s.srt", srt)}
+    ).json()
+    tok = next(
+        t for t in client.get(f"/episodes/{ep['id']}/lines").json()[0]["tokens"] if t["word_id"]
+    )
+    engine = client.app.state.engine
+    with Session(engine) as s:
+        w = s.get(Word, tok["word_id"])
+        before = (w.jmdict_id, w.pos)
+        # a word only known from an Anki import, whose lemma splits when tokenized alone
+        s.add(Word(lemma="した", reading="した", pos="名詞"))
+        s.commit()
+        relink_words(s, dictionary)
+        s.commit()
+        w = s.get(Word, tok["word_id"])
+        assert (w.jmdict_id, w.pos) == before  # context POS kept
+        shita = s.exec(select(Word).where(Word.lemma == "した")).one()
+        assert shita.pos == "名詞"  # not 動詞 from the し|た split
+        assert s.exec(select(SubtitleLine)).first()

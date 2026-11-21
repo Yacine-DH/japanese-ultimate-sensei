@@ -184,3 +184,19 @@ def test_rank_prefers_web_rips_real_list():
     for dual in (FRIEREN_02[3], FRIEREN_02[7], FRIEREN_02[9]):
         assert by_name[dual].dual_language and by_name[dual].score < by_name[bd].score
     assert not by_name[FRIEREN_02[1]].dual_language  # ja-jp is just Japanese
+
+
+def test_tags_with_underscores_and_jp_en():
+    """Review of #95: `_` is a word character, so tags need non-alphanumeric boundaries."""
+    ranked = rank(
+        [
+            {"name": n, "url": "https://jimaku.cc/x"}
+            for n in ("Show_02_BDRip.srt", "Show_02_WebRip.ass")
+        ],
+        2,
+    )
+    assert ranked[0].name == "Show_02_WebRip.ass" and ranked[0].web_source
+    names = ("[SubsPlease] Show - 02_jp-en.ass", "Show_02_en-jp.srt", "Show_02_jpn-en.srt")
+    for n in names:
+        assert rank([{"name": n, "url": "https://jimaku.cc/x"}], 2)[0].dual_language, n
+    assert not rank([{"name": "Show [BD123456].srt", "url": "https://jimaku.cc/x"}])[0].score < 0
