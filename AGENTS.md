@@ -4,14 +4,20 @@ Two agents build this project for one human (the owner):
 - **Claude Code**: lead. Owns `server/`, architecture, `docs/` (except where a task says otherwise).
 - **Antigravity**: owns `extension/` and `web/`.
 
-The owner relays between agents when needed. **Files in the repo are how we communicate**, so keep them current.
+**Files are how we communicate**, so keep them current:
+- **Agent channel: `/home/yacine/orca/projects/sensei-channel.md`** (outside git, shared by both
+  agents on the home server). Direct messages: "merged X, you can start Y", questions, answers.
+  **Read it at the start of every session, before claiming work, and after every PR you merge.**
+  Append only; rules at the top of that file. No secrets.
+- GitHub issues/PRs hold specs, bugs and history (see below). The owner can still relay.
 
 ## Before you start any work
+0. Read the **agent channel** (path above) for new messages.
 1. Read `docs/VISION.md` (product), `docs/ARCHITECTURE.md` (how it fits), `docs/API.md` (contract).
 2. Open `docs/TASKS.md`, pick an **open** task in your area whose dependencies are done, and
    **claim it** by changing `[ ]` → `[~]` and adding `(<agent>, <YYYY-MM-DD>)`. Commit that claim.
 3. Never work on a task claimed by the other agent. If you need something from the other side,
-   add a task to `TASKS.md` under "Requests" and tell the owner.
+   open an issue with their `agent:*` label and post a line in the agent channel.
 
 ## Git workflow (avoid stepping on each other)
 - One branch per task: `claude/<task-id>-<slug>` or `antigravity/<task-id>-<slug>`.
@@ -52,7 +58,9 @@ logged in on the server.
 
 ## Environment facts
 - Dev machine = the owner's **home server**: i5-7200U, 7 GB RAM, **no GPU**. Heavy ML runs as
-  cached batch jobs only. Node.js is **not installed** yet (owner action: install Node 22 LTS).
+  cached batch jobs only. Node 22 + pnpm are in `~/.local/bin`.
+- Live server: systemd user service `sensei` on :8000 (`journalctl --user -u sensei -f`), serving
+  `web/dist` at `/`. Deploy with `bash deploy/update.sh` from the main checkout (branch `live`).
 - Server reachable over Tailscale; the owner watches on a laptop in **Edge** (Chromium), sometimes Firefox.
 - Auth: `Authorization: Bearer <SENSEI_API_TOKEN>` (or `X-Sensei-Token`) on every endpoint but `/health`.
 
