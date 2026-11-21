@@ -169,3 +169,71 @@ def test_refuses_to_start_without_token(tmp_path):
         create_app(Settings(data_dir=tmp_path, api_token="short"))
     app = create_app(Settings(data_dir=tmp_path, allow_no_auth=True))  # explicit dev opt-out
     assert app.state.settings.allow_no_auth
+
+
+def test_nani_is_one_word_across_contexts(client, tmp_path):
+    p = tmp_path / "nani.srt"
+    p.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\n何を食べる？\n\n2\n00:00:03,000 --> 00:00:04,000\n何の話？\n",
+        encoding="utf-8",
+    )
+    with open(p, "rb") as f:
+        ep = client.post(
+            "/episodes", data={"anime_title": "x"}, files={"subtitle": ("n.srt", f)}
+        ).json()
+    lines = client.get(f"/episodes/{ep['id']}/lines").json()
+    nani = [next(t for t in line["tokens"] if t["surface"] == "何") for line in lines]
+    assert [t["reading"] for t in nani] == ["なに", "なん"]
+    assert nani[0]["word_id"] == nani[1]["word_id"]
+
+
+def test_reprocess_merges_old_reading_keys(client):
+    from sqlmodel import Session, select
+
+    from app.models import Card, UserWord, Word
+
+    with open(FIXTURES / "sample.srt", "rb") as f:
+        ep = client.post(
+            "/episodes", data={"anime_title": "x"}, files={"subtitle": ("s.srt", f)}
+        ).json()
+    engine = client.app.state.engine
+    with Session(engine) as s:  # rows as an older version stored them
+        old = Word(lemma="私", reading="わたくし")
+        s.add(old)
+        s.flush()
+        s.add(UserWord(user_id=1, word_id=old.id, status="known"))
+        s.add(Card(user_id=1, word_id=old.id, sentence="私だ"))
+        s.commit()
+        old_id = old.id
+    assert client.post(f"/episodes/{ep['id']}/reprocess").status_code == 200
+    with Session(engine) as s:
+        words = s.exec(select(Word).where(Word.lemma == "私")).all()
+        assert [(w.id, w.reading) for w in words] == [(old_id, "わたし")]  # re-keyed in place
+        assert s.exec(select(UserWord).where(UserWord.word_id == old_id)).one().status == "known"
+        assert s.exec(select(Card).where(Card.word_id == old_id)).one()
+
+
+def test_merge_reading_fixes_when_both_rows_exist(client):
+    from sqlmodel import Session, select
+
+    from app.ingest import merge_reading_fixes
+    from app.models import Card, UserWord, Word
+
+    with Session(client.app.state.engine) as s:
+        old, new = Word(lemma="明日", reading="あす"), Word(lemma="明日", reading="あした")
+        s.add_all([old, new])
+        s.flush()
+        s.add_all([
+            UserWord(user_id=1, word_id=old.id, status="known"),
+            UserWord(user_id=1, word_id=new.id, status="learning"),
+            Card(user_id=1, word_id=old.id, sentence="明日だ"),
+        ])  # fmt: skip
+        s.commit()
+        new_id = new.id
+        assert merge_reading_fixes(s) == 1
+        s.commit()
+        assert [w.reading for w in s.exec(select(Word).where(Word.lemma == "明日")).all()] == [
+            "あした"
+        ]
+        assert s.exec(select(UserWord).where(UserWord.word_id == new_id)).one().status == "known"
+        assert s.exec(select(Card).where(Card.word_id == new_id)).one()
