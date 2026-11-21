@@ -1369,6 +1369,132 @@
           }
         }
       }
+    },
+    "/import/words": {
+      "post": {
+        "tags": [
+          "import"
+        ],
+        "summary": "Import Words",
+        "description": "Mark a plain list of words (one per line) as known or learning.",
+        "operationId": "import_words_import_words_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WordListImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/import/anki": {
+      "post": {
+        "tags": [
+          "import"
+        ],
+        "summary": "Import Anki",
+        "description": "Import an Anki deck: mature cards (interval ≥ `mature_days`) → known, studied\nyounger cards → learning, never-studied cards are skipped. Run with `dry_run` first to\ncheck `note_types[].field_used`, then re-run with `field` if the wrong field was picked.",
+        "operationId": "import_anki_import_anki_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_anki_import_anki_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/import/anki/cards": {
+      "post": {
+        "tags": [
+          "import"
+        ],
+        "summary": "Import Anki Cards",
+        "description": "Same as /import/anki but from AnkiConnect data the extension read on the laptop\n(`findCards` + `cardsInfo`: the word field's value + `interval`).",
+        "operationId": "import_anki_cards_import_anki_cards_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnkiCardsImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1585,6 +1711,93 @@
         ],
         "title": "AnimeProgress"
       },
+      "AnkiCardIn": {
+        "properties": {
+          "expression": {
+            "type": "string",
+            "title": "Expression"
+          },
+          "interval_days": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Interval Days",
+            "description": "AnkiConnect cardsInfo `interval`"
+          },
+          "studied": {
+            "type": "boolean",
+            "title": "Studied",
+            "description": "False for new (type 0) cards",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "expression",
+          "interval_days"
+        ],
+        "title": "AnkiCardIn"
+      },
+      "AnkiCardsImport": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/AnkiCardIn"
+            },
+            "type": "array",
+            "maxItems": 100000,
+            "title": "Cards"
+          },
+          "mature_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Mature Days",
+            "default": 21
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "cards"
+        ],
+        "title": "AnkiCardsImport"
+      },
+      "AnkiNoteType": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "field_used": {
+            "type": "string",
+            "title": "Field Used",
+            "description": "Field read as the Japanese word (pass `field` to change)"
+          },
+          "notes": {
+            "type": "integer",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "fields",
+          "field_used",
+          "notes"
+        ],
+        "title": "AnkiNoteType"
+      },
       "Body_create_episode_episodes_post": {
         "properties": {
           "subtitle": {
@@ -1626,6 +1839,58 @@
           "anime_title"
         ],
         "title": "Body_create_episode_episodes_post"
+      },
+      "Body_import_anki_import_anki_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "Anki deck export (.apkg), any Anki version"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "Field holding the Japanese word (auto if empty)"
+          },
+          "deck": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deck",
+            "description": "Only this deck (and its subdecks)"
+          },
+          "mature_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Mature Days",
+            "default": 21
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "description": "Preview the report without saving",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_anki_import_anki_post"
       },
       "Body_upload_media_media_post": {
         "properties": {
@@ -2374,6 +2639,79 @@
           "auth"
         ],
         "title": "Health"
+      },
+      "ImportReport": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Distinct words in the input"
+          },
+          "matched": {
+            "type": "integer",
+            "title": "Matched",
+            "description": "Recognised as a single vocabulary word"
+          },
+          "updated": {
+            "type": "integer",
+            "title": "Updated",
+            "description": "Status raised (new→learning/known, learning→known)"
+          },
+          "already": {
+            "type": "integer",
+            "title": "Already",
+            "description": "Matched but unchanged (already at that level, or ignored)"
+          },
+          "unmatched_count": {
+            "type": "integer",
+            "title": "Unmatched Count"
+          },
+          "unmatched": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unmatched",
+            "description": "First 200 entries that aren't a single word"
+          },
+          "skipped_new": {
+            "type": "integer",
+            "title": "Skipped New",
+            "description": "Anki notes never studied (not imported)",
+            "default": 0
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          },
+          "note_types": {
+            "items": {
+              "$ref": "#/components/schemas/AnkiNoteType"
+            },
+            "type": "array",
+            "title": "Note Types",
+            "default": []
+          },
+          "decks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Decks",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "matched",
+          "updated",
+          "already",
+          "unmatched_count",
+          "unmatched",
+          "dry_run"
+        ],
+        "title": "ImportReport"
       },
       "JimakuEntry": {
         "properties": {
@@ -3134,6 +3472,35 @@
           "seconds_today"
         ],
         "title": "WatchOut"
+      },
+      "WordListImport": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 1000000,
+            "title": "Text",
+            "description": "One word per line (Anki furigana/HTML ok)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "known",
+              "learning"
+            ],
+            "title": "Status",
+            "default": "known"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "WordListImport"
       },
       "WordListItem": {
         "properties": {

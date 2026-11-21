@@ -221,5 +221,31 @@ graduated by reviews). `current_streak` stays alive until today ends.
 `series` = one point per day the anime was touched (import, watching, or opening this page),
 oldest first: the "% understood over time" line. Episodes are ordered by number.
 
+## Known-word import (Anki / word lists)
+All three return `ImportReport`; all accept `dry_run` (preview, nothing saved).
+```json
+{"total":1840,"matched":1712,"updated":1650,"already":62,"unmatched_count":128,
+ "unmatched":["ありがとうございます", "…first 200…"],"skipped_new":310,"dry_run":false,
+ "note_types":[{"name":"Japanese vocab","fields":["Meaning","Vocab","Reading"],"field_used":"Vocab","notes":2150}],
+ "decks":["Default","Japanese::Core"]}
+```
+Rules: words are matched like subtitle words (dictionary form), so they're recognised in every
+episode. Statuses only go up (new → learning → known); `ignored` is never touched. Phrases and
+grammar entries that aren't one word end up in `unmatched`. Imports don't count in the heatmap.
+
+### `POST /import/anki` (multipart) fields `file` (.apkg, ≤ 300 MB), `field`?, `deck`?, `mature_days`? (21), `dry_run`?
+Any Anki version (`collection.anki21b` zstd, `anki21`, `anki2`). Studied cards with interval ≥
+`mature_days` → `known`, younger studied cards → `learning`, never-studied → skipped
+(`skipped_new`). `field` = which note field holds the Japanese word; auto-picked by name
+(Vocab/Expression/Word/Front/単語…, else the first field). Suggested UI: dry run → show
+`note_types[].fields` with `field_used` preselected + `decks` → confirm.
+
+### `POST /import/anki/cards` body `{"cards":[{"expression":"食べる","interval_days":40,"studied":true}],"mature_days":21,"dry_run":false}`
+The same from AnkiConnect on the laptop (`findCards` + `cardsInfo`: word field value, `interval`,
+`type != 0` → studied).
+
+### `POST /import/words` body `{"text":"食べる\n海賊\n…","status":"known","dry_run":false}`
+One word per line (HTML / `食[た]べる` furigana are cleaned). `status` = `known` or `learning`.
+
 ## Coming in Phase 1 (not implemented yet; see TASKS.md)
-Known-word import (#16), Anki export (#17).
+Anki export (#17).

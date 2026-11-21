@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlmodel import Session, delete, func, or_, select
 
-from app import __version__, srs
+from app import __version__, anki_import, srs
 from app import activity as act
 from app import media as media_lib
 from app.config import Settings, check_auth_settings, get_settings
@@ -60,6 +60,7 @@ from app.schemas import (
     ActivityOut,
     AnimeOut,
     AnimeProgress,
+    AnkiCardsImport,
     BulkStatusIn,
     BulkStatusOut,
     CardCreate,
@@ -71,6 +72,7 @@ from app.schemas import (
     EpisodeProgress,
     EpisodeRef,
     Health,
+    ImportReport,
     JimakuEntry,
     JimakuFile,
     JimakuImport,
@@ -86,6 +88,7 @@ from app.schemas import (
     Understanding,
     WatchIn,
     WatchOut,
+    WordListImport,
     WordListItem,
     WordOut,
     WordPage,
@@ -846,5 +849,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ],
             episodes=episodes,
         )
+
+    # ---- known-word import (S-4) ----------------------------------------------------------
+
+    MAX_APKG_BYTES = 300 * 1024 * 1024
+
+    def report_out(r: anki_import.ImportReport) -> ImportReport:
+        return ImportReport(**vars(r))
+
+    @app.post("/import/words", response_model=ImportReport, dependencies=auth, tags=["import"])
+    def import_words(body: WordListImport, session: Session = Depends(get_session)):
+        """Mark a plain list of words (one per line) as known or learning."""
+        items = [(line, body.status) for line in body.text.splitlines() if line.strip()]
+        r = anki_import.apply_words(session, uid, items, app.state.dictionary, body.dry_run)
+        return report_out(r)
+
+    @app.post("/import/anki", response_model=ImportReport, dependencies=auth, tags=["import"])
+    def import_anki(
+        file: UploadFile = File(description="Anki deck export (.apkg), any Anki version"),
+        field: str | None = Form(
+            None, description="Field holding the Japanese word (auto if empty)"
+        ),
+        deck: str | None = Form(None, description="Only this deck (and its subdecks)"),
+        mature_days: int = Form(anki_import.MATURE_DAYS, ge=1, le=365),
+        dry_run: bool = Form(False, description="Preview the report without saving"),
+        session: Session = Depends(get_session),
+    ):
+        """Import an Anki deck: mature cards (interval ≥ `mature_days`) → known, studied
+        younger cards → learning, never-studied cards are skipped. Run with `dry_run` first to
+        check `note_types[].field_used`, then re-run with `field` if the wrong field was picked."""
+        raw = file.file.read(MAX_APKG_BYTES + 1)
+        if len(raw) > MAX_APKG_BYTES:
+            raise HTTPException(413, "deck too large (max 300 MB; export without media)")
+        try:
+            apkg = anki_import.read_apkg(raw)
+        except anki_import.AnkiFormatError as e:
+            raise HTTPException(422, str(e)) from e
+        report = anki_import.ImportReport()
+        items = anki_import.apkg_items(apkg, field, deck, mature_days, report)
+        r = anki_import.apply_words(session, uid, items, app.state.dictionary, dry_run, report)
+        return report_out(r)
+
+    @app.post("/import/anki/cards", response_model=ImportReport, dependencies=auth, tags=["import"])
+    def import_anki_cards(body: AnkiCardsImport, session: Session = Depends(get_session)):
+        """Same as /import/anki but from AnkiConnect data the extension read on the laptop
+        (`findCards` + `cardsInfo`: the word field's value + `interval`)."""
+        report = anki_import.ImportReport()
+        items = []
+        for c in body.cards:
+            if not c.studied:
+                report.skipped_new += 1
+                continue
+            status = (
+                WordStatus.known if c.interval_days >= body.mature_days else WordStatus.learning
+            )
+            items.append((c.expression, status))
+        r = anki_import.apply_words(session, uid, items, app.state.dictionary, body.dry_run, report)
+        return report_out(r)
 
     return app
