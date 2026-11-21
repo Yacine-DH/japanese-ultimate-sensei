@@ -2,6 +2,13 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-21: Anki import (Claude)
+- `.apkg` read directly with sqlite3 (+ `zstandard` for Anki ≥ 2.1.50's `collection.anki21b`);
+  schema 11 (JSON in `col`) and 18 (`notetypes`/`fields`/`decks` tables) both supported.
+- Mature = interval ≥ 21 days (Anki's definition) → known; studied but younger → learning.
+- Imported words are tokenized like subtitle words so the (lemma, reading) key matches future
+  episodes; multi-word entries are reported, not guessed.
+
 ### 2026-11-21: Migrations + backups (Claude)
 - **Alembic, run automatically at server start** (`app/db.migrate`), with a SQLite backup into
   `data/backups/` before any pending migration. Databases from before migrations (made by

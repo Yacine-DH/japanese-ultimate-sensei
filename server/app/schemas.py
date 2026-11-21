@@ -334,3 +334,44 @@ class AnimeProgress(BaseModel):
     anime: AnimeOut
     series: list[ProgressPoint] = Field(description="Daily anime-level % understood, oldest first")
     episodes: list[EpisodeProgress]
+
+
+# ---- known-word import (S-4) -----------------------------------------------------------
+
+
+class AnkiNoteType(BaseModel):
+    name: str
+    fields: list[str]
+    field_used: str = Field(description="Field read as the Japanese word (pass `field` to change)")
+    notes: int
+
+
+class ImportReport(BaseModel):
+    total: int = Field(description="Distinct words in the input")
+    matched: int = Field(description="Recognised as a single vocabulary word")
+    updated: int = Field(description="Status raised (new→learning/known, learning→known)")
+    already: int = Field(description="Matched but unchanged (already at that level, or ignored)")
+    unmatched_count: int
+    unmatched: list[str] = Field(description="First 200 entries that aren't a single word")
+    skipped_new: int = Field(default=0, description="Anki notes never studied (not imported)")
+    dry_run: bool
+    note_types: list[AnkiNoteType] = []
+    decks: list[str] = []
+
+
+class WordListImport(BaseModel):
+    text: str = Field(max_length=1_000_000, description="One word per line (Anki furigana/HTML ok)")
+    status: Literal[WordStatus.known, WordStatus.learning] = WordStatus.known
+    dry_run: bool = False
+
+
+class AnkiCardIn(BaseModel):
+    expression: str
+    interval_days: int = Field(ge=0, description="AnkiConnect cardsInfo `interval`")
+    studied: bool = Field(default=True, description="False for new (type 0) cards")
+
+
+class AnkiCardsImport(BaseModel):
+    cards: list[AnkiCardIn] = Field(max_length=100_000)
+    mature_days: int = Field(default=21, ge=1, le=365)
+    dry_run: bool = False

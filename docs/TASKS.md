@@ -20,7 +20,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **S-1** (#13) Jimaku integration: `GET /subs/search?q=` (AniList/Jimaku), `POST /episodes/from-jimaku` (download + ingest). deps: O-3 (claude, 2026-11-21: `/subs/search`, `/subs/{id}/files` ranked + recommended, `/episodes/from-jimaku` with zip support)
 - [x] **S-2** (#14) Media: `POST /media` (multipart screenshot/audio/clip upload) → ffmpeg transcode (WebP/Opus/VP9 360p) → `GET /media/{id}` (claude, 2026-11-21: signed URLs for <img>/<audio>, clips transcoded in background)
 - [x] **S-3** (#15) Cards + FSRS: `POST /cards` (word + line + media ids), `GET /reviews/due`, `POST /reviews` (rating), sets UserWord → learning/known (claude, 2026-11-19: py-fsrs, one card per word, auto-known at stability ≥ 21 d, `next_due` per rating, activity counters)
-- [ ] **S-4** Known-words import: from Anki (.apkg/.txt export, choose field) and plain word lists
+- [x] **S-4** (#16) Known-words import: from Anki (.apkg/.txt export, choose field) and plain word lists (claude, 2026-11-21: .apkg any version incl. zstd, AnkiConnect cards, word lists, dry run)
 - [ ] **S-5** Anki export: `.apkg` (genanki) with media; card JSON for AnkiConnect push
 - [x] **S-6** (#18) Activity tracking: `POST /activity/watch` (minutes), auto-count reviews/words; `GET /activity?from=&to=` for heatmap (claude, 2026-11-21: + streaks, `GET /anime`, `GET /anime/{id}/progress` daily trend)
 - [x] **S-7** (#19) Serve `web/dist` at `/` from FastAPI; Alembic migrations; systemd user service (claude, 2026-11-21: web serving, service/update scripts, Alembic auto-migrate on start with pre-migration backup, nightly backups ×14)
