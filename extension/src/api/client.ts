@@ -31,6 +31,8 @@ export type MediaOut = components['schemas']['MediaOut'];
 export type JimakuEntry = components['schemas']['JimakuEntry'];
 export type JimakuFile = components['schemas']['JimakuFile'];
 export type JimakuImport = components['schemas']['JimakuImport'];
+export type WatchIn = components['schemas']['WatchIn'];
+export type WatchOut = components['schemas']['WatchOut'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -580,6 +582,13 @@ export const api = {
 
   importFromJimaku(payload: JimakuImport): Promise<ApiCallResponse<EpisodeCreated>> {
     return api.call<EpisodeCreated>('/episodes/from-jimaku', {
+      method: 'POST',
+      json: payload,
+    });
+  },
+
+  sendWatchHeartbeat(payload: WatchIn): Promise<ApiCallResponse<WatchOut>> {
+    return api.call<WatchOut>('/activity/watch', {
       method: 'POST',
       json: payload,
     });

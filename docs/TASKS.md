@@ -38,7 +38,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **W-2** (#23) Library: anime → episodes, upload subtitle, understanding % bar per episode, episode detail with the transcript (furigana, word status colours, click a word → lookup + status). deps: W-1 (antigravity, 2026-11-19: grouped anime library, subtitle upload, per-episode understanding % bar, full interactive transcript with EN/DE dictionary inspector & pre-study filter, unit tests)
 - [x] **W-3** (#24) Review: FSRS session with screenshot, play line audio/clip, reveal meaning + sentence, rate Again/Hard/Good/Easy (keys 1–4). deps: W-1, S-3 (antigravity, 2026-11-19: mobile-friendly FSRS review queue with next_due interval labels, EN+DE glosses, sentence furigana + romaji, media preview/placeholder, graduation celebration, Space/1–4/R shortcuts, unit tests)
 - [x] **W-4** (#25) Words: table filterable by status / anime, bulk mark known. deps: W-1 (antigravity, 2026-11-19: vocabulary table with status/anime/episode/search filters, frequency column, multi-select bulk status bar via POST /words/bulk-status, dictionary inspector & add-card action, unit tests)
-- [ ] **W-5** Stats: GitHub-style activity heatmap + understanding % trend per anime. deps: W-1, S-6
+- [x] **W-5** (#26, #65) Stats: GitHub-style activity heatmap + understanding % trend per anime. deps: W-1, S-6 (antigravity, 2026-11-21: extension watch-time heartbeat accumulator POST /activity/watch + web 365-day activity heatmap, streaks, and per-anime understanding % SVG trend chart + episode breakdown, unit tests)
 
 ### Server fixes (Claude)
 - [x] **#8** line-level `LineOut.romaji` with grouped words (claude, 2026-11-19)
