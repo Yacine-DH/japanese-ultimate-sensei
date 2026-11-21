@@ -1,0 +1,155 @@
+import io
+import zipfile
+
+import httpx
+import pytest
+
+from app.jimaku import Jimaku, guess_episode, rank
+
+from .conftest import FIXTURES
+
+SRT = (FIXTURES / "sample.srt").read_bytes()
+ENTRY = {
+    "id": 729,
+    "name": "Sousou no Frieren",
+    "english_name": "Frieren: Beyond Journey's End",
+    "japanese_name": "葬送のフリーレン",
+    "anilist_id": 154587,
+    "flags": {"anime": True, "movie": False},
+}
+
+
+def zip_of(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in files.items():
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+FILES = {
+    "[NanakoRaws] Sousou no Frieren - 01-04 (1080p).srt": SRT,
+    "葬送のフリーレン.S01E01.冒険の終わり.WEBRip.Netflix.ja[cc].srt": SRT,
+    "[Moozzi2] Sousou no Frieren - 01 (BD 1920x1080 x265-10Bit FLACx2).ass": SRT,
+    "[Beatrice-Raws] Sousou no Frieren 01 [BDRip 1920x1080 HEVC TrueHD].sup.7z": b"7z",
+    "Frieren 01-03.zip": zip_of(
+        {"a/Frieren - 01.srt": SRT, "a/Frieren - 02.srt": SRT, "x.txt": b""}
+    ),
+}
+calls: list[httpx.Request] = []
+
+
+def fake_jimaku(request: httpx.Request) -> httpx.Response:
+    calls.append(request)
+    assert request.headers["authorization"] == "test-key"
+    path = request.url.path
+    if path == "/api/entries/search":
+        return httpx.Response(200, json=[ENTRY] if "frieren" in str(request.url).lower() else [])
+    if path == "/api/entries/729":
+        return httpx.Response(200, json=ENTRY)
+    if path == "/api/entries/729/files":
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "name": n,
+                    "url": f"https://jimaku.cc/entry/729/download/{i}",
+                    "size": len(d),
+                    "last_modified": "2024-01-01T00:00:00Z",
+                }
+                for i, (n, d) in enumerate(FILES.items())
+            ],
+        )
+    if path.startswith("/entry/729/download/"):
+        return httpx.Response(200, content=list(FILES.values())[int(path.rsplit("/", 1)[1])])
+    if path.startswith("/api/entries/1/") or path == "/api/entries/1":
+        return httpx.Response(401)
+    return httpx.Response(404)
+
+
+@pytest.fixture
+def jclient(client):
+    client.app.state.jimaku = Jimaku("test-key", transport=httpx.MockTransport(fake_jimaku))
+    return client
+
+
+def test_guess_episode():
+    cases = {
+        "[SubsPlease] Sousou no Frieren - 07 (1080p) [24356E19]_ja.srt": 7,
+        "葬送のフリーレン.S01E12.WEBRip.Netflix.ja[cc].srt": 12,
+        "[Nekomoe kissaten] Sousou no Frieren [07][Web].JPSC.ass": 7,
+        "[Beatrice-Raws] Sousou no Frieren 09 [BDRip 1920x1080 HEVC].sup.7z": 9,
+        "鬼滅の刃 第3話.srt": 3,
+        "Show - 12v2 [1080p].ass": 12,
+        "Show 2 - 03 (1080p).srt": 3,
+        "Sousou no Frieren - 特別編 (NTV 1920x1080 x264 AAC).srt": None,
+    }
+    assert {n: guess_episode(n) for n in cases} == cases
+
+
+def test_rank_prefers_single_episode_web_text_subs():
+    files = [{"name": n, "url": "u", "size": 1} for n in FILES]
+    ranked = rank(files, episode=1)
+    assert ranked[0].name.startswith("葬送のフリーレン.S01E01") and ranked[0].recommended
+    assert sum(f.recommended for f in ranked) == 1
+    by_name = {f.name: f for f in ranked}
+    assert by_name["[NanakoRaws] Sousou no Frieren - 01-04 (1080p).srt"].multi_episode
+    sup = by_name["[Beatrice-Raws] Sousou no Frieren 01 [BDRip 1920x1080 HEVC TrueHD].sup.7z"]
+    assert sup.format == "sup" and not sup.supported and ranked[-1] is sup
+
+
+def test_search_files_and_import(jclient):
+    r = jclient.get("/subs/search", params={"q": "frieren"})
+    assert r.status_code == 200 and r.json()[0] == {
+        "id": 729, "name": "Sousou no Frieren", "english_name": "Frieren: Beyond Journey's End",
+        "japanese_name": "葬送のフリーレン", "anilist_id": 154587, "movie": False,
+    }  # fmt: skip
+    assert jclient.get("/subs/search", params={"q": "nothing"}).json() == []
+    assert jclient.get("/subs/search").status_code == 422
+
+    files = jclient.get("/subs/729/files", params={"episode": 1}).json()
+    best = files[0]
+    assert best["recommended"] and best["episode"] == 1 and best["web_source"]
+
+    r = jclient.post("/episodes/from-jimaku", json={"entry_id": 729, "file_name": best["name"]})
+    assert r.status_code == 201, r.text
+    ep = r.json()
+    assert ep["source"] == "jimaku" and ep["number"] == 1.0
+    assert ep["anime_title"] == "Frieren: Beyond Journey's End" and ep["line_count"] > 0
+
+    # zip: picks the requested episode's file; same anime (matched by AniList id)
+    r = jclient.post(
+        "/episodes/from-jimaku",
+        json={
+            "entry_id": 729,
+            "file_name": "Frieren 01-03.zip",
+            "episode_number": 2,
+            "anime_title": "Other",
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert (
+        r.json()["source_filename"] == "Frieren - 02.srt" and r.json()["anime_id"] == ep["anime_id"]
+    )
+
+
+def test_import_errors(jclient):
+    def imp(**body):
+        return jclient.post("/episodes/from-jimaku", json={"entry_id": 729, **body})
+
+    assert (
+        imp(
+            file_name="[Beatrice-Raws] Sousou no Frieren 01 [BDRip 1920x1080 HEVC TrueHD].sup.7z"
+        ).status_code
+        == 422
+    )
+    assert imp(file_name="Frieren 01-03.zip").status_code == 422  # which episode? ambiguous
+    assert imp(file_name="Frieren 01-03.zip", episode_number=9).status_code == 422
+    calls.clear()
+    assert imp(file_name="https://evil.example/x.srt").status_code == 404  # only listed files
+    assert all(c.url.host == "jimaku.cc" for c in calls)
+    assert jclient.get("/subs/1/files").status_code == 502  # key rejected → bad gateway
+
+
+def test_missing_key_is_503(client):
+    assert client.get("/subs/search", params={"q": "x"}).status_code == 503

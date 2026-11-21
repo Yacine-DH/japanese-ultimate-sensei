@@ -41,6 +41,7 @@ from app.ingest import (
     understanding,
     word_counts,
 )
+from app.jimaku import Jimaku, JimakuError, extract_subtitle, guess_episode, rank
 from app.models import (
     Anime,
     Card,
@@ -65,6 +66,9 @@ from app.schemas import (
     EpisodePatch,
     EpisodeRef,
     Health,
+    JimakuEntry,
+    JimakuFile,
+    JimakuImport,
     LineOut,
     LookupResult,
     MediaOut,
@@ -96,6 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = make_engine(settings.db_path)
     app.state.dictionary = load_dictionary(settings.dictionary_path)
+    app.state.jimaku = Jimaku(settings.jimaku_api_key.strip())
 
     app.state.web = mount_web(app, settings.web_dist)
     app.add_middleware(
@@ -188,6 +193,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return out
 
+    def import_episode(
+        session: Session,
+        raw: bytes,
+        filename: str | None,
+        anime_title: str,
+        number: float | None,
+        title: str | None,
+        source: str,
+        anilist_id: int | None = None,
+        title_jp: str | None = None,
+    ) -> dict:
+        try:
+            lines = parse_bytes(raw)
+        except Exception as e:  # pysubs2 raises several types on bad input
+            raise HTTPException(422, f"could not parse subtitle file: {e}") from e
+        if not lines:
+            raise HTTPException(422, "no Japanese dialogue lines found in subtitle file")
+
+        anime = None
+        if anilist_id is not None:
+            anime = session.exec(select(Anime).where(Anime.anilist_id == anilist_id)).first()
+        if anime is None:
+            anime = session.exec(select(Anime).where(Anime.title == anime_title.strip())).first()
+        if anime is None:
+            anime = Anime(title=anime_title.strip())
+        anime.anilist_id = anime.anilist_id or anilist_id
+        anime.title_jp = anime.title_jp or title_jp
+        session.add(anime)
+        session.flush()
+        ep = Episode(
+            anime_id=anime.id,
+            number=number,
+            title=title,
+            source=source,
+            source_filename=filename,
+        )
+        session.add(ep)
+        session.flush()
+        ingest_lines(session, ep, lines, app.state.dictionary)
+        session.commit()
+        session.refresh(ep)
+        return {**episode_out(session, ep), "understanding": understanding(session, uid, ep.id)}
+
     def get_episode(session: Session, episode_id: int) -> Episode:
         ep = session.get(Episode, episode_id)
         if not ep:
@@ -225,31 +273,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         raw = await subtitle.read(MAX_SUBTITLE_BYTES + 1)
         if len(raw) > MAX_SUBTITLE_BYTES:
             raise HTTPException(413, "subtitle file too large")
-        try:
-            lines = parse_bytes(raw)
-        except Exception as e:  # pysubs2 raises several types on bad input
-            raise HTTPException(422, f"could not parse subtitle file: {e}") from e
-        if not lines:
-            raise HTTPException(422, "no Japanese dialogue lines found in subtitle file")
-
-        anime = session.exec(select(Anime).where(Anime.title == anime_title.strip())).first()
-        if not anime:
-            anime = Anime(title=anime_title.strip())
-            session.add(anime)
-            session.flush()
-        ep = Episode(
-            anime_id=anime.id,
-            number=episode_number,
-            title=title,
-            source="upload",
-            source_filename=subtitle.filename,
+        return import_episode(
+            session, raw, subtitle.filename, anime_title, episode_number, title, source="upload"
         )
-        session.add(ep)
-        session.flush()
-        ingest_lines(session, ep, lines, app.state.dictionary)
-        session.commit()
-        session.refresh(ep)
-        return {**episode_out(session, ep), "understanding": understanding(session, uid, ep.id)}
 
     @app.get("/episodes", response_model=list[EpisodeOut], dependencies=auth, tags=["episodes"])
     def list_episodes(session: Session = Depends(get_session)):
@@ -654,5 +680,77 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         (media_dir / m.path).unlink(missing_ok=True)
         session.delete(m)
         session.commit()
+
+    # ---- Jimaku subtitle search (S-1) -----------------------------------------------------
+
+    def jimaku_call(fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except JimakuError as e:
+            raise HTTPException(e.status, str(e)) from e
+
+    def entry_out(e: dict) -> JimakuEntry:
+        return JimakuEntry(
+            id=e["id"],
+            name=e.get("name") or "",
+            english_name=e.get("english_name"),
+            japanese_name=e.get("japanese_name"),
+            anilist_id=e.get("anilist_id"),
+            movie=bool((e.get("flags") or {}).get("movie")),
+        )
+
+    @app.get("/subs/search", response_model=list[JimakuEntry], dependencies=auth, tags=["subs"])
+    def subs_search(
+        q: str | None = Query(None, min_length=1, description="Anime title (romaji/EN/JP)"),
+        anilist_id: int | None = None,
+    ):
+        """Find the anime on jimaku.cc (Japanese subtitles)."""
+        if not q and anilist_id is None:
+            raise HTTPException(422, "pass q or anilist_id")
+        found = jimaku_call(app.state.jimaku.search, q or "", anilist_id)
+        return [entry_out(e) for e in found[:25]]
+
+    @app.get(
+        "/subs/{entry_id}/files", response_model=list[JimakuFile], dependencies=auth, tags=["subs"]
+    )
+    def subs_files(entry_id: int, episode: int | None = Query(None, ge=0)):
+        """Subtitle files of an entry, best first: single-episode text subtitles from web/TV
+        releases rank highest; bundles (01-04), image subs and 7z/rar sink to the bottom."""
+        files = jimaku_call(app.state.jimaku.files, entry_id, episode)
+        return [
+            JimakuFile(**{k: v for k, v in vars(f).items() if k in JimakuFile.model_fields})
+            for f in rank(files, episode)
+        ]
+
+    @app.post(
+        "/episodes/from-jimaku",
+        response_model=EpisodeCreated,
+        status_code=201,
+        dependencies=auth,
+        tags=["episodes", "subs"],
+    )
+    def episode_from_jimaku(body: JimakuImport, session: Session = Depends(get_session)):
+        """Download a Jimaku file (zip archives are unpacked) and import it as an episode."""
+        jm = app.state.jimaku
+        entry = jimaku_call(jm.entry, body.entry_id)
+        number = body.episode_number
+        if number is None and (guessed := guess_episode(body.file_name)) is not None:
+            number = float(guessed)
+        data = jimaku_call(jm.download, body.entry_id, body.file_name)
+        name, raw = jimaku_call(
+            extract_subtitle, body.file_name, data, int(number) if number is not None else None
+        )
+        title = body.anime_title or entry.get("english_name") or entry.get("name") or "Unknown"
+        return import_episode(
+            session,
+            raw,
+            name,
+            title,
+            number,
+            None,
+            source="jimaku",
+            anilist_id=entry.get("anilist_id"),
+            title_jp=entry.get("japanese_name"),
+        )
 
     return app

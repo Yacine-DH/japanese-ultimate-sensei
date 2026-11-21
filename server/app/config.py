@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     # Required: the server refuses to start without one (generate: openssl rand -hex 24).
     api_token: str = ""
+    # jimaku.cc API key for subtitle search/import (free account → API key).
+    jimaku_api_key: str = ""
     # Escape hatch for local development / tests only: run with auth disabled.
     allow_no_auth: bool = False
     data_dir: Path = REPO_ROOT / "data"

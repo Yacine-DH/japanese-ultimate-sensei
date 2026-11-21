@@ -224,3 +224,40 @@ class ReviewOut(BaseModel):
     card: CardOut
     word_status: WordStatus
     graduated: bool = Field(description="True when this review made the word 'known'")
+
+
+# ---- Jimaku subtitle search (S-1) ----------------------------------------------------
+
+
+class JimakuEntry(BaseModel):
+    id: int
+    name: str = Field(description="Romaji title")
+    english_name: str | None = None
+    japanese_name: str | None = None
+    anilist_id: int | None = None
+    movie: bool = False
+
+
+class JimakuFile(BaseModel):
+    name: str = Field(description="Pass this as file_name to POST /episodes/from-jimaku")
+    size: int
+    last_modified: str
+    format: str = Field(description="srt | ass | ssa | vtt | zip | 7z | rar | sup | other")
+    supported: bool = Field(description="Importable (text subtitles, or a zip of them)")
+    episode: int | None = Field(description="Episode number guessed from the file name")
+    multi_episode: bool = Field(
+        description="Several episodes in one file (e.g. 01-04): can't import"
+    )
+    web_source: bool = Field(description="Web/TV release: timing likely matches streaming sites")
+    recommended: bool = Field(description="Best pick (at most one per list)")
+
+
+class JimakuImport(BaseModel):
+    entry_id: int
+    file_name: str
+    episode_number: float | None = Field(
+        default=None, description="Defaults to the number guessed from the file name"
+    )
+    anime_title: str | None = Field(
+        default=None, description="Defaults to the entry's English title (else romaji)"
+    )
