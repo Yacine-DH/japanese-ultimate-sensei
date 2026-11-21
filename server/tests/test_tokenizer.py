@@ -82,3 +82,19 @@ def test_colloquial_readings():
         ("何で泣いてるの", "なん"), ("何の話", "なん"), ("何だと", "なん"), ("何と言った", "なん"),
     ]:  # fmt: skip
         assert reading_of(text, "何") == want, text
+
+
+def test_nan_nani_before_verbs_and_counters():
+    for text, want in [
+        ("何飲んでるの", "なに"), ("何泣いてるの", "なに"), ("何できるの", "なに"),
+        ("何冊ある", "なん"), ("何軒", "なん"), ("何なの", "なん"),
+    ]:  # fmt: skip
+        assert reading_of(text, "何") == want, text
+
+
+def test_nani_key_is_context_free():
+    keys = {
+        by_surface(tokenize(t))["何"].lemma_reading
+        for t in ("何を食べる", "何の話", "何飲んでるの")
+    }
+    assert len(keys) == 1  # one word, one status, whatever the furigana says

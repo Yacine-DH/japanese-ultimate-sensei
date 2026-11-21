@@ -102,27 +102,36 @@ def is_katakana_word(s: str) -> bool:
 
 
 # Sudachi gives dictionary-default readings with no context. Spoken (anime) Japanese mostly
-# uses these instead; showing the formal one as furigana would mislead a learner.
-_COLLOQUIAL = {"私": "わたし", "明日": "あした", "貴方": "あなた", "一昨日": "おととい"}
-# 何 is なん before d/t/n sounds and counters (なんで, なんと, なんの, なんだ, 何人), else なに.
-_NAN_NEXT = ("だ", "で", "と", "の", "て", "ど", "じ", "な", "に")
-_NANI_NEXT_EXCEPTIONS = ("に",)  # 何に → なにに
+# uses these instead; showing the formal one as furigana would mislead a learner. These are
+# context-free, so they also change the word's key reading (old rows are merged on reprocess,
+# see ingest.merge_reading_fixes).
+COLLOQUIAL = {"私": "わたし", "明日": "あした", "貴方": "あなた"}
+# 何 is なん before particles/auxiliaries starting with d/t/n sounds (なんで, なんの, なんだ,
+# なんと, なんなの) and as a counter prefix (何冊, 何軒); otherwise なに (何を, 何が, 何飲んでるの).
+_NAN_SOUNDS = ("だ", "で", "と", "の", "て", "ど", "な")
+
+
+def _nan_or_nani(t: Token, nxt: Token | None) -> str:
+    if "数詞" in t.pos_detail:
+        return "なん"
+    if nxt is not None and nxt.pos in ("助詞", "助動詞") and nxt.reading[:1] in _NAN_SOUNDS:
+        return "なん"
+    return "なに"
 
 
 def _fix_readings(tokens: list[Token]) -> None:
     for i, t in enumerate(tokens):
-        new = None
-        if t.surface in _COLLOQUIAL and t.lemma == t.surface:
-            new = _COLLOQUIAL[t.surface]
+        if t.surface in COLLOQUIAL and t.lemma == t.surface:
+            new = COLLOQUIAL[t.surface]
+            t.lemma_reading = new  # context-free: one key for the word everywhere
         elif t.surface == "何" and t.lemma == "何":
-            nxt = tokens[i + 1] if i + 1 < len(tokens) else None
-            counter = nxt is not None and "助数詞" in "".join(nxt.pos_detail)
-            sound = nxt.reading[:1] if nxt else ""
-            nan = counter or (sound in _NAN_NEXT and nxt.reading not in _NANI_NEXT_EXCEPTIONS)
-            new = "なん" if nan else "なに"
-        if new and new != t.reading:
+            # Display only: the word keeps Sudachi's lemma reading as its key, so 何を and
+            # 何の are the same word (one status, one card).
+            new = _nan_or_nani(t, tokens[i + 1] if i + 1 < len(tokens) else None)
+        else:
+            continue
+        if new != t.reading:
             t.reading = new
-            t.lemma_reading = new
             t.furigana = furigana(t.surface, new)
             t.romaji = _romaji(t.surface, new, t.pos)
 

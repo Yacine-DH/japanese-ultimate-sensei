@@ -6,10 +6,10 @@ from collections.abc import Iterable
 from sqlmodel import Session, select
 
 from app.dictionary import Dictionary
-from app.models import Episode, SubtitleLine, UserWord, Word, WordStatus
+from app.models import Card, Episode, SubtitleLine, UserWord, Word, WordStatus
 from app.nlp.frequency import zipf
 from app.nlp.kana import has_kanji
-from app.nlp.tokenizer import Token, is_proper_noun, tokenize
+from app.nlp.tokenizer import COLLOQUIAL, Token, is_proper_noun, lemma_reading, tokenize
 from app.subtitles import ParsedLine
 
 UNDERSTOOD = {WordStatus.known, WordStatus.ignored}
@@ -92,12 +92,60 @@ def ingest_lines(
     return n
 
 
+_RANK = {WordStatus.new: 0, WordStatus.learning: 1, WordStatus.known: 2, WordStatus.ignored: 3}
+
+
+def merge_reading_fixes(session: Session) -> int:
+    """Words whose key reading changed (私 わたくし → わたし, …): move statuses and cards onto
+    the new key so nothing is orphaned when episodes are re-tokenized. Returns rows merged."""
+    pairs = [(lemma, lemma_reading(lemma), new) for lemma, new in COLLOQUIAL.items()]
+    pairs.append(("何", "なに", lemma_reading("何")))  # undo a short-lived context-dependent key
+    merged = 0
+    for lemma, old_reading, new_reading in pairs:
+        if old_reading == new_reading:
+            continue
+        old = session.exec(
+            select(Word).where(Word.lemma == lemma, Word.reading == old_reading)
+        ).first()
+        if old is None:
+            continue
+        new = session.exec(
+            select(Word).where(Word.lemma == lemma, Word.reading == new_reading)
+        ).first()
+        if new is None:  # just re-key: same id, statuses and cards stay attached
+            old.reading = new_reading
+            session.add(old)
+            merged += 1
+            continue
+        for uw in session.exec(select(UserWord).where(UserWord.word_id == old.id)).all():
+            target = session.exec(
+                select(UserWord).where(UserWord.user_id == uw.user_id, UserWord.word_id == new.id)
+            ).first()
+            if target is None:
+                uw.word_id = new.id
+                session.add(uw)
+            else:
+                if _RANK[uw.status] > _RANK[target.status]:
+                    target.status = uw.status
+                    session.add(target)
+                session.delete(uw)
+        for card in session.exec(select(Card).where(Card.word_id == old.id)).all():
+            card.word_id = new.id
+            session.add(card)
+        session.flush()
+        session.delete(old)
+        merged += 1
+    session.flush()
+    return merged
+
+
 def reprocess_episode(session: Session, episode_id: int, dictionary: Dictionary | None) -> int:
     """Re-tokenize an episode's stored lines after tokenizer/dictionary changes.
 
     Rows are updated in place so line ids (referenced by cards) stay stable; word statuses
     are untouched because words are keyed by lemma + reading.
     """
+    merge_reading_fixes(session)
     resolver = WordResolver(session, dictionary)
     lines = episode_lines(session, episode_id)
     for line in lines:

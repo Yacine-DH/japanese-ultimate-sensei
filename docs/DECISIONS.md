@@ -11,7 +11,11 @@ Newest first. One entry per decision that would surprise someone later.
   first: normalization merges distinct words (斬る → 切る, 妬く → 焼く); found by Antigravity's
   headless review of PR #79.
 - **Colloquial readings override** Sudachi's dictionary defaults for a few words (私 → わたし,
-  明日 → あした) and 何 follows a sound rule (なん before d/t/n/counters, else なに). Lookups accept `word_id` to return that link
+  明日 → あした); context-free, so they also change the word key, and `merge_reading_fixes`
+  (run by reprocess) moves statuses/cards from the old key. 何's なに/なん is **display only**
+  (reading, furigana, romaji): its key stays Sudachi's, so it's one word in every context
+  (なん before particles/auxiliaries starting with d/t/n sounds and as a counter prefix).
+  Both refinements came from Antigravity's headless review of PR #85. Lookups accept `word_id` to return that link
   first. `python -m app.reprocess` re-links existing words.
 - JLPT levels: not added (no clean, well-licensed list in a package yet).
 
