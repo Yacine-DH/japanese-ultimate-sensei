@@ -13,10 +13,21 @@ import httpx
 BASE_URL = "https://jimaku.cc/api"
 SUBTITLE_EXT = (".srt", ".ass", ".ssa", ".vtt")
 MAX_DOWNLOAD = 25 * 1024 * 1024
-# Release tags whose timing usually matches streaming sites (web rips / TV), not Blu-ray.
+# Release tags whose timing usually matches streaming sites: web rips. Free sites mostly
+# re-host Crunchyroll/Netflix/Amazon encodes (SubsPlease and Erai-raws rip Crunchyroll).
+# TV broadcast rips (AT-X, TOKYO MX…) are neutral, Blu-ray gets a malus (different cut).
 WEB_TAGS = re.compile(
-    r"\b(web|netflix|nf|amzn|amazon|cr|crunchyroll|b-global|hulu|abema|at-x|tv)\b", re.I
+    r"\b(web|webrip|web-?dl|netflix|nf|amzn|amazon|cr|crunchyroll|b-global|hulu|abema|hidive"
+    r"|disney|dsnp|subsplease|erai|erai-raws)\b",
+    re.I,
 )
+BD_TAGS = re.compile(r"\b(bd|bdrip|bd-?rip|blu-?ray|bdmv|bdremux)\b", re.I)
+# Dual-language files (_ja-en.ass, [CHS, JPN], JPSC) would import English/Chinese lines.
+DUAL_TAGS = re.compile(
+    r"(?:^|[^a-z])(ja[-_+]en|en[-_+]ja|jpsc|jptc|jpn?[-_+]?(?:chs|cht|sc|tc)|chs|cht|eng)(?:[^a-z]|$)",
+    re.I,
+)
+SDH_TAGS = re.compile(r"[\[(](sdh|cc)[\])]", re.I)
 _EP_PATTERNS = [
     re.compile(
         r"\b(?:s\d{1,2})?e(?:p(?:isode)?)?[ ._-]?(\d{1,4})(?:v\d)?\b", re.I
@@ -49,6 +60,7 @@ class FileInfo:
     multi_episode: bool  # e.g. "01-04": several episodes in one file (can't import one)
     web_source: bool  # timing likely matches streaming sites
     score: int = 0
+    dual_language: bool = False  # also has English/Chinese lines
     recommended: bool = False
 
 
@@ -91,11 +103,15 @@ def describe(f: dict, episode: int | None = None) -> FileInfo:
         episode=None if multi else guess_episode(name),
         multi_episode=multi,
         web_source=bool(WEB_TAGS.search(name)),
+        dual_language=bool(DUAL_TAGS.search(name)),
     )
     info.score = (
         (10 if info.supported else -100)
         + (5 if not multi else -20)
         + (3 if info.web_source else 0)
+        - (4 if BD_TAGS.search(name) else 0)
+        - (15 if info.dual_language else 0)
+        - (1 if SDH_TAGS.search(name) else 0)  # needs SDH stripping; plain subs are cleaner
         + (2 if fmt == "srt" else 1 if fmt == "ass" else 0)  # srt: no styling noise
         + (4 if episode is not None and info.episode == episode else 0)
     )
@@ -104,7 +120,7 @@ def describe(f: dict, episode: int | None = None) -> FileInfo:
 
 def rank(files: list[dict], episode: int | None = None) -> list[FileInfo]:
     out = sorted((describe(f, episode) for f in files), key=lambda i: (-i.score, i.name))
-    if out and out[0].supported and not out[0].multi_episode:
+    if out and out[0].supported and not out[0].multi_episode and not out[0].dual_language:
         out[0].recommended = True
     return out
 

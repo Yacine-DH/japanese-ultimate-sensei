@@ -6,11 +6,11 @@ from collections.abc import Iterable
 from sqlmodel import Session, select
 
 from app.dictionary import Dictionary
-from app.models import Card, Episode, SubtitleLine, UserWord, Word, WordStatus
+from app.models import Card, Episode, LineNote, SubtitleLine, UserWord, Word, WordStatus
 from app.nlp.frequency import zipf
-from app.nlp.kana import has_kanji
+from app.nlp.kana import has_japanese, has_kanji
 from app.nlp.tokenizer import COLLOQUIAL, Token, is_proper_noun, lemma_reading, tokenize
-from app.subtitles import ParsedLine
+from app.subtitles import ParsedLine, strip_annotations
 
 UNDERSTOOD = {WordStatus.known, WordStatus.ignored}
 
@@ -59,7 +59,7 @@ class WordResolver:
             else [normalized, tok.lemma, tok.lemma_reading]
         )
         for text in dict.fromkeys(filter(None, order)):
-            if text and (hit := self.dictionary.best(text, tok.lemma_reading)):
+            if text and (hit := self.dictionary.best(text, tok.lemma_reading, tok.pos)):
                 return hit
         return None
 
@@ -143,15 +143,32 @@ def reprocess_episode(session: Session, episode_id: int, dictionary: Dictionary 
     """Re-tokenize an episode's stored lines after tokenizer/dictionary changes.
 
     Rows are updated in place so line ids (referenced by cards) stay stable; word statuses
-    are untouched because words are keyed by lemma + reading.
+    are untouched because words are keyed by lemma + reading. The text gets the current
+    subtitle cleanup too; lines that turn out to be only a sound cue are dropped unless a
+    card uses them.
     """
     merge_reading_fixes(session)
     resolver = WordResolver(session, dictionary)
     lines = episode_lines(session, episode_id)
+    used = set(
+        session.exec(
+            select(Card.line_id).where(Card.line_id.in_([line.id for line in lines]))  # type: ignore[union-attr]
+        ).all()
+    )
+    kept = 0
     for line in lines:
+        clean = strip_annotations(line.text)
+        if not has_japanese(clean) and line.id not in used:
+            for note in session.exec(select(LineNote).where(LineNote.line_id == line.id)):
+                session.delete(note)
+            session.delete(line)
+            continue
+        if has_japanese(clean):
+            line.text = clean
         line.tokens_json = tokens_json(line.text, resolver)
         session.add(line)
-    return len(lines)
+        kept += 1
+    return kept
 
 
 def token_is_proper(t: dict) -> bool:
@@ -239,8 +256,9 @@ def relink_words(session: Session, dictionary: Dictionary) -> int:
         tok = toks[0]
         tok.lemma, tok.lemma_reading = word.lemma, word.reading
         hit = resolver._jmdict(tok)
-        if hit and (word.jmdict_id, word.common) != hit:
-            word.jmdict_id, word.common = hit
+        pos = tok.pos if tok.is_content or tok.is_proper_noun else word.pos
+        if hit and ((word.jmdict_id, word.common) != hit or word.pos != pos):
+            (word.jmdict_id, word.common), word.pos = hit, pos  # pos: the link was chosen by it
             session.add(word)
             changed += 1
     return changed

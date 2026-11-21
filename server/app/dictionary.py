@@ -94,6 +94,20 @@ def _is_kanji(c: str) -> bool:
     return "\u4e00" <= c <= "\u9fff" or "\u3400" <= c <= "\u4dbf" or c in "々〆"
 
 
+# Sudachi top-level POS → LIKE pattern on a JMdict sense's pos JSON list.
+JMDICT_POS = {
+    "動詞": '%"v%',
+    "形容詞": '%"adj-i%',
+    "形状詞": '%"adj-na"%',
+    "副詞": '%"adv%',
+    "連体詞": '%"adj-pn"%',
+    "名詞": '%"n"%',
+    "代名詞": '%"pn"%',
+    "感動詞": '%"int"%',
+    "接続詞": '%"conj"%',
+}
+
+
 class Dictionary:
     """Thread-safe-enough read-only lookups (one connection per call)."""
 
@@ -113,11 +127,14 @@ class Dictionary:
         finally:
             con.close()
 
-    def find_ids(self, text: str, reading: str | None = None, limit: int = 5) -> list[str]:
+    def find_ids(
+        self, text: str, reading: str | None = None, limit: int = 5, pos: str | None = None
+    ) -> list[str]:
         """Entry ids whose kanji or kana form equals `text`, best match first.
 
-        Ranking: entries that also have `reading` as a kana form; common entries; for
-        kana-only queries, entries normally written in kana (first sense tagged `uk`, or no
+        Ranking: entries that also have `reading` as a kana form; common entries; entries
+        whose part of speech matches `pos` (a Sudachi top-level tag: 副詞 そう → 然う "in that
+        way", not the auxiliary "seeming"; 動詞 ある → 有る, not 或る); for kana-only queries, entries normally written in kana (first sense tagged `uk`, or no
         kanji form: こと → 事, not 琴); then entries where `text` is a primary form (low `ord`).
         Kana homophones stay ambiguous (いる: 居る/要る); pass the word's link where known.
         """
@@ -132,15 +149,17 @@ class Dictionary:
                     NOT EXISTS(SELECT 1 FROM forms k WHERE k.entry_id = f.entry_id AND k.is_kanji = 1)
                     OR EXISTS(SELECT 1 FROM senses s WHERE s.entry_id = f.entry_id
                               AND s.lang = 'eng' AND s.idx = 0 AND s.misc LIKE '%"uk"%')
-                  )) AS kana_word
+                  )) AS kana_word,
+                  EXISTS(SELECT 1 FROM senses p WHERE p.entry_id = f.entry_id
+                         AND p.lang = 'eng' AND p.pos LIKE ?) AS pos_match
                 FROM forms f JOIN entries e ON e.id = f.entry_id
                 WHERE f.text = ?
                 GROUP BY f.entry_id
-                ORDER BY reading_match DESC, common DESC, kana_word DESC, ord ASC,
-                         CAST(f.entry_id AS INTEGER)
+                ORDER BY reading_match DESC, common DESC, pos_match DESC, kana_word DESC,
+                         ord ASC, CAST(f.entry_id AS INTEGER)
                 LIMIT ?
                 """,
-                (reading or "", int(kana_query), text, limit),
+                (reading or "", int(kana_query), JMDICT_POS.get(pos or "", ""), text, limit),
             ).fetchall()
         return [r["id"] for r in rows]
 
@@ -184,9 +203,11 @@ class Dictionary:
         # resolve before trimming: a stale `first` (entry gone after a JMdict update) is skipped
         return [e for eid in ids if (e := self.entry(eid))][:limit]
 
-    def best(self, text: str, reading: str | None = None) -> tuple[str, bool] | None:
+    def best(
+        self, text: str, reading: str | None = None, pos: str | None = None
+    ) -> tuple[str, bool] | None:
         """(entry_id, common) of the best entry, or None."""
-        ids = self.find_ids(text, reading, limit=1)
+        ids = self.find_ids(text, reading, limit=1, pos=pos)
         if not ids:
             return None
         with self._con() as con:

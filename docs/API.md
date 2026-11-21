@@ -64,7 +64,9 @@ Display rule for clients: line is active when
 
 ### `POST /episodes/{id}/reprocess` → `EpisodeCreated`
 Re-tokenizes the stored lines with the current tokenizer + dictionary (needed after server
-updates such as name detection). Line ids and word statuses are kept. CLI for all episodes:
+updates such as name detection). Line ids and word statuses are kept. Stored text gets the
+current subtitle cleanup too: lines that are only a sound cue (（足音）) are dropped unless a
+card uses them, so `line_count` can go down. CLI for all episodes (also re-links words):
 `cd server && uv run python -m app.reprocess`.
 
 ### `GET /episodes/{id}/missed?limit=30&include_learning=false` → `MissedWord[]`
@@ -191,12 +193,14 @@ Needs `SENSEI_JIMAKU_API_KEY` on the server (503 otherwise; 502 if jimaku.cc rej
 
 ### `GET /subs/{entry_id}/files?episode=<n>` → `JimakuFile[]` (best first)
 ```json
-[{"name":"Sousou no Frieren - 01 「冒険の終わり 」 (AT-X 1280x720 x264 AAC).srt","size":23195,
+[{"name":"[SubsPlease] Sousou no Frieren - 01 (1080p) [F02B9CEE]_ja.srt","size":23195,
   "last_modified":"2024-03-03T14:43:52Z","format":"srt","supported":true,"episode":1,
-  "multi_episode":false,"web_source":true,"recommended":true}]
+  "multi_episode":false,"web_source":true,"dual_language":false,"recommended":true}]
 ```
-Ranking: importable single-episode text subs from web/TV releases first (their timing usually
-matches streaming sites), then Blu-ray; multi-episode bundles (`01-04`), image subs (`.sup`) and
+Ranking: importable single-episode text subs from web releases first (Crunchyroll/SubsPlease,
+Netflix, Amazon…: free streaming sites re-host these, so timing matches), then TV rips (AT-X),
+then Blu-ray; dual-language files (`_ja-en`, `[CHS, JPN]`, `dual_language:true`: they would
+import English/Chinese lines) are never recommended; multi-episode bundles (`01-04`), image subs (`.sup`) and
 `.7z`/`.rar` last with `supported:false` or `multi_episode:true`. At most one `recommended`.
 Omit `episode` to list every file of the entry.
 

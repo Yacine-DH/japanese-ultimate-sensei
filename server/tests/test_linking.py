@@ -12,7 +12,7 @@ class SpyDictionary:
     def __init__(self):
         self.queries: list[str] = []
 
-    def best(self, text, reading=None):
+    def best(self, text, reading=None, pos=None):
         self.queries.append(text)
         return ("1", True)  # first query wins
 

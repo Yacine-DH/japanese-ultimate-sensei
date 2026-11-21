@@ -32,3 +32,37 @@ def test_lookup_skips_stale_first_entry(dictionary):
     ids = [e["id"] for e in dictionary.lookup("たべる", limit=1, first="0000000")]
     assert ids == ["1358280"]
     assert len(dictionary.lookup("たべる", limit=5, first="0000000")) == 2  # nothing dropped
+
+
+def test_pos_breaks_ties_between_kana_homographs(tmp_path):
+    """副詞 そう is 然う "in that way", not the auxiliary "seeming" (#89)."""
+    import json
+
+    from app.dictionary import Dictionary, build
+
+    def entry(eid, kana, pos, gloss, misc=()):
+        return {
+            "id": eid,
+            "kanji": [],
+            "kana": [{"text": kana, "common": True, "tags": []}],
+            "sense": [
+                {"partOfSpeech": pos, "misc": list(misc), "gloss": [{"lang": "eng", "text": gloss}]}
+            ],
+        }
+
+    src = tmp_path / "d.json"
+    src.write_text(
+        json.dumps(
+            {
+                "words": [
+                    entry("1006610", "そう", ["aux", "adj-na"], "appearing that"),
+                    entry("2137720", "そう", ["adv"], "in that way", ["uk"]),
+                ]
+            }
+        )
+    )
+    out = tmp_path / "d.sqlite"
+    build([src], out)
+    d = Dictionary(out)
+    assert d.best("そう", "そう", "副詞")[0] == "2137720"
+    assert d.best("そう", "そう", "形状詞")[0] == "1006610"
