@@ -31,3 +31,6 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# LLM benchmark reports (app.llm_bench)
+llm-bench*.md
