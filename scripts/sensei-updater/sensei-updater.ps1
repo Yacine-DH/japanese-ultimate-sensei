@@ -56,6 +56,33 @@ function Send-Message($Object) {
   $StdOut.Flush()
 }
 
+# Safety: the updater writes into (and prunes) the extension folder, so that folder must hold the
+# extension and nothing else. Refuse well-known personal folders outright, and any folder with
+# top-level entries that aren't part of an extension build. Pruning only ever deletes files this
+# updater wrote before (listed in .sensei-files.txt), never anything else.
+$TrackFile = '.sensei-files.txt'
+$KnownTopLevel = @('background.js', 'chunks', 'content-scripts', 'icon', 'manifest.json', 'options.html',
+  'popup.html', 'assets', '_locales', '_metadata', $TrackFile)
+
+function Get-UnsafeReason([string]$Folder) {
+  $full = [IO.Path]::GetFullPath($Folder).TrimEnd('\', '/')
+  if ($full.Length -le 3) { return "$full is a drive root." }
+  $personal = @(
+    [Environment]::GetFolderPath('MyDocuments'), [Environment]::GetFolderPath('Desktop'),
+    [Environment]::GetFolderPath('UserProfile'), $env:OneDrive, $env:OneDriveConsumer,
+    (Join-Path $env:USERPROFILE 'Downloads'), (Join-Path $env:USERPROFILE 'Documents'),
+    (Join-Path $env:USERPROFILE 'Desktop')
+  ) | Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\', '/') }
+  if ($personal -contains $full) { return "$full is a personal folder (Documents, Desktop, ...)." }
+  return $null
+}
+
+function Get-ForeignEntries([string]$Folder, [string[]]$Allowed) {
+  if (-not (Test-Path -LiteralPath $Folder)) { return @() }
+  return @(Get-ChildItem -LiteralPath $Folder -Force | Where-Object { $Allowed -notcontains $_.Name } |
+    ForEach-Object { $_.Name })
+}
+
 function Get-ManifestInfo([string]$Folder) {
   $path = Join-Path $Folder 'manifest.json'
   if (-not (Test-Path -LiteralPath $path)) { return $null }
@@ -104,28 +131,38 @@ function Invoke-Update($Config) {
     if ($installed -and $installed.key -and $new.key -and ($installed.key -ne $new.key)) {
       throw "The folder $folder holds a different extension; not touching it."
     }
+    $unsafe = Get-UnsafeReason $folder
+    if ($unsafe) { throw "Not updating: $unsafe Move the extension to its own folder (run install-updater.ps1 -Folder <new folder>)." }
+    $newTop = @(Get-ChildItem -LiteralPath $unpacked -Force | ForEach-Object { $_.Name })
+    $foreign = Get-ForeignEntries $folder ($KnownTopLevel + $newTop)
+    if ($foreign.Count -gt 0) {
+      throw ("Not updating: the folder also holds other things ({0}). Move the extension to its own folder." -f (($foreign | Select-Object -First 5) -join ', '))
+    }
     if (-not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Path $folder | Out-Null }
+    $trackPath = Join-Path $folder $TrackFile
+    $previous = @()
+    if (Test-Path -LiteralPath $trackPath) { $previous = @(Get-Content -LiteralPath $trackPath -Encoding UTF8 | Where-Object { $_ }) }
     $newFiles = @{}
+    $newList = New-Object System.Collections.Generic.List[string]
     Get-ChildItem -LiteralPath $unpacked -Recurse -File | ForEach-Object {
       $rel = $_.FullName.Substring($unpacked.Length).TrimStart('\', '/')
       $newFiles[$rel.ToLowerInvariant()] = $true
+      $newList.Add($rel)
       $dest = Join-Path $folder $rel
       $destDir = Split-Path -Parent $dest
       if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
       Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
     }
-    # Remove files from older builds (hashed chunk names change), but only in a folder we
-    # verified above to be this extension.
+    # Remove files from the previous build that this build no longer has (hashed chunk names
+    # change). Only paths this updater recorded last time, inside the folder, are candidates.
     $removed = 0
-    if ($installed) {
-      Get-ChildItem -LiteralPath $folder -Recurse -File | ForEach-Object {
-        $rel = $_.FullName.Substring($folder.TrimEnd('\', '/').Length).TrimStart('\', '/')
-        if (-not $newFiles.ContainsKey($rel.ToLowerInvariant())) {
-          Remove-Item -LiteralPath $_.FullName -Force
-          $removed++
-        }
-      }
+    foreach ($rel in $previous) {
+      if ($rel -match '(^|[\\/])\.\.([\\/]|$)' -or [IO.Path]::IsPathRooted($rel)) { continue }
+      if ($newFiles.ContainsKey($rel.ToLowerInvariant())) { continue }
+      $old = Join-Path $folder $rel
+      if (Test-Path -LiteralPath $old -PathType Leaf) { Remove-Item -LiteralPath $old -Force; $removed++ }
     }
+    [IO.File]::WriteAllLines($trackPath, $newList, (New-Object System.Text.UTF8Encoding $false))
     Write-Log ("updated {0} -> {1} ({2}), {3} files, {4} removed" -f `
       $(if ($installed) { $installed.version } else { 'none' }), $new.version, $latest.extension_commit, $newFiles.Count, $removed)
     return @{ ok = $true; version = $new.version; commit = $latest.extension_commit; files = $newFiles.Count; removed = $removed }

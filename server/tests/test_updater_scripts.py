@@ -61,3 +61,15 @@ def test_release_notes_list_prs_and_commits():
     text = rn.notes("0.1.33", "v0.1.32", rn.changes(log), "http://server:8000")
     assert "since v0.1.32" in text and "install-updater.ps1" in text and "(#125)" in text
     assert "Maintenance only" in rn.notes("0.1.33", None, [], "http://s")
+
+
+def test_updater_never_prunes_outside_its_own_file_list():
+    host = (ROOT / "scripts/sensei-updater/sensei-updater.ps1").read_text()
+    installer = (ROOT / "scripts/install-updater.ps1").read_text()
+    # refuses personal folders (Documents, Desktop, OneDrive, ...) and mixed folders
+    assert "Get-UnsafeReason" in host and "Get-ForeignEntries" in host
+    assert "MyDocuments" in host and "MyDocuments" in installer
+    # deletion candidates come only from .sensei-files.txt, never from listing the folder
+    assert "foreach ($rel in $previous)" in host
+    assert "Get-ChildItem -LiteralPath $folder -Recurse" not in host
+    assert ".sensei-files.txt" in installer
