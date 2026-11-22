@@ -46,12 +46,14 @@ import {
   testAnkiConnect,
 } from '../src/lib/anki-connect';
 import {
+  advanceTabTitleWatch,
   type AutoAttachNotice,
   decideAutoAttach,
   extractSeriesPrefixPattern,
   formatAutoAttachFailureNotice,
   formatAutoAttachSuccessToast,
-  shouldWaitForTabTitle,
+  removeMappingsForDetach,
+  type TabTitleWatchState,
 } from '../src/lib/auto-attach';
 import { EpisodeTranscriptCache, type SessionStorageLike } from '../src/lib/line-cache';
 import { getSettings, isServerUrlConfigured, saveSettings } from '../src/lib/settings';
@@ -120,6 +122,7 @@ export default defineBackground(() => {
 
   const tabOverrides = new Map<number, TabOverride>();
   const lastTabPattern = new Map<number, string | null>();
+  const tabTitleWatch = new Map<number, TabTitleWatchState>();
   const inFlightAutoAttach = new Map<string, Promise<TriggerAutoAttachResponse>>();
   const attemptedAutoAttach = new Map<number, string>();
   const pendingNotices = new Map<number, PendingNoticeEntry>();
@@ -430,10 +433,21 @@ export default defineBackground(() => {
       attemptedAutoAttach.delete(tabId);
     }
 
+    const { nextState, readiness } = advanceTabTitleWatch({
+      prevState: tabTitleWatch.get(tabId),
+      pageUrl: currentUrl,
+      tabTitle: changeInfo.title ?? tab.title ?? '',
+      tabStatus: tab.status,
+      urlChanged: Boolean(changeInfo.url),
+      titleChanged: Boolean(changeInfo.title),
+      nowMs: Date.now(),
+    });
+    tabTitleWatch.set(tabId, nextState);
+
     if (!pattern) return;
     if (changeInfo.url || changeInfo.status === 'complete' || changeInfo.title) {
-      if (changeInfo.title || !shouldWaitForTabTitle(currentUrl, tab.status)) {
-        void runAutoAttachForTab(tabId, currentUrl, tab.title ?? '');
+      if (readiness === 'ready') {
+        void runAutoAttachForTab(tabId, currentUrl, changeInfo.title ?? tab.title ?? '');
       }
     }
   });
@@ -441,6 +455,7 @@ export default defineBackground(() => {
   browser.tabs.onRemoved.addListener((tabId) => {
     tabOverrides.delete(tabId);
     lastTabPattern.delete(tabId);
+    tabTitleWatch.delete(tabId);
     attemptedAutoAttach.delete(tabId);
     pendingNotices.delete(tabId);
     manualSearchTabs.delete(tabId);
@@ -659,16 +674,24 @@ export default defineBackground(() => {
         const pageUrl = message.pageUrl ?? sender.tab?.url ?? '';
         return (async () => {
           const state = await resolveTabState(tabId, pageUrl);
-          // Opportunistically trigger auto-attach when a content script boots on an unattached tab
-          // (handles worker restarts or already-loaded pages when the extension reloads).
-          if (
-            tabId !== null &&
-            state.episodeId === null &&
-            sender.tab?.id === tabId &&
-            pageUrl &&
-            !shouldWaitForTabTitle(pageUrl, sender.tab?.status)
-          ) {
-            void runAutoAttachForTab(tabId, pageUrl, sender.tab?.title ?? '');
+          if (tabId !== null && sender.tab?.id === tabId && pageUrl) {
+            const { nextState, readiness } = advanceTabTitleWatch({
+              prevState: tabTitleWatch.get(tabId),
+              pageUrl,
+              tabTitle: sender.tab?.title ?? '',
+              tabStatus: sender.tab?.status,
+              urlChanged: false,
+              titleChanged: false,
+              nowMs: Date.now(),
+            });
+            tabTitleWatch.set(tabId, nextState);
+            lastTabPattern.set(tabId, state.pattern);
+
+            // Opportunistically trigger auto-attach when a content script boots on an unattached tab
+            // (handles worker restarts or already-loaded pages when the extension reloads).
+            if (state.episodeId === null && readiness === 'ready') {
+              void runAutoAttachForTab(tabId, pageUrl, sender.tab?.title ?? '');
+            }
           }
           return state;
         })();
@@ -682,10 +705,18 @@ export default defineBackground(() => {
 
           if (message.episodeId !== null) {
             await rememberEpisodeMappings(message.pageUrl, message.episodeId, message.animeId);
-          } else if (pattern) {
-            const nextMappings = { ...settings.urlMappings };
-            delete nextMappings[pattern];
-            await saveSettings({ urlMappings: nextMappings });
+          } else {
+            const detached = removeMappingsForDetach(
+              message.pageUrl,
+              settings.urlMappings,
+              settings.animeMappings,
+            );
+            if (detached.changed) {
+              await saveSettings({
+                urlMappings: detached.urlMappings,
+                animeMappings: detached.animeMappings,
+              });
+            }
           }
 
           tabOverrides.set(message.tabId, {
@@ -694,6 +725,21 @@ export default defineBackground(() => {
             enabled: message.enabled && message.episodeId !== null,
           });
           lastTabPattern.set(message.tabId, pattern);
+
+          // Seed the tab's title watch so a subsequent SPA next-episode transition knows this page's title.
+          const currentTab = await browser.tabs.get(message.tabId).catch(() => null);
+          if (currentTab?.title) {
+            const { nextState } = advanceTabTitleWatch({
+              prevState: tabTitleWatch.get(message.tabId),
+              pageUrl: message.pageUrl,
+              tabTitle: currentTab.title,
+              tabStatus: currentTab.status,
+              urlChanged: false,
+              titleChanged: false,
+              nowMs: Date.now(),
+            });
+            tabTitleWatch.set(message.tabId, nextState);
+          }
 
           const state: TabEpisodeState = {
             tabId: message.tabId,
@@ -709,6 +755,19 @@ export default defineBackground(() => {
       }
 
       if (isTriggerAutoAttachMessage(message)) {
+        const { nextState, readiness } = advanceTabTitleWatch({
+          prevState: tabTitleWatch.get(message.tabId),
+          pageUrl: message.pageUrl,
+          tabTitle: message.pageTitle,
+          tabStatus: 'complete',
+          urlChanged: false,
+          titleChanged: false,
+          nowMs: Date.now(),
+        });
+        tabTitleWatch.set(message.tabId, nextState);
+        if (readiness !== 'ready') {
+          return Promise.resolve({ status: 'skipped' } satisfies TriggerAutoAttachResponse);
+        }
         return runAutoAttachForTab(message.tabId, message.pageUrl, message.pageTitle, false);
       }
 
