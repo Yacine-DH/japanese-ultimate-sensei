@@ -288,6 +288,29 @@ Slow on a small local model: start it before watching. Re-running only does miss
 with translation, word breakdown and grammar points; cached per line + language. Can take tens
 of seconds uncached: show a spinner.
 
+## Speech-to-text (anime without Japanese subtitles)
+S-10 (#30). The model runs on a separate OpenAI-compatible `/v1/audio/transcriptions` server
+(whisper.cpp `whisper-server` on the GPU laptop: `SENSEI_STT_BASE_URL`). Jobs run one at a time
+and live in memory: a server restart forgets them (the imported episodes stay).
+
+### `GET /stt/status` → `{"configured":true,"reachable":true,"base_url":"http://precision:8080/v1","model":null,"detail":"ok"}`
+
+### `POST /stt/jobs` multipart: `file` (episode video/audio, ≤ 4 GB), `anime_title`, `episode_number`?, `title`? → 202 `SttJobOut`
+Uploads the file; the server extracts 16 kHz mono audio, asks for an SRT transcript and imports it
+as a new episode (`source: "stt"`), then starts translations if an LLM is configured.
+503: ffmpeg or STT not configured · 413: over 4 GB · 422: empty file.
+```json
+{"id":3,"status":"transcribing","anime_title":"Frieren","episode_number":2.0,"title":null,
+ "filename":"Frieren - 02.mkv","duration_ms":1440000,"episode_id":null,"error":null,
+ "created_at":"…","started_at":"…","finished_at":null}
+```
+`status`: `queued` → `extracting` → `transcribing` → `importing` → `done` (`episode_id` set) or
+`error` (`error` says why, e.g. "can't read audio from the file", "speech-to-text server
+unreachable"). No progress percentage: show elapsed time against `duration_ms` (a 24 min
+episode takes a few minutes on the laptop GPU).
+
+### `GET /stt/jobs` → `SttJobOut[]` (newest first) · `GET /stt/jobs/{id}` → `SttJobOut` (404 after a restart)
+
 ## Known-word import (Anki / word lists)
 All three return `ImportReport`; all accept `dry_run` (preview, nothing saved).
 ```json

@@ -53,7 +53,8 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **E-9/W-9** (#87) LLM line translations + "Explain this line" grammar notes in web + extension overlay. deps: S-9 (antigravity, 2026-11-21: `/llm/status` graceful degradation, web Translate Episode polling progress bar + collapsible EN/DE line translations + sticky Markdown Explain Line panel, extension overlay translation setting off/EN/DE + reveal-line & explain-line hotkeys with video pause & spinner, unit tests)
 
 ## Phase 3
-- [ ] **S-10** STT fallback: episode audio (server fetch or extension upload) → faster-whisper / kotoba-whisper, overnight queue
+- [x] **S-10** (#30) STT fallback (claude, 2026-11-22: `POST /stt/jobs` uploads an episode file → ffmpeg 16 kHz WAV → OpenAI-compatible `/v1/audio/transcriptions` (whisper-server on the laptop GPU) as SRT → normal import + translations)
+- [ ] **W-7** (#118) Web: transcribe an episode file (import page + built-in player), job status. deps: S-10
 - [x] **S-11** (#31) Audio-based automatic subtitle sync (claude, 2026-11-22: `POST /episodes/{id}/sync`, VAD + loudness vs line timing, cross-correlation ±2 min, confidence-gated apply)
 - [x] **E-10** (#99) Extension Auto-sync button: record 45 s of audio → `POST /episodes/{id}/sync`, apply/toast. deps: S-11 (antigravity, 2026-11-22: pure `auto-sync.ts` state machine + 45 s audio-only `MediaRecorder` reading `video_start_ms` in `onstart`, popup & overlay hover Auto-sync buttons + `Y` hotkey + `Esc` cancel, applied/not-applied interactive "Use anyway" toast, unit tests)
 - [x] **S-12** (#106) `POST /episodes/auto`: find + import an episode from a title guess or a remembered anime (claude, 2026-11-22: `anime.jimaku_entry_id`, migration 0004, returns existing episodes without downloading)
