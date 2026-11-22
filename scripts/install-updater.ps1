@@ -82,11 +82,32 @@ if (-not $Folder) {
   if ($Folder) { Write-Host "Found the Sensei extension in: $Folder" }
 }
 if (-not $Folder) {
-  $default = Join-Path $HOME "Documents\sensei-extension"
+  $default = Join-Path $HOME "sensei-extension"
   $answer = Read-Host "Folder for the Sensei extension (Enter = $default)"
   $Folder = $(if ($answer) { $answer.Trim('"') } else { $default })
 }
 $Folder = [IO.Path]::GetFullPath($Folder)
+
+# The extension needs a folder of its own (not Documents, Desktop, OneDrive, ...): the updater
+# replaces the files in it. Personal folders are refused, and so is any folder with other things in it.
+$Personal = @(
+  [Environment]::GetFolderPath("MyDocuments"), [Environment]::GetFolderPath("Desktop"),
+  [Environment]::GetFolderPath("UserProfile"), $env:OneDrive, $env:OneDriveConsumer,
+  (Join-Path $env:USERPROFILE "Downloads"), (Join-Path $env:USERPROFILE "Documents"), (Join-Path $env:USERPROFILE "Desktop")
+) | Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd("\", "/") }
+if ($Folder.TrimEnd("\", "/").Length -le 3 -or ($Personal -contains $Folder.TrimEnd("\", "/"))) {
+  throw ("$Folder is a personal folder. Give the extension its own folder, for example:`n" +
+    "  powershell -ExecutionPolicy Bypass -File `$env:TEMP\i.ps1 -Folder `"$HOME\sensei-extension`"")
+}
+$KnownTopLevel = @("background.js", "chunks", "content-scripts", "icon", "manifest.json", "options.html",
+  "popup.html", "assets", "_locales", "_metadata", ".sensei-files.txt")
+if (Test-Path -LiteralPath $Folder) {
+  $foreign = @(Get-ChildItem -LiteralPath $Folder -Force | Where-Object { $KnownTopLevel -notcontains $_.Name })
+  if ($foreign.Count -gt 0 -and (Get-ExtensionKey $Folder)) {
+    throw ("$Folder holds the extension mixed with other files (" + (($foreign | Select-Object -First 5 | ForEach-Object Name) -join ", ") +
+      "). Give it its own folder: run this again with -Folder `"$HOME\sensei-extension`" and Load unpacked that folder.")
+  }
+}
 
 # 1. The updater itself.
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
@@ -130,6 +151,12 @@ if ($fresh -or ($latest.version -and $installedVersion -ne $latest.version)) {
     throw "The download didn't match the server's checksum. Wait a minute (the server may be deploying) and run this again."
   }
   Expand-Archive -LiteralPath $zip -DestinationPath $Folder -Force
+  # Record what we installed, so the updater may later prune only these files.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+  try { $list = @($archive.Entries | Where-Object { $_.Name } | ForEach-Object { $_.FullName -replace "/", "\" }) }
+  finally { $archive.Dispose() }
+  [IO.File]::WriteAllLines((Join-Path $Folder ".sensei-files.txt"), [string[]]$list, $Utf8NoBom)
   $updated = -not $fresh
 }
 
