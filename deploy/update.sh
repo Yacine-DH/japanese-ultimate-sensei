@@ -17,8 +17,11 @@ mkdir -p "$DL"
 for z in "$REPO"/extension/.output/*-chrome.zip "$REPO"/extension/.output/*-firefox.zip; do
   [ -f "$z" ] && cp "$z" "$DL/sensei-extension-${z##*-}"
 done
-printf '{"commit":"%s","built_at":"%s"}\n' "$(git rev-parse --short HEAD)" "$(date -u +%FT%TZ)" \
-  > "$DL/version.json"
+cp "$REPO/scripts/update-extension.ps1" "$DL/"
+# extension_commit = last commit that changed extension/, so server-only deploys don't make the
+# popup announce an update (the extension stamps itself the same way at build time).
+printf '{"commit":"%s","extension_commit":"%s","built_at":"%s"}\n' "$(git rev-parse --short=7 HEAD)" \
+  "$(git log -1 --format=%h --abbrev=7 -- extension)" "$(date -u +%FT%TZ)" > "$DL/version.json"
 systemctl --user restart sensei  # migrates the DB on start (backs it up first)
 sleep 2
 curl -fsS "http://localhost:${SENSEI_PORT:-8000}/health" && echo
