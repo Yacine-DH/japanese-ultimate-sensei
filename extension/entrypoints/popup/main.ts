@@ -33,12 +33,26 @@ import {
   type TranslationDisplayMode,
 } from '../../src/lib/settings';
 import {
+  evaluateUpdateStatus,
+  formatUpdateHeadline,
+  getBuildCommit,
+  parseVersionInfo,
+  reloadExtension,
+  UPDATE_POWERSHELL_COMMAND,
+} from '../../src/lib/update';
+import {
   buildPrimingUrl,
   filterEpisodes,
   resolveEpisodeForUrl,
 } from '../../src/lib/url-mapping';
 
 const healthBadge = document.getElementById('health-badge') as HTMLSpanElement;
+const updateBanner = document.getElementById('update-banner') as HTMLDivElement;
+const updateBannerTitle = document.getElementById('update-banner-title') as HTMLDivElement;
+const updateBannerMeta = document.getElementById('update-banner-meta') as HTMLDivElement;
+const updateCmdEl = document.getElementById('update-cmd') as HTMLElement;
+const copyUpdateCmdBtn = document.getElementById('copy-update-cmd-btn') as HTMLButtonElement;
+const reloadExtensionBtn = document.getElementById('reload-extension-btn') as HTMLButtonElement;
 const setupCard = document.getElementById('setup-card') as HTMLDivElement;
 const setupForm = document.getElementById('setup-form') as HTMLFormElement;
 const setupServerUrl = document.getElementById('setup-server-url') as HTMLInputElement;
@@ -106,6 +120,33 @@ let jimakuSelectedEntry: JimakuEntry | null = null;
 let jimakuFiles: JimakuFile[] = [];
 let jimakuSelectedFileName = '';
 let guessedEpFromTab: number | null = null;
+let updateCheckSeq = 0;
+
+function hideUpdateBanner(): void {
+  updateBanner.className = 'update-banner';
+  updateBannerTitle.textContent = '';
+  updateBannerMeta.textContent = '';
+}
+
+async function checkForExtensionUpdate(): Promise<void> {
+  const seq = ++updateCheckSeq;
+  const res = await api.getExtensionVersion();
+  if (seq !== updateCheckSeq) return;
+  if (!res.ok) {
+    hideUpdateBanner();
+    return;
+  }
+  const info = parseVersionInfo(res.data);
+  const status = evaluateUpdateStatus(getBuildCommit(), info);
+  if (!status?.updateAvailable) {
+    hideUpdateBanner();
+    return;
+  }
+  updateBannerTitle.textContent = formatUpdateHeadline(status);
+  updateBannerMeta.textContent = `Installed ${status.currentCommit} → server ${status.latestCommit}`;
+  updateCmdEl.textContent = UPDATE_POWERSHELL_COMMAND;
+  updateBanner.className = 'update-banner visible';
+}
 
 function hideAutoSuggestCard(): void {
   pendingAutoSuggestion = null;
@@ -339,6 +380,7 @@ async function refreshPopup(): Promise<void> {
     healthBadge.className = 'badge offline';
     dictText.textContent = '-';
     llmText.textContent = '-';
+    hideUpdateBanner();
     setupCard.classList.add('visible');
     return;
   }
@@ -350,11 +392,13 @@ async function refreshPopup(): Promise<void> {
     healthBadge.className = 'badge online';
     dictText.textContent = h.dictionary ? 'Ready' : 'Not built';
     setupCard.classList.remove('visible');
+    void checkForExtensionUpdate();
   } else {
     healthBadge.textContent = 'Offline';
     healthBadge.className = 'badge offline';
     dictText.textContent = healthRes.error ?? 'Unreachable';
     llmText.textContent = '-';
+    hideUpdateBanner();
     setupCard.classList.add('visible');
     setupStatus.textContent = healthRes.error ?? 'Could not reach server';
     setupStatus.className = 'setup-status err';
@@ -781,6 +825,25 @@ jimakuImportBtn.addEventListener('click', async () => {
 
 openOptionsBtn.addEventListener('click', () => {
   void browser.runtime.openOptionsPage();
+});
+
+copyUpdateCmdBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(UPDATE_POWERSHELL_COMMAND);
+    copyUpdateCmdBtn.textContent = 'Copied';
+    setTimeout(() => {
+      copyUpdateCmdBtn.textContent = 'Copy';
+    }, 1500);
+  } catch {
+    copyUpdateCmdBtn.textContent = 'Copy failed';
+    setTimeout(() => {
+      copyUpdateCmdBtn.textContent = 'Copy';
+    }, 1500);
+  }
+});
+
+reloadExtensionBtn.addEventListener('click', () => {
+  reloadExtension();
 });
 
 missedEpisodeBtn.addEventListener('click', async () => {
