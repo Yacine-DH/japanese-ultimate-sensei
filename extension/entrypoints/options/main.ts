@@ -22,6 +22,7 @@ const form = document.getElementById('settings-form') as HTMLFormElement;
 const extensionVersionEl = document.getElementById('extension-version') as HTMLParagraphElement;
 const serverUrlInput = document.getElementById('server-url') as HTMLInputElement;
 const apiTokenInput = document.getElementById('api-token') as HTMLInputElement;
+const extensionFolderInput = document.getElementById('extension-folder') as HTMLInputElement;
 const glossLangSelect = document.getElementById('gloss-lang') as HTMLSelectElement;
 const translationModeSelect = document.getElementById('translation-mode') as HTMLSelectElement;
 const llmStatusHint = document.getElementById('llm-status-hint') as HTMLParagraphElement;
@@ -121,6 +122,7 @@ async function init(): Promise<void> {
   const settings = await getSettings();
   serverUrlInput.value = settings.serverUrl;
   apiTokenInput.value = settings.apiToken;
+  extensionFolderInput.value = settings.extensionFolder;
   glossLangSelect.value = settings.glossLang;
   translationModeSelect.value = settings.translationMode;
   highlightLimitInput.value = String(settings.highlightLimit);
@@ -147,6 +149,7 @@ form.addEventListener('submit', async (event) => {
   const saved = await saveSettings({
     serverUrl: serverUrlInput.value,
     apiToken: apiTokenInput.value,
+    extensionFolder: extensionFolderInput.value,
     glossLang: glossLangSelect.value as GlossLanguage,
     translationMode: translationModeSelect.value as TranslationDisplayMode,
     highlightLimit: Number(highlightLimitInput.value),
@@ -157,6 +160,7 @@ form.addEventListener('submit', async (event) => {
     romaji: romajiToggle.checked,
   });
   serverUrlInput.value = saved.serverUrl;
+  extensionFolderInput.value = saved.extensionFolder;
   highlightLimitInput.value = String(saved.highlightLimit);
   hoverDelayInput.value = String(saved.hoverDelayMs);
   updateFirstRunBanner(saved.serverUrl);
@@ -167,6 +171,7 @@ testBtn.addEventListener('click', async () => {
   const saved = await saveSettings({
     serverUrl: serverUrlInput.value,
     apiToken: apiTokenInput.value,
+    extensionFolder: extensionFolderInput.value,
     glossLang: glossLangSelect.value as GlossLanguage,
     translationMode: translationModeSelect.value as TranslationDisplayMode,
     highlightLimit: Number(highlightLimitInput.value),

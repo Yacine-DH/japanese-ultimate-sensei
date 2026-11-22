@@ -38,12 +38,12 @@ import {
   type TranslationDisplayMode,
 } from '../../src/lib/settings';
 import {
+  buildUpdateOneLiner,
   evaluateUpdateStatus,
   formatUpdateHeadline,
   getBuildCommit,
   parseVersionInfo,
   reloadExtension,
-  UPDATE_POWERSHELL_COMMAND,
 } from '../../src/lib/update';
 import {
   buildPrimingUrl,
@@ -123,6 +123,8 @@ let suggestedEpisode: EpisodeOut | null = null;
 let pendingAutoSuggestion: AutoImportOut | null = null;
 let autoSuggestSeq = 0;
 let currentServerUrl = '';
+let currentExtensionFolder = '';
+let currentUpdateCommand = '';
 let jimakuSelectedEntry: JimakuEntry | null = null;
 let jimakuFiles: JimakuFile[] = [];
 let jimakuSelectedFileName = '';
@@ -151,7 +153,8 @@ async function checkForExtensionUpdate(): Promise<void> {
   }
   updateBannerTitle.textContent = formatUpdateHeadline(status);
   updateBannerMeta.textContent = `Installed ${status.currentCommit} → server ${status.latestCommit}`;
-  updateCmdEl.textContent = UPDATE_POWERSHELL_COMMAND;
+  currentUpdateCommand = buildUpdateOneLiner(currentServerUrl, currentExtensionFolder);
+  updateCmdEl.textContent = currentUpdateCommand;
   updateBanner.className = 'update-banner visible';
 }
 
@@ -331,6 +334,7 @@ async function runPopupAutoAttach(
 async function refreshPopup(): Promise<void> {
   const settings = await getSettings();
   currentServerUrl = settings.serverUrl;
+  currentExtensionFolder = settings.extensionFolder;
   const configured = isServerUrlConfigured(settings.serverUrl);
   serverUrlText.textContent = configured
     ? settings.serverUrl.replace(/^https?:\/\//, '')
@@ -863,8 +867,10 @@ openOptionsBtn.addEventListener('click', () => {
 });
 
 copyUpdateCmdBtn.addEventListener('click', async () => {
+  const cmd =
+    currentUpdateCommand || buildUpdateOneLiner(currentServerUrl, currentExtensionFolder);
   try {
-    await navigator.clipboard.writeText(UPDATE_POWERSHELL_COMMAND);
+    await navigator.clipboard.writeText(cmd);
     copyUpdateCmdBtn.textContent = 'Copied';
     setTimeout(() => {
       copyUpdateCmdBtn.textContent = 'Copy';

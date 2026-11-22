@@ -1,8 +1,8 @@
-export const UPDATE_POWERSHELL_COMMAND =
-  'powershell -ExecutionPolicy Bypass -File update-extension.ps1';
+export const DEFAULT_EXTENSION_FOLDER = '%USERPROFILE%\\Documents\\sensei-extension';
 
 export interface ServerVersionInfo {
   commit: string;
+  extension_commit: string | null;
   built_at: string | null;
 }
 
@@ -58,10 +58,12 @@ export function parseVersionInfo(raw: unknown): ServerVersionInfo | null {
   }
   const record = obj as Record<string, unknown>;
   const commit = normalizeCommit(record.commit);
-  if (!commit) return null;
+  const extensionCommit = normalizeCommit(record.extension_commit);
+  if (!commit && !extensionCommit) return null;
   const builtAtRaw = typeof record.built_at === 'string' ? record.built_at.trim() : '';
   return {
-    commit,
+    commit: commit || extensionCommit,
+    extension_commit: extensionCommit || null,
     built_at: builtAtRaw || null,
   };
 }
@@ -72,7 +74,7 @@ export function evaluateUpdateStatus(
 ): UpdateCheckResult | null {
   if (!remote) return null;
   const current = normalizeCommit(currentCommit) || 'unknown';
-  const latest = normalizeCommit(remote.commit);
+  const latest = normalizeCommit(remote.extension_commit) || normalizeCommit(remote.commit);
   if (!latest) return null;
   const updateAvailable = current !== 'unknown' && !isSameCommit(current, latest);
   return {
@@ -81,6 +83,32 @@ export function evaluateUpdateStatus(
     builtAt: remote.built_at,
     updateAvailable,
   };
+}
+
+/**
+ * Normalizes a Windows folder path for PowerShell double-quoted strings:
+ * expands `%ENVVAR%` placeholders to PowerShell's `$env:ENVVAR` syntax and escapes quotes.
+ */
+export function formatPowerShellFolderPath(folder?: string | null): string {
+  const raw = typeof folder === 'string' && folder.trim() ? folder.trim() : DEFAULT_EXTENSION_FOLDER;
+  const withPsEnv = raw.replace(/%([A-Za-z_][A-Za-z0-9_]*)%/g, (_m, name: string) => `$env:${name}`);
+  return withPsEnv.replace(/"/g, '`"');
+}
+
+/**
+ * Builds a self-contained PowerShell one-liner that downloads the latest extension zip from the
+ * configured Sensei server and extracts it into the user's extension folder (#117).
+ */
+export function buildUpdateOneLiner(
+  serverUrl: string,
+  extensionFolder?: string | null,
+  browserTarget: 'chrome' | 'firefox' = 'chrome',
+): string {
+  const cleanServer = serverUrl.trim().replace(/\/+$/, '') || 'http://homeserver:8000';
+  const folder = formatPowerShellFolderPath(extensionFolder);
+  const zipName =
+    browserTarget === 'firefox' ? 'sensei-extension-firefox.zip' : 'sensei-extension-chrome.zip';
+  return `$f="${folder}"; iwr ${cleanServer}/downloads/${zipName} -OutFile $env:TEMP\\s.zip; Expand-Archive $env:TEMP\\s.zip $f -Force`;
 }
 
 export function formatBuiltAt(iso: string | null | undefined): string {

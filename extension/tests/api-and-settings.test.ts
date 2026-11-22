@@ -41,6 +41,7 @@ describe('settings utilities', () => {
     expect(s).toEqual({
       serverUrl: 'http://100.64.0.1:8000',
       apiToken: 'secret-token',
+      extensionFolder: '%USERPROFILE%\\Documents\\sensei-extension',
       glossLang: 'ger',
       translationMode: 'off',
       romaji: true,

@@ -3,19 +3,25 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { executeApiCall } from '../src/api/client';
 import {
+  buildUpdateOneLiner,
+  DEFAULT_EXTENSION_FOLDER,
   evaluateUpdateStatus,
   formatBuiltAt,
+  formatPowerShellFolderPath,
   formatUpdateHeadline,
   formatVersionLine,
   getBuildCommit,
   isSameCommit,
   parseVersionInfo,
   reloadExtension,
-  UPDATE_POWERSHELL_COMMAND,
 } from '../src/lib/update';
-import wxtConfig, { CHROME_MANIFEST_PUBLIC_KEY, FIREFOX_GECKO_ID } from '../wxt.config';
+import wxtConfig, {
+  CHROME_MANIFEST_PUBLIC_KEY,
+  FIREFOX_GECKO_ID,
+  resolveBuildCommit,
+} from '../wxt.config';
 
-describe('extension update helpers (#110)', () => {
+describe('extension update helpers (#110, #117)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     const g = globalThis as Record<string, unknown>;
@@ -23,11 +29,16 @@ describe('extension update helpers (#110)', () => {
     delete g.chrome;
   });
 
-  it('parses valid version.json payloads and rejects HTML or malformed responses', () => {
+  it('parses version.json with extension_commit (and legacy commit-only fallback) and rejects HTML', () => {
     expect(
-      parseVersionInfo({ commit: '00e5b8c', built_at: '2026-11-22T17:40:00Z' }),
+      parseVersionInfo({
+        commit: 'deadbee',
+        extension_commit: '00e5b8c',
+        built_at: '2026-11-22T17:40:00Z',
+      }),
     ).toEqual({
-      commit: '00e5b8c',
+      commit: 'deadbee',
+      extension_commit: '00e5b8c',
       built_at: '2026-11-22T17:40:00Z',
     });
 
@@ -35,11 +46,13 @@ describe('extension update helpers (#110)', () => {
       parseVersionInfo('{"commit":" 00e5b8c ","built_at":"2026-11-22T17:40:00Z"}'),
     ).toEqual({
       commit: '00e5b8c',
+      extension_commit: null,
       built_at: '2026-11-22T17:40:00Z',
     });
 
     expect(parseVersionInfo({ commit: '00e5b8c' })).toEqual({
       commit: '00e5b8c',
+      extension_commit: null,
       built_at: null,
     });
 
@@ -57,31 +70,66 @@ describe('extension update helpers (#110)', () => {
     expect(isSameCommit('', '00e5b8c')).toBe(false);
   });
 
-  it('evaluates update availability without false positives for unknown local builds', () => {
-    const outdated = evaluateUpdateStatus('a8afb70', {
-      commit: '00e5b8c',
-      built_at: '2026-11-22T17:40:00Z',
+  it('compares against extension_commit so server-only deploys do not trigger false updates (#117)', () => {
+    // Repo HEAD moved to server commit `9999999`, but extension_commit is still `a8afb70`
+    const serverOnlyDeploy = evaluateUpdateStatus('a8afb70', {
+      commit: '9999999',
+      extension_commit: 'a8afb70',
+      built_at: '2026-11-22T17:55:00Z',
     });
-    expect(outdated).toEqual({
+    expect(serverOnlyDeploy).toEqual({
+      currentCommit: 'a8afb70',
+      latestCommit: 'a8afb70',
+      builtAt: '2026-11-22T17:55:00Z',
+      updateAvailable: false,
+    });
+
+    // Extension itself changed (`00e5b8c` !== `a8afb70`) -> update available
+    const extensionChanged = evaluateUpdateStatus('a8afb70', {
+      commit: '9999999',
+      extension_commit: '00e5b8c',
+      built_at: '2026-11-22T17:55:00Z',
+    });
+    expect(extensionChanged).toEqual({
       currentCommit: 'a8afb70',
       latestCommit: '00e5b8c',
-      builtAt: '2026-11-22T17:40:00Z',
+      builtAt: '2026-11-22T17:55:00Z',
       updateAvailable: true,
     });
 
-    const current = evaluateUpdateStatus('00e5b8c', {
+    // Falls back to `commit` when server does not include `extension_commit`
+    const legacyServer = evaluateUpdateStatus('a8afb70', {
       commit: '00e5b8c',
+      extension_commit: null,
       built_at: '2026-11-22T17:40:00Z',
     });
-    expect(current?.updateAvailable).toBe(false);
+    expect(legacyServer?.updateAvailable).toBe(true);
+    expect(legacyServer?.latestCommit).toBe('00e5b8c');
 
     const unknownLocal = evaluateUpdateStatus('unknown', {
       commit: '00e5b8c',
+      extension_commit: '00e5b8c',
       built_at: '2026-11-22T17:40:00Z',
     });
     expect(unknownLocal?.updateAvailable).toBe(false);
 
     expect(evaluateUpdateStatus('a8afb70', null)).toBeNull();
+  });
+
+  it('builds a self-contained PowerShell one-liner from server URL and extension folder (#117)', () => {
+    expect(DEFAULT_EXTENSION_FOLDER).toBe('%USERPROFILE%\\Documents\\sensei-extension');
+    expect(formatPowerShellFolderPath(DEFAULT_EXTENSION_FOLDER)).toBe(
+      '$env:USERPROFILE\\Documents\\sensei-extension',
+    );
+    expect(formatPowerShellFolderPath('C:\\Tools\\sensei-ext')).toBe('C:\\Tools\\sensei-ext');
+
+    expect(buildUpdateOneLiner('http://homeserver:8000/', DEFAULT_EXTENSION_FOLDER)).toBe(
+      '$f="$env:USERPROFILE\\Documents\\sensei-extension"; iwr http://homeserver:8000/downloads/sensei-extension-chrome.zip -OutFile $env:TEMP\\s.zip; Expand-Archive $env:TEMP\\s.zip $f -Force',
+    );
+
+    expect(buildUpdateOneLiner('http://100.64.0.2:8000', 'D:\\Sensei\\ext')).toBe(
+      '$f="D:\\Sensei\\ext"; iwr http://100.64.0.2:8000/downloads/sensei-extension-chrome.zip -OutFile $env:TEMP\\s.zip; Expand-Archive $env:TEMP\\s.zip $f -Force',
+    );
   });
 
   it('formats build timestamp, update headline, and options version line', () => {
@@ -130,10 +178,17 @@ describe('extension update helpers (#110)', () => {
 
   it('forwards cache: no-store when fetching /downloads/version.json', async () => {
     const mockFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ commit: '00e5b8c', built_at: '2026-11-22T17:40:00Z' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
+      new Response(
+        JSON.stringify({
+          commit: '00e5b8c',
+          extension_commit: '00e5b8c',
+          built_at: '2026-11-22T17:40:00Z',
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
     );
 
     const res = await executeApiCall(
@@ -151,7 +206,12 @@ describe('extension update helpers (#110)', () => {
   });
 });
 
-describe('manifest stable ID and update UI wiring (#110)', () => {
+describe('manifest stable ID and update UI wiring (#110, #117)', () => {
+  it('resolves a 7-char extension commit stamp from git log -- .', () => {
+    const stamp = resolveBuildCommit();
+    expect(stamp).toMatch(/^[0-9a-f]{7,}$/);
+  });
+
   it('sets Chromium manifest key and Firefox gecko ID cleanly per target browser', () => {
     const manifestFn = wxtConfig.manifest;
     expect(typeof manifestFn).toBe('function');
@@ -169,7 +229,7 @@ describe('manifest stable ID and update UI wiring (#110)', () => {
     });
   });
 
-  it('wires update banner, PowerShell command, Reload button, and options version line', () => {
+  it('wires update banner, self-contained PowerShell command, extension folder option, Reload button, and version line', () => {
     const popupHtml = readFileSync(resolve(__dirname, '../entrypoints/popup/index.html'), 'utf-8');
     const popupMain = readFileSync(resolve(__dirname, '../entrypoints/popup/main.ts'), 'utf-8');
     const optionsHtml = readFileSync(resolve(__dirname, '../entrypoints/options/index.html'), 'utf-8');
@@ -177,11 +237,14 @@ describe('manifest stable ID and update UI wiring (#110)', () => {
 
     expect(popupHtml).toContain('id="update-banner"');
     expect(popupHtml).toContain('id="reload-extension-btn"');
-    expect(popupHtml).toContain(UPDATE_POWERSHELL_COMMAND);
+    expect(popupHtml).not.toContain('update-extension.ps1');
+    expect(popupMain).toContain('buildUpdateOneLiner');
     expect(popupMain).toContain('checkForExtensionUpdate');
     expect(popupMain).toContain('reloadExtension()');
 
+    expect(optionsHtml).toContain('id="extension-folder"');
     expect(optionsHtml).toContain('id="extension-version"');
+    expect(optionsMain).toContain('extensionFolderInput');
     expect(optionsMain).toContain('formatVersionLine(getBuildCommit())');
   });
 });
