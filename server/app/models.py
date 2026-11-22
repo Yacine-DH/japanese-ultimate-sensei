@@ -34,6 +34,7 @@ class Anime(SQLModel, table=True):
     title: str = Field(index=True)
     title_jp: str | None = None
     anilist_id: int | None = Field(default=None, index=True)
+    jimaku_entry_id: int | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utcnow)
 
 

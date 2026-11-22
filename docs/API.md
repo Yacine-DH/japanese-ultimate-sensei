@@ -225,6 +225,20 @@ the file name, `anime_title` = English title (else romaji). The anime is matched
 so episodes from Jimaku and manual uploads with the same title end up together.
 422: unsupported format / ambiguous zip / no Japanese lines.
 
+### `POST /episodes/auto` body `{"query"?:"Frieren: Beyond Journey's End","episode_number":4,"anime_id"?:1}` → `AutoImportOut`
+One step from "watching X episode N" to an episode (S-12, #106):
+- `anime_id` (a library anime, e.g. remembered for this site): reuses its Jimaku entry, no search.
+- else `query` (the title guessed from the tab): the first Jimaku search hit.
+- Already imported (same anime + number) → that episode, `existing: true`, nothing downloaded.
+- Otherwise imports the **recommended** file like `POST /episodes/from-jimaku`.
+```json
+{"existing":false,"file_name":"[SubsPlease] Sousou no Frieren - 04 (1080p)_ja.srt",
+ "entry":{"id":729,"name":"Sousou no Frieren","english_name":"Frieren: Beyond Journey's End","japanese_name":"葬送のフリーレン","anilist_id":154587,"movie":false},
+ "episode":{"id":12,"anime_id":1,"number":4.0,"...":"EpisodeCreated"}}
+```
+Show `entry.name` so the user can spot a wrong match. 404: no anime / no Japanese file for that
+episode on Jimaku (readable `detail`); 422: neither `query` nor `anime_id`.
+
 ## Activity + progress (heatmap, streak, "% understood" trend)
 Days are the server's local date (the owner's day).
 
