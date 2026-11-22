@@ -200,3 +200,37 @@ def test_tags_with_underscores_and_jp_en():
     for n in names:
         assert rank([{"name": n, "url": "https://jimaku.cc/x"}], 2)[0].dual_language, n
     assert not rank([{"name": "Show [BD123456].srt", "url": "https://jimaku.cc/x"}])[0].score < 0
+
+
+def test_auto_import(jclient):
+    calls.clear()
+    r = jclient.post("/episodes/auto", json={"query": "Frieren", "episode_number": 1})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert not out["existing"] and out["entry"]["id"] == 729
+    assert out["file_name"].startswith("葬送のフリーレン.S01E01")
+    ep = out["episode"]
+    assert ep["number"] == 1.0 and ep["line_count"] > 0 and ep["source"] == "jimaku"
+
+    # the same episode again: no second import, no download
+    calls.clear()
+    again = jclient.post("/episodes/auto", json={"query": "frieren", "episode_number": 1}).json()
+    assert again["existing"] and again["episode"]["id"] == ep["id"]
+    assert not any("/download/" in c.url.path for c in calls)
+
+    # next episode by anime_id (remembered entry): no search, same anime
+    calls.clear()
+    r = jclient.post("/episodes/auto", json={"anime_id": ep["anime_id"], "episode_number": 2})
+    assert r.status_code == 200, r.text
+    ep2 = r.json()["episode"]
+    assert ep2["anime_id"] == ep["anime_id"] and ep2["number"] == 2.0
+    assert not any(c.url.path == "/api/entries/search" for c in calls)
+    assert len(jclient.get("/anime").json()) == 1
+
+
+def test_auto_import_errors(jclient):
+    assert jclient.post("/episodes/auto", json={"episode_number": 1}).status_code == 422
+    r = jclient.post("/episodes/auto", json={"query": "nothing", "episode_number": 1})
+    assert r.status_code == 404 and "nothing" in r.json()["detail"]
+    r = jclient.post("/episodes/auto", json={"anime_id": 999, "episode_number": 1})
+    assert r.status_code == 404

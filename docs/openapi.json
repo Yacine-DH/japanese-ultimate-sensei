@@ -1295,6 +1295,49 @@
         }
       }
     },
+    "/episodes/auto": {
+      "post": {
+        "tags": [
+          "episodes",
+          "subs"
+        ],
+        "summary": "Episode Auto",
+        "description": "One step from \"I'm watching X episode N\" to an episode: finds the anime on Jimaku\n(or reuses the library anime's entry), returns the episode if it's already imported,\nelse imports the recommended Japanese subtitle file.",
+        "operationId": "episode_auto_episodes_auto_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoImportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/activity/watch": {
       "post": {
         "tags": [
@@ -2431,6 +2474,77 @@
           "notes"
         ],
         "title": "AnkiNoteType"
+      },
+      "AutoImport": {
+        "properties": {
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query",
+            "description": "Anime title guessed from the page (needed without anime_id)"
+          },
+          "episode_number": {
+            "type": "number",
+            "title": "Episode Number"
+          },
+          "anime_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anime Id",
+            "description": "A library anime (e.g. remembered for this site): skips search"
+          }
+        },
+        "type": "object",
+        "required": [
+          "episode_number"
+        ],
+        "title": "AutoImport"
+      },
+      "AutoImportOut": {
+        "properties": {
+          "episode": {
+            "$ref": "#/components/schemas/EpisodeCreated"
+          },
+          "existing": {
+            "type": "boolean",
+            "title": "Existing",
+            "description": "True: the episode was already in the library"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/JimakuEntry"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name",
+            "description": "The Jimaku file imported (None if existing)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "episode",
+          "existing",
+          "entry"
+        ],
+        "title": "AutoImportOut"
       },
       "Body_create_episode_episodes_post": {
         "properties": {

@@ -277,6 +277,25 @@ class JimakuFile(BaseModel):
     recommended: bool = Field(description="Best pick (at most one per list)")
 
 
+class AutoImport(BaseModel):
+    query: str | None = Field(
+        default=None, description="Anime title guessed from the page (needed without anime_id)"
+    )
+    episode_number: float
+    anime_id: int | None = Field(
+        default=None, description="A library anime (e.g. remembered for this site): skips search"
+    )
+
+
+class AutoImportOut(BaseModel):
+    episode: EpisodeCreated
+    existing: bool = Field(description="True: the episode was already in the library")
+    entry: JimakuEntry
+    file_name: str | None = Field(
+        default=None, description="The Jimaku file imported (None if existing)"
+    )
+
+
 class JimakuImport(BaseModel):
     entry_id: int
     file_name: str

@@ -73,6 +73,8 @@ from app.schemas import (
     AnkiMediaFile,
     AnkiModel,
     AnkiNotePayload,
+    AutoImport,
+    AutoImportOut,
     BulkStatusIn,
     BulkStatusOut,
     CardCreate,
@@ -243,6 +245,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         source: str,
         anilist_id: int | None = None,
         title_jp: str | None = None,
+        jimaku_entry_id: int | None = None,
     ) -> dict:
         try:
             lines = parse_bytes(raw)
@@ -252,7 +255,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(422, "no Japanese dialogue lines found in subtitle file")
 
         anime = None
-        if anilist_id is not None:
+        if jimaku_entry_id is not None:
+            anime = session.exec(
+                select(Anime).where(Anime.jimaku_entry_id == jimaku_entry_id)
+            ).first()
+        if anime is None and anilist_id is not None:
             anime = session.exec(select(Anime).where(Anime.anilist_id == anilist_id)).first()
         if anime is None:
             anime = session.exec(select(Anime).where(Anime.title == anime_title.strip())).first()
@@ -260,6 +267,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             anime = Anime(title=anime_title.strip())
         anime.anilist_id = anime.anilist_id or anilist_id
         anime.title_jp = anime.title_jp or title_jp
+        anime.jimaku_entry_id = anime.jimaku_entry_id or jimaku_entry_id
         session.add(anime)
         session.flush()
         ep = Episode(
@@ -882,6 +890,80 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             source="jimaku",
             anilist_id=entry.get("anilist_id"),
             title_jp=entry.get("japanese_name"),
+            jimaku_entry_id=entry["id"],
+        )
+
+    def library_anime_for(session: Session, entry: dict) -> Anime | None:
+        anime = session.exec(select(Anime).where(Anime.jimaku_entry_id == entry["id"])).first()
+        if anime is None and entry.get("anilist_id") is not None:
+            anime = session.exec(
+                select(Anime).where(Anime.anilist_id == entry["anilist_id"])
+            ).first()
+        return anime
+
+    @app.post(
+        "/episodes/auto", response_model=AutoImportOut, dependencies=auth, tags=["episodes", "subs"]
+    )
+    def episode_auto(body: AutoImport, session: Session = Depends(get_session)):
+        """One step from "I'm watching X episode N" to an episode: finds the anime on Jimaku
+        (or reuses the library anime's entry), returns the episode if it's already imported,
+        else imports the recommended Japanese subtitle file."""
+        jm = app.state.jimaku
+        entry = None
+        if body.anime_id is not None:
+            anime = session.get(Anime, body.anime_id)
+            if anime is None:
+                raise HTTPException(404, "anime not found")
+            if anime.jimaku_entry_id is not None:
+                entry = jimaku_call(jm.entry, anime.jimaku_entry_id)
+            elif anime.anilist_id is not None:
+                found = jimaku_call(jm.search, "", anime.anilist_id)
+                entry = found[0] if found else None
+            if entry is None:
+                found = jimaku_call(jm.search, anime.title)
+                entry = found[0] if found else None
+        elif body.query and body.query.strip():
+            found = jimaku_call(jm.search, body.query.strip())
+            entry = found[0] if found else None
+        else:
+            raise HTTPException(422, "pass query or anime_id")
+        if entry is None:
+            raise HTTPException(404, f"no anime matching {body.query or 'that title'!r} on Jimaku")
+
+        number = body.episode_number
+        anime = library_anime_for(session, entry)
+        if anime is not None:
+            ep = session.exec(
+                select(Episode).where(Episode.anime_id == anime.id, Episode.number == number)
+            ).first()
+            if ep is not None:
+                if anime.jimaku_entry_id is None:
+                    anime.jimaku_entry_id = entry["id"]
+                    session.add(anime)
+                    session.commit()
+                created = {
+                    **episode_out(session, ep),
+                    "understanding": understanding(session, uid, ep.id),
+                }
+                return AutoImportOut(episode=created, existing=True, entry=entry_out(entry))
+
+        files = rank(jimaku_call(jm.files, entry["id"], int(number)), int(number))
+        pick = next((f for f in files if f.recommended), None)
+        if pick is None:
+            raise HTTPException(
+                404,
+                f"no Japanese subtitles for episode {number:g} of {entry.get('name')} on Jimaku",
+            )
+        data = jimaku_call(jm.download, entry["id"], pick.name)
+        name, raw = jimaku_call(extract_subtitle, pick.name, data, int(number))
+        title = (anime.title if anime else None) or entry.get("english_name") or entry.get("name")
+        created = import_episode(
+            session, raw, name, title or "Unknown", number, None, source="jimaku",
+            anilist_id=entry.get("anilist_id"), title_jp=entry.get("japanese_name"),
+            jimaku_entry_id=entry["id"],
+        )  # fmt: skip
+        return AutoImportOut(
+            episode=created, existing=False, entry=entry_out(entry), file_name=pick.name
         )
 
     # ---- activity + progress (S-6) --------------------------------------------------------
