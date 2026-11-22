@@ -48,6 +48,8 @@ export type ImportReport = components['schemas']['ImportReport'];
 export type WordListImport = components['schemas']['WordListImport'];
 export type ExampleLine = components['schemas']['ExampleLine'];
 export type MissedWord = components['schemas']['MissedWord'];
+export type WatchIn = components['schemas']['WatchIn'];
+export type WatchOut = components['schemas']['WatchOut'];
 export type LLMStatus = components['schemas']['LLMStatus'];
 export type TranslationJob = components['schemas']['TranslationJob'];
 export type LineExplanation = components['schemas']['LineExplanation'];
@@ -139,6 +141,12 @@ export const apiClient = {
   listEpisodes: () => apiRequest<EpisodeOut[]>('/episodes'),
 
   getEpisode: (id: number) => apiRequest<EpisodeOut>(`/episodes/${id}`),
+
+  patchEpisode: (id: number, patch: EpisodePatch) =>
+    apiRequest<EpisodeOut>(`/episodes/${id}`, {
+      method: 'PATCH',
+      json: patch,
+    }),
 
   uploadEpisode: (params: {
     subtitle: File;
@@ -246,6 +254,30 @@ export const apiClient = {
     }),
 
   deleteCard: (cardId: number) => apiRequest<void>(`/cards/${cardId}`, { method: 'DELETE' }),
+
+  uploadMedia: (params: {
+    file: Blob;
+    filename: string;
+    kind: MediaKind;
+    cardId?: number | null;
+  }) => {
+    const formData = new FormData();
+    formData.append('file', params.file, params.filename);
+    formData.append('kind', params.kind);
+    if (params.cardId !== undefined && params.cardId !== null) {
+      formData.append('card_id', String(params.cardId));
+    }
+    return apiRequest<MediaOut>('/media', {
+      method: 'POST',
+      formData,
+    });
+  },
+
+  sendWatchHeartbeat: (payload: WatchIn) =>
+    apiRequest<WatchOut>('/activity/watch', {
+      method: 'POST',
+      json: payload,
+    }),
 
   getDueReviews: (limit = 20) => apiRequest<ReviewQueue>(`/reviews/due?limit=${limit}`),
 

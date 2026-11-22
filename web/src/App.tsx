@@ -5,6 +5,7 @@ import { EpisodeDetailPage } from './pages/EpisodeDetailPage';
 import { ReviewPage } from './pages/ReviewPage';
 import { WordsPage } from './pages/WordsPage';
 import { KanaPage } from './pages/KanaPage';
+import { PlayerPage } from './pages/PlayerPage';
 import { StatsPage } from './pages/StatsPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -12,6 +13,7 @@ const queryClient = new QueryClient();
 
 const navItems = [
   { to: '/', label: 'Library', end: true },
+  { to: '/player', label: 'Player' },
   { to: '/review', label: 'Review' },
   { to: '/words', label: 'Words' },
   { to: '/kana', label: 'Kana' },
@@ -54,6 +56,8 @@ export function App() {
             <Routes>
               <Route path="/" element={<LibraryPage />} />
               <Route path="/episodes/:id" element={<EpisodeDetailPage />} />
+              <Route path="/episodes/:id/watch" element={<PlayerPage />} />
+              <Route path="/player" element={<PlayerPage />} />
               <Route path="/review" element={<ReviewPage />} />
               <Route path="/words" element={<WordsPage />} />
               <Route path="/kana" element={<KanaPage />} />

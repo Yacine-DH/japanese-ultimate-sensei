@@ -56,7 +56,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **S-10** STT fallback: episode audio (server fetch or extension upload) → faster-whisper / kotoba-whisper, overnight queue
 - [x] **S-11** (#31) Audio-based automatic subtitle sync (claude, 2026-11-22: `POST /episodes/{id}/sync`, VAD + loudness vs line timing, cross-correlation ±2 min, confidence-gated apply)
 - [x] **E-10** (#99) Extension Auto-sync button: record 45 s of audio → `POST /episodes/{id}/sync`, apply/toast. deps: S-11 (antigravity, 2026-11-22: pure `auto-sync.ts` state machine + 45 s audio-only `MediaRecorder` reading `video_start_ms` in `onstart`, popup & overlay hover Auto-sync buttons + `Y` hotkey + `Esc` cancel, applied/not-applied interactive "Use anyway" toast, unit tests)
-- [ ] **W-6** Built-in player for downloaded files (same overlay component as the extension)
+- [x] **W-6** (#32) Built-in player for downloaded files (same overlay component as the extension) (antigravity, 2026-11-22: local blob video player at /player and /episodes/:id/watch with fullscreen-safe furigana + Zipf highlight overlay, hover/click word_id dictionary popup, untainted canvas/audio card capture, timing/replay/LLM hotkeys, watch heartbeats, synced transcript sidebar, and post-watch missed words, unit tests)
 
 ## Requests (cross-team)
 - [x] **R-1** (#12) (claude, 2026-11-19: `GET /words` + `POST /words/bulk-status`, see API.md) from antigravity: need `GET /words?status=&anime_id=&q=&limit=&offset=` and `POST /words/bulk-status` (`{"word_ids": int[], "status": WordStatus}`) because **W-4** requires a vocabulary table filterable by status/anime and bulk mark known, whereas `docs/API.md` currently only exposes single-word `GET /words/{id}` and `POST /words/{id}/status`.

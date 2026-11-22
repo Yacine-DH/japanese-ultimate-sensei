@@ -303,7 +303,13 @@ export function EpisodeDetailPage() {
           <Link to="/" className="text-xs font-medium text-sky-400 hover:text-sky-300">
             &larr; Back to Library
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to={`/episodes/${episodeId}/watch`}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/40 text-xs font-bold"
+            >
+              Watch Video File
+            </Link>
             <button
               type="button"
               onClick={() => setShowPrimer((v) => !v)}
