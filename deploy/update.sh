@@ -10,6 +10,15 @@ git pull --ff-only
 # Extension zips for the laptop (Edge/Chrome + Firefox); a failure here never blocks the deploy.
 (cd extension && pnpm install --frozen-lockfile && pnpm zip && pnpm zip:firefox) \
   && ls -1 "$REPO"/extension/.output/*.zip || echo "warning: extension build failed" >&2
+# Serve the newest zips from the web app (http://<server>:8000/downloads/…) for
+# scripts/update-extension.ps1 on the laptop; version.json lets the extension spot updates.
+DL="$REPO/web/dist/downloads"
+mkdir -p "$DL"
+for z in "$REPO"/extension/.output/*-chrome.zip "$REPO"/extension/.output/*-firefox.zip; do
+  [ -f "$z" ] && cp "$z" "$DL/sensei-extension-${z##*-}"
+done
+printf '{"commit":"%s","built_at":"%s"}\n' "$(git rev-parse --short HEAD)" "$(date -u +%FT%TZ)" \
+  > "$DL/version.json"
 systemctl --user restart sensei  # migrates the DB on start (backs it up first)
 sleep 2
 curl -fsS "http://localhost:${SENSEI_PORT:-8000}/health" && echo
