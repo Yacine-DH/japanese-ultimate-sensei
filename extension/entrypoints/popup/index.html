@@ -274,6 +274,46 @@
         gap: 8px;
         margin-top: 8px;
       }
+      .update-native-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+      }
+      .update-progress-text {
+        font-size: 0.72rem;
+        color: #fde68a;
+        line-height: 1.3;
+      }
+      .update-progress-text.ok {
+        color: #86efac;
+        font-weight: 600;
+      }
+      .update-error-text {
+        margin-top: 7px;
+        font-size: 0.72rem;
+        color: #fca5a5;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+      .update-setup-box {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(245, 158, 11, 0.35);
+      }
+      .update-setup-title {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #fde68a;
+      }
+      .popup-footer {
+        margin-top: 8px;
+        text-align: center;
+        font-size: 0.7rem;
+        color: #64748b;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
       .setup-card h2 {
         margin: 0 0 4px;
         font-size: 0.9rem;
@@ -397,15 +437,32 @@
     <div id="update-banner" class="update-banner">
       <div id="update-banner-title" class="update-banner-title"></div>
       <div id="update-banner-meta" class="update-banner-meta"></div>
-      <div class="update-cmd-row">
-        <code id="update-cmd" class="update-cmd"></code>
-        <button id="copy-update-cmd-btn" type="button" class="small">Copy</button>
+      <div id="update-native-row" class="update-native-row" style="display: none">
+        <button id="update-now-btn" type="button" class="primary small">Update now</button>
+        <span id="update-progress-text" class="update-progress-text"></span>
       </div>
-      <div class="update-actions">
-        <span class="muted" style="font-size: 0.7rem">Run in PowerShell, then reload:</span>
-        <button id="reload-extension-btn" type="button" class="primary small">
-          Reload extension
-        </button>
+      <div id="update-error-text" class="update-error-text" style="display: none"></div>
+      <div id="update-setup-box" class="update-setup-box" style="display: none">
+        <div id="update-setup-title" class="update-setup-title">One-time setup</div>
+        <div class="update-cmd-row">
+          <code id="update-setup-cmd" class="update-cmd"></code>
+          <button id="copy-setup-cmd-btn" type="button" class="small">Copy</button>
+        </div>
+        <div id="update-setup-hint" class="muted" style="font-size: 0.7rem; margin-top: 5px">
+          Run it, then click Update now again
+        </div>
+      </div>
+      <div id="update-fallback-box" style="display: none">
+        <div class="update-cmd-row">
+          <code id="update-cmd" class="update-cmd"></code>
+          <button id="copy-update-cmd-btn" type="button" class="small">Copy</button>
+        </div>
+        <div class="update-actions">
+          <span class="muted" style="font-size: 0.7rem">Run in PowerShell, then reload:</span>
+          <button id="reload-extension-btn" type="button" class="primary small">
+            Reload extension
+          </button>
+        </div>
       </div>
     </div>
 
@@ -601,6 +658,7 @@
     </div>
 
     <button id="open-options-btn" type="button">Options &amp; Token</button>
+    <div id="popup-version" class="popup-footer"></div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

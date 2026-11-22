@@ -27,6 +27,14 @@ import {
 } from '../../src/lib/jimaku';
 import { getKeyboardLayoutMap } from '../../src/lib/keyboard-layout';
 import {
+  canUseNativeUpdater,
+  createInitialPopupUpdateState,
+  createUpdatingPopupUpdateState,
+  interpretUpdateResponse,
+  type PopupUpdateUiState,
+  sendNativeUpdaterMessage,
+} from '../../src/lib/native-updater';
+import {
   extractOverlayHostKey,
   getOverlayPositionForHost,
   withOverlayPositionForHost,
@@ -40,8 +48,11 @@ import {
 import {
   buildUpdateOneLiner,
   evaluateUpdateStatus,
+  formatPopupFooterVersion,
   formatUpdateHeadline,
+  formatVersionTag,
   getBuildCommit,
+  getExtensionVersion,
   parseVersionInfo,
   reloadExtension,
 } from '../../src/lib/update';
@@ -55,9 +66,20 @@ const healthBadge = document.getElementById('health-badge') as HTMLSpanElement;
 const updateBanner = document.getElementById('update-banner') as HTMLDivElement;
 const updateBannerTitle = document.getElementById('update-banner-title') as HTMLDivElement;
 const updateBannerMeta = document.getElementById('update-banner-meta') as HTMLDivElement;
+const updateNativeRow = document.getElementById('update-native-row') as HTMLDivElement;
+const updateNowBtn = document.getElementById('update-now-btn') as HTMLButtonElement;
+const updateProgressText = document.getElementById('update-progress-text') as HTMLSpanElement;
+const updateErrorText = document.getElementById('update-error-text') as HTMLDivElement;
+const updateSetupBox = document.getElementById('update-setup-box') as HTMLDivElement;
+const updateSetupTitle = document.getElementById('update-setup-title') as HTMLDivElement;
+const updateSetupCmd = document.getElementById('update-setup-cmd') as HTMLElement;
+const copySetupCmdBtn = document.getElementById('copy-setup-cmd-btn') as HTMLButtonElement;
+const updateSetupHint = document.getElementById('update-setup-hint') as HTMLDivElement;
+const updateFallbackBox = document.getElementById('update-fallback-box') as HTMLDivElement;
 const updateCmdEl = document.getElementById('update-cmd') as HTMLElement;
 const copyUpdateCmdBtn = document.getElementById('copy-update-cmd-btn') as HTMLButtonElement;
 const reloadExtensionBtn = document.getElementById('reload-extension-btn') as HTMLButtonElement;
+const popupVersionEl = document.getElementById('popup-version') as HTMLDivElement;
 const setupCard = document.getElementById('setup-card') as HTMLDivElement;
 const setupForm = document.getElementById('setup-form') as HTMLFormElement;
 const setupServerUrl = document.getElementById('setup-server-url') as HTMLInputElement;
@@ -125,22 +147,67 @@ let autoSuggestSeq = 0;
 let currentServerUrl = '';
 let currentExtensionFolder = '';
 let currentUpdateCommand = '';
+let currentSetupCommand = '';
+let isUpdatingExtension = false;
 let jimakuSelectedEntry: JimakuEntry | null = null;
 let jimakuFiles: JimakuFile[] = [];
 let jimakuSelectedFileName = '';
 let guessedEpFromTab: number | null = null;
 let updateCheckSeq = 0;
 
+popupVersionEl.textContent = formatPopupFooterVersion(getExtensionVersion(), getBuildCommit());
+
+function renderUpdateBannerState(ui: PopupUpdateUiState): void {
+  updateNativeRow.style.display = ui.showUpdateNow || ui.progressText ? 'flex' : 'none';
+  updateNowBtn.style.display = ui.showUpdateNow ? '' : 'none';
+  updateNowBtn.disabled = ui.updateNowDisabled;
+  updateNowBtn.textContent = ui.updateNowLabel;
+
+  updateProgressText.textContent = ui.progressText ?? '';
+  updateProgressText.className = ui.isSuccessProgress
+    ? 'update-progress-text ok'
+    : 'update-progress-text';
+
+  if (ui.errorMessage) {
+    updateErrorText.textContent = ui.errorMessage;
+    updateErrorText.style.display = 'block';
+  } else {
+    updateErrorText.textContent = '';
+    updateErrorText.style.display = 'none';
+  }
+
+  if (ui.setupCommand) {
+    currentSetupCommand = ui.setupCommand;
+    updateSetupTitle.textContent = ui.setupTitle ?? 'One-time setup';
+    updateSetupCmd.textContent = ui.setupCommand;
+    updateSetupHint.textContent = ui.setupHint ?? 'Run it, then click Update now again';
+    updateSetupBox.style.display = 'block';
+  } else {
+    currentSetupCommand = '';
+    updateSetupBox.style.display = 'none';
+  }
+
+  currentUpdateCommand = ui.fallbackCommand;
+  updateCmdEl.textContent = ui.fallbackCommand;
+  updateFallbackBox.style.display = ui.showFallbackCommand ? 'block' : 'none';
+}
+
 function hideUpdateBanner(): void {
+  if (isUpdatingExtension) return;
   updateBanner.className = 'update-banner';
   updateBannerTitle.textContent = '';
   updateBannerMeta.textContent = '';
+  updateNativeRow.style.display = 'none';
+  updateErrorText.style.display = 'none';
+  updateSetupBox.style.display = 'none';
+  updateFallbackBox.style.display = 'none';
 }
 
 async function checkForExtensionUpdate(): Promise<void> {
+  if (isUpdatingExtension) return;
   const seq = ++updateCheckSeq;
   const res = await api.getExtensionVersion();
-  if (seq !== updateCheckSeq) return;
+  if (seq !== updateCheckSeq || isUpdatingExtension) return;
   if (!res.ok) {
     hideUpdateBanner();
     return;
@@ -152,9 +219,19 @@ async function checkForExtensionUpdate(): Promise<void> {
     return;
   }
   updateBannerTitle.textContent = formatUpdateHeadline(status);
-  updateBannerMeta.textContent = `Installed ${status.currentCommit} → server ${status.latestCommit}`;
-  currentUpdateCommand = buildUpdateOneLiner(currentServerUrl, currentExtensionFolder);
-  updateCmdEl.textContent = currentUpdateCommand;
+  const currentVerTag = formatVersionTag(getExtensionVersion());
+  const latestVerTag = formatVersionTag(status.latestVersion);
+  updateBannerMeta.textContent =
+    currentVerTag && latestVerTag
+      ? `${currentVerTag} → ${latestVerTag} (${status.currentCommit} → ${status.latestCommit})`
+      : `Installed ${status.currentCommit} → server ${status.latestCommit}`;
+  renderUpdateBannerState(
+    createInitialPopupUpdateState({
+      nativeSupported: canUseNativeUpdater(),
+      serverUrl: currentServerUrl,
+      extensionFolder: currentExtensionFolder,
+    }),
+  );
   updateBanner.className = 'update-banner visible';
 }
 
@@ -864,6 +941,41 @@ jimakuImportBtn.addEventListener('click', async () => {
 
 openOptionsBtn.addEventListener('click', () => {
   void browser.runtime.openOptionsPage();
+});
+
+updateNowBtn.addEventListener('click', async () => {
+  if (isUpdatingExtension) return;
+  isUpdatingExtension = true;
+  const ctx = {
+    serverUrl: currentServerUrl,
+    extensionFolder: currentExtensionFolder,
+  };
+  renderUpdateBannerState(createUpdatingPopupUpdateState(ctx));
+  const result = await sendNativeUpdaterMessage({ action: 'update' });
+  const nextState = interpretUpdateResponse(result, ctx);
+  isUpdatingExtension = nextState.shouldReload;
+  renderUpdateBannerState(nextState);
+  if (nextState.shouldReload) {
+    setTimeout(() => {
+      reloadExtension();
+    }, 400);
+  }
+});
+
+copySetupCmdBtn.addEventListener('click', async () => {
+  if (!currentSetupCommand) return;
+  try {
+    await navigator.clipboard.writeText(currentSetupCommand);
+    copySetupCmdBtn.textContent = 'Copied';
+    setTimeout(() => {
+      copySetupCmdBtn.textContent = 'Copy';
+    }, 1500);
+  } catch {
+    copySetupCmdBtn.textContent = 'Copy failed';
+    setTimeout(() => {
+      copySetupCmdBtn.textContent = 'Copy';
+    }, 1500);
+  }
 });
 
 copyUpdateCmdBtn.addEventListener('click', async () => {

@@ -7,18 +7,23 @@ import {
   DEFAULT_EXTENSION_FOLDER,
   evaluateUpdateStatus,
   formatBuiltAt,
+  formatPopupFooterVersion,
   formatPowerShellFolderPath,
   formatUpdateHeadline,
   formatVersionLine,
+  formatVersionTag,
   getBuildCommit,
+  getExtensionVersion,
   isSameCommit,
   parseVersionInfo,
   reloadExtension,
 } from '../src/lib/update';
 import wxtConfig, {
   CHROME_MANIFEST_PUBLIC_KEY,
+  DEFAULT_EXTENSION_VERSION,
   FIREFOX_GECKO_ID,
   resolveBuildCommit,
+  resolveExtensionVersion,
 } from '../wxt.config';
 
 describe('extension update helpers (#110, #117)', () => {
@@ -156,9 +161,22 @@ describe('extension update helpers (#110, #117)', () => {
     ).toBe('Update available (00e5b8c)');
 
     expect(formatVersionLine('a8afb70')).toBe('Version: a8afb70');
+    expect(formatVersionLine('a8afb70', '0.1.32')).toBe('Version: v0.1.32 (a8afb70)');
     expect(formatVersionLine('')).toBe('Version: unknown');
+    expect(formatVersionTag('0.1.32')).toBe('v0.1.32');
+    expect(formatVersionTag('v0.1.32')).toBe('v0.1.32');
+    expect(formatPopupFooterVersion('0.1.32', 'a8afb70')).toBe('v0.1.32 (a8afb70)');
+    expect(formatPopupFooterVersion('0.1.32', 'unknown')).toBe('v0.1.32');
     expect(getBuildCommit('  00e5b8c  ')).toBe('00e5b8c');
     expect(getBuildCommit('')).toBe('unknown');
+    expect(getExtensionVersion(' 0.1.32 ')).toBe('0.1.32');
+    expect(getExtensionVersion('v0.1.33')).toBe('0.1.33');
+    expect(getExtensionVersion('')).toBe(DEFAULT_EXTENSION_VERSION);
+
+    (globalThis as Record<string, unknown>).chrome = {
+      runtime: { getManifest: () => ({ version: '0.1.44' }) },
+    };
+    expect(getExtensionVersion()).toBe('0.1.44');
   });
 
   it('invokes browser.runtime.reload() or chrome.runtime.reload() when reloading', () => {
@@ -212,21 +230,47 @@ describe('manifest stable ID and update UI wiring (#110, #117)', () => {
     expect(stamp).toMatch(/^[0-9a-f]{7,}$/);
   });
 
-  it('sets Chromium manifest key and Firefox gecko ID cleanly per target browser', () => {
+  it('resolves manifest version from SENSEI_EXT_VERSION with 0.1.0 fallback (#141)', () => {
+    expect(resolveExtensionVersion('0.1.32')).toBe('0.1.32');
+    expect(resolveExtensionVersion(' v0.1.35 ')).toBe('0.1.35');
+    expect(resolveExtensionVersion('')).toBe('0.1.0');
+    expect(resolveExtensionVersion(undefined)).toBe('0.1.0');
+    expect(resolveExtensionVersion('not-a-version')).toBe('0.1.0');
+  });
+
+  it('sets Chromium manifest key, nativeMessaging permission, and Firefox gecko ID cleanly per target browser', () => {
     const manifestFn = wxtConfig.manifest;
     expect(typeof manifestFn).toBe('function');
     if (typeof manifestFn !== 'function') return;
 
-    const chromeManifest = manifestFn({ browser: 'chrome', manifestVersion: 3, command: 'build', mode: 'production' } as never) as Record<string, unknown>;
-    expect(chromeManifest.key).toBe(CHROME_MANIFEST_PUBLIC_KEY);
-    expect(CHROME_MANIFEST_PUBLIC_KEY.startsWith('MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A')).toBe(true);
-    expect(chromeManifest.browser_specific_settings).toBeUndefined();
+    const prevVer = process.env.SENSEI_EXT_VERSION;
+    try {
+      process.env.SENSEI_EXT_VERSION = '0.1.32';
+      const chromeManifest = manifestFn({ browser: 'chrome', manifestVersion: 3, command: 'build', mode: 'production' } as never) as Record<string, unknown>;
+      expect(chromeManifest.version).toBe('0.1.32');
+      expect(chromeManifest.key).toBe(CHROME_MANIFEST_PUBLIC_KEY);
+      expect(CHROME_MANIFEST_PUBLIC_KEY.startsWith('MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A')).toBe(true);
+      expect(chromeManifest.browser_specific_settings).toBeUndefined();
+      expect(chromeManifest.permissions).toContain('nativeMessaging');
 
-    const firefoxManifest = manifestFn({ browser: 'firefox', manifestVersion: 2, command: 'build', mode: 'production' } as never) as Record<string, unknown>;
-    expect(firefoxManifest.key).toBeUndefined();
-    expect(firefoxManifest.browser_specific_settings).toEqual({
-      gecko: { id: FIREFOX_GECKO_ID },
-    });
+      const firefoxManifest = manifestFn({ browser: 'firefox', manifestVersion: 2, command: 'build', mode: 'production' } as never) as Record<string, unknown>;
+      expect(firefoxManifest.version).toBe('0.1.32');
+      expect(firefoxManifest.key).toBeUndefined();
+      expect(firefoxManifest.permissions).not.toContain('nativeMessaging');
+      expect(firefoxManifest.browser_specific_settings).toEqual({
+        gecko: { id: FIREFOX_GECKO_ID },
+      });
+
+      delete process.env.SENSEI_EXT_VERSION;
+      const localManifest = manifestFn({ browser: 'chrome', manifestVersion: 3, command: 'build', mode: 'development' } as never) as Record<string, unknown>;
+      expect(localManifest.version).toBe('0.1.0');
+    } finally {
+      if (prevVer === undefined) {
+        delete process.env.SENSEI_EXT_VERSION;
+      } else {
+        process.env.SENSEI_EXT_VERSION = prevVer;
+      }
+    }
   });
 
   it('wires update banner, self-contained PowerShell command, extension folder option, Reload button, and version line', () => {
@@ -245,6 +289,6 @@ describe('manifest stable ID and update UI wiring (#110, #117)', () => {
     expect(optionsHtml).toContain('id="extension-folder"');
     expect(optionsHtml).toContain('id="extension-version"');
     expect(optionsMain).toContain('extensionFolderInput');
-    expect(optionsMain).toContain('formatVersionLine(getBuildCommit())');
+    expect(optionsMain).toContain('formatVersionLine(getBuildCommit(), getExtensionVersion())');
   });
 });

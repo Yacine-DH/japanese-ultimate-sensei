@@ -12,6 +12,20 @@ export const CHROME_MANIFEST_PUBLIC_KEY =
 
 export const FIREFOX_GECKO_ID = 'sensei@japanese-ultimate-sensei.local';
 
+export const DEFAULT_EXTENSION_VERSION = '0.1.0';
+
+const MANIFEST_VERSION_RE = /^\d+(?:\.\d+){0,3}$/;
+
+export function resolveExtensionVersion(
+  raw: string | undefined = process.env.SENSEI_EXT_VERSION,
+): string {
+  const cleaned = raw?.trim().replace(/^v/i, '') ?? '';
+  if (!cleaned || !MANIFEST_VERSION_RE.test(cleaned)) {
+    return DEFAULT_EXTENSION_VERSION;
+  }
+  return cleaned;
+}
+
 export const EXTENSION_ICONS = {
   16: 'icon/16.png',
   32: 'icon/32.png',
@@ -44,13 +58,14 @@ export default defineConfig({
   vite: () => ({
     define: {
       'import.meta.env.VITE_SENSEI_BUILD_COMMIT': JSON.stringify(BUILD_COMMIT),
+      'import.meta.env.VITE_SENSEI_EXT_VERSION': JSON.stringify(resolveExtensionVersion()),
     },
   }),
   manifest: ({ browser, manifestVersion }) => ({
     name: 'Japanese Ultimate Sensei',
     description:
       'Turn every anime episode into a Japanese lesson with interactive furigana subtitles and hover dictionary.',
-    version: '0.1.0',
+    version: resolveExtensionVersion(),
     icons: EXTENSION_ICONS,
     ...(manifestVersion === 2
       ? {
@@ -63,7 +78,10 @@ export default defineConfig({
             default_icon: EXTENSION_ICONS,
           },
         }),
-    permissions: ['storage', 'activeTab', 'tabs'],
+    permissions:
+      browser === 'firefox'
+        ? ['storage', 'activeTab', 'tabs']
+        : ['storage', 'activeTab', 'tabs', 'nativeMessaging'],
     host_permissions: ['<all_urls>'],
     ...(browser === 'firefox'
       ? {
