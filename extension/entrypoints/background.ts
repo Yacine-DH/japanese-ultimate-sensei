@@ -4,6 +4,9 @@ import {
   type AnkiNotePayload,
   type AnkiPushCardResponse,
   type AnkiTestResponse,
+  type AutoAttachNoticeMessage,
+  type AutoImport,
+  type AutoImportOut,
   type CaptureVisibleTabResponse,
   type EpisodeOut,
   executeApiCall,
@@ -17,15 +20,21 @@ import {
   isAnkiTestMessage,
   isApiCallMessage,
   isCaptureVisibleTabMessage,
+  isConsumeAutoAttachNoticeMessage,
+  isConsumeManualSearchFlagMessage,
   isGetTabStateMessage,
+  isOpenPopupSearchMessage,
   isSetTabStateMessage,
   isSyncEpisodeMessage,
+  isTriggerAutoAttachMessage,
   isUploadMediaMessage,
   isUploadSubtitleMessage,
   type LineOut,
   markAsBackgroundContext,
+  type OpenPopupSearchResponse,
   type TabEpisodeState,
   type TabStateChangedMessage,
+  type TriggerAutoAttachResponse,
   type WordOut,
   type WordStatus,
 } from '../src/api/client';
@@ -36,14 +45,32 @@ import {
   pushCardToAnki,
   testAnkiConnect,
 } from '../src/lib/anki-connect';
+import {
+  type AutoAttachNotice,
+  decideAutoAttach,
+  extractSeriesPrefixPattern,
+  formatAutoAttachFailureNotice,
+  formatAutoAttachSuccessToast,
+  shouldWaitForTabTitle,
+} from '../src/lib/auto-attach';
 import { EpisodeTranscriptCache, type SessionStorageLike } from '../src/lib/line-cache';
-import { getSettings, saveSettings } from '../src/lib/settings';
+import { getSettings, isServerUrlConfigured, saveSettings } from '../src/lib/settings';
 import { normalizePageUrlPattern } from '../src/lib/url-mapping';
 
 interface TabOverride {
+  pattern: string | null;
   episodeId: number | null;
   enabled: boolean;
 }
+
+interface PendingNoticeEntry {
+  pattern: string;
+  notice: AutoAttachNotice;
+  createdAt: number;
+}
+
+const NOTICE_TTL_MS = 30_000;
+const MANUAL_SEARCH_FLAG_TTL_MS = 30_000;
 
 function getSessionStorage(): SessionStorageLike | null {
   const g = globalThis as unknown as {
@@ -61,10 +88,42 @@ function getLocalStorage(): LocalStorageLike | null {
   return g.browser?.storage?.local ?? g.chrome?.storage?.local ?? null;
 }
 
+async function tryOpenActionPopup(): Promise<boolean> {
+  const g = globalThis as unknown as {
+    browser?: {
+      action?: { openPopup?: () => Promise<void> };
+      browserAction?: { openPopup?: () => Promise<void> };
+    };
+    chrome?: {
+      action?: { openPopup?: () => Promise<void> };
+      browserAction?: { openPopup?: () => Promise<void> };
+    };
+  };
+  const openPopup =
+    g.browser?.action?.openPopup ??
+    g.browser?.browserAction?.openPopup ??
+    g.chrome?.action?.openPopup ??
+    g.chrome?.browserAction?.openPopup;
+  if (typeof openPopup !== 'function') {
+    return false;
+  }
+  try {
+    await openPopup();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default defineBackground(() => {
   markAsBackgroundContext();
 
   const tabOverrides = new Map<number, TabOverride>();
+  const lastTabPattern = new Map<number, string | null>();
+  const inFlightAutoAttach = new Map<string, Promise<TriggerAutoAttachResponse>>();
+  const attemptedAutoAttach = new Map<number, string>();
+  const pendingNotices = new Map<number, PendingNoticeEntry>();
+  const manualSearchTabs = new Map<number, number>();
   const transcriptCache = new EpisodeTranscriptCache(getSessionStorage());
   const ankiQueue = new AnkiPushQueue(getLocalStorage());
 
@@ -91,6 +150,17 @@ export default defineBackground(() => {
     });
   }, 60_000);
 
+  function getActiveNotice(tabId: number | null, pattern: string | null): AutoAttachNotice | null {
+    if (tabId === null || !pattern) return null;
+    const entry = pendingNotices.get(tabId);
+    if (!entry) return null;
+    if (entry.pattern !== pattern || Date.now() - entry.createdAt > NOTICE_TTL_MS) {
+      pendingNotices.delete(tabId);
+      return null;
+    }
+    return entry.notice;
+  }
+
   async function resolveTabState(
     tabId: number | null,
     pageUrl: string,
@@ -98,7 +168,15 @@ export default defineBackground(() => {
     const settings = await getSettings();
     const pattern = normalizePageUrlPattern(pageUrl);
     const mappedEpisodeId = pattern ? (settings.urlMappings[pattern] ?? null) : null;
-    const override = tabId !== null ? tabOverrides.get(tabId) : undefined;
+    const rawOverride = tabId !== null ? tabOverrides.get(tabId) : undefined;
+    const override = rawOverride && rawOverride.pattern === pattern ? rawOverride : undefined;
+    if (rawOverride && rawOverride.pattern !== pattern && tabId !== null) {
+      tabOverrides.delete(tabId);
+    }
+
+    const autoKey = tabId !== null && pattern ? `${tabId}:${pattern}` : null;
+    const isLoadingAuto = autoKey !== null && inFlightAutoAttach.has(autoKey);
+    const activeNotice = getActiveNotice(tabId, pattern);
 
     if (override) {
       const episodeId = override.episodeId ?? mappedEpisodeId;
@@ -108,6 +186,8 @@ export default defineBackground(() => {
         pattern,
         episodeId,
         enabled: override.enabled && episodeId !== null,
+        autoAttachStatus: isLoadingAuto ? 'loading' : 'idle',
+        autoAttachNotice: activeNotice,
       };
     }
 
@@ -117,11 +197,260 @@ export default defineBackground(() => {
       pattern,
       episodeId: mappedEpisodeId,
       enabled: mappedEpisodeId !== null,
+      autoAttachStatus: isLoadingAuto
+        ? 'loading'
+        : activeNotice?.kind === 'attached'
+          ? 'attached'
+          : activeNotice?.kind === 'error'
+            ? 'error'
+            : 'idle',
+      autoAttachNotice: activeNotice,
     };
   }
 
+  async function notifyTabState(tabId: number, state: TabEpisodeState): Promise<void> {
+    try {
+      await browser.tabs.sendMessage(tabId, {
+        type: 'SENSEI_TAB_STATE_CHANGED',
+        state,
+      } satisfies TabStateChangedMessage);
+    } catch {
+      // Content script might not be loaded on non-web tabs or not booted yet
+    }
+  }
+
+  async function notifyTabAutoAttachNotice(
+    tabId: number,
+    notice: AutoAttachNotice,
+  ): Promise<void> {
+    try {
+      await browser.tabs.sendMessage(tabId, {
+        type: 'SENSEI_AUTO_ATTACH_NOTICE',
+        notice,
+      } satisfies AutoAttachNoticeMessage);
+    } catch {
+      // Content script will pick it up via getTabState() once mounted
+    }
+  }
+
+  async function rememberEpisodeMappings(
+    pageUrl: string,
+    episodeId: number,
+    explicitAnimeId?: number | null,
+  ): Promise<void> {
+    const pattern = normalizePageUrlPattern(pageUrl);
+    const prefixPattern = extractSeriesPrefixPattern(pageUrl);
+    if (!pattern && !prefixPattern) return;
+
+    let animeId =
+      typeof explicitAnimeId === 'number' && Number.isFinite(explicitAnimeId)
+        ? explicitAnimeId
+        : null;
+
+    if (prefixPattern && animeId === null) {
+      const epRes = await transcriptCache.getEpisode(episodeId, async () => {
+        const s = await getSettings();
+        return executeApiCall<EpisodeOut>(s, `/episodes/${episodeId}`);
+      });
+      if (epRes.ok && epRes.data && typeof epRes.data.anime_id === 'number') {
+        animeId = epRes.data.anime_id;
+      }
+    }
+
+    const latest = await getSettings();
+    const patch: Partial<typeof latest> = {};
+    if (pattern) {
+      patch.urlMappings = { ...latest.urlMappings, [pattern]: episodeId };
+    }
+    if (prefixPattern && animeId !== null) {
+      patch.animeMappings = { ...latest.animeMappings, [prefixPattern]: animeId };
+    }
+    if (patch.urlMappings || patch.animeMappings) {
+      await saveSettings(patch);
+    }
+  }
+
+  async function runAutoAttachForTab(
+    tabId: number,
+    pageUrl: string,
+    pageTitle: string,
+    forceRetry = false,
+  ): Promise<TriggerAutoAttachResponse> {
+    const settings = await getSettings();
+    if (!isServerUrlConfigured(settings.serverUrl)) {
+      return { status: 'skipped' };
+    }
+
+    const pattern = normalizePageUrlPattern(pageUrl);
+    if (!pattern) {
+      return { status: 'skipped' };
+    }
+
+    const existingOverride = tabOverrides.get(tabId);
+    if (existingOverride && existingOverride.pattern === pattern) {
+      return { status: 'skipped' };
+    }
+
+    const decision = decideAutoAttach({
+      pageUrl,
+      pageTitle,
+      urlMappings: settings.urlMappings,
+      animeMappings: settings.animeMappings,
+      isTabAttached: false,
+    });
+    if (decision.mode !== 'auto') {
+      return { status: 'skipped' };
+    }
+
+    const key = `${tabId}:${decision.pattern}`;
+    const existingFlight = inFlightAutoAttach.get(key);
+    if (existingFlight) {
+      return existingFlight;
+    }
+
+    if (!forceRetry && attemptedAutoAttach.get(tabId) === decision.pattern) {
+      return { status: 'skipped' };
+    }
+
+    const task = (async (): Promise<TriggerAutoAttachResponse> => {
+      attemptedAutoAttach.set(tabId, decision.pattern);
+
+      const res = await executeApiCall<AutoImportOut>(settings, '/episodes/auto', {
+        method: 'POST',
+        json: {
+          anime_id: decision.animeId,
+          episode_number: decision.episodeNumber,
+        } satisfies AutoImport,
+      });
+
+      // Respect any manual action taken by the user while /episodes/auto was in flight.
+      const overrideNow = tabOverrides.get(tabId);
+      if (overrideNow && overrideNow.pattern === decision.pattern) {
+        return { status: 'skipped' };
+      }
+
+      if (res.ok && res.data) {
+        const { episode } = res.data;
+        await transcriptCache.setEpisode(episode);
+        await rememberEpisodeMappings(
+          pageUrl,
+          episode.id,
+          episode.anime_id ?? decision.animeId,
+        );
+
+        // Verify the tab is still on this episode page before pushing UI state/toast.
+        const currentTab = await browser.tabs.get(tabId).catch(() => null);
+        const currentPattern = currentTab?.url ? normalizePageUrlPattern(currentTab.url) : null;
+        if (currentTab && currentPattern && currentPattern !== decision.pattern) {
+          return { status: 'attached', episode };
+        }
+
+        const notice: AutoAttachNotice = {
+          id: `auto-ok-${tabId}-${episode.id}-${Date.now()}`,
+          kind: 'attached',
+          title: formatAutoAttachSuccessToast(res.data),
+        };
+        pendingNotices.set(tabId, {
+          pattern: decision.pattern,
+          notice,
+          createdAt: Date.now(),
+        });
+
+        const state: TabEpisodeState = {
+          tabId,
+          pageUrl,
+          pattern: decision.pattern,
+          episodeId: episode.id,
+          enabled: true,
+          autoAttachStatus: 'attached',
+          autoAttachNotice: notice,
+        };
+        await notifyTabState(tabId, state);
+        return { status: 'attached', episode };
+      }
+
+      // Show actionable failure toast (e.g. 404 detail + "Search manually") if still on this page.
+      if (res.status === 404 || res.status === 422 || res.status === 502 || res.status === 503) {
+        const currentTab = await browser.tabs.get(tabId).catch(() => null);
+        const currentPattern = currentTab?.url ? normalizePageUrlPattern(currentTab.url) : null;
+        if (!currentTab || !currentPattern || currentPattern === decision.pattern) {
+          const failure = formatAutoAttachFailureNotice(res.status, res.error);
+          const notice: AutoAttachNotice = {
+            id: `auto-err-${tabId}-${Date.now()}`,
+            kind: 'error',
+            title: failure.title,
+            hint: failure.hint,
+            actionLabel: failure.actionLabel,
+          };
+          pendingNotices.set(tabId, {
+            pattern: decision.pattern,
+            notice,
+            createdAt: Date.now(),
+          });
+          await notifyTabAutoAttachNotice(tabId, notice);
+        }
+      }
+
+      return {
+        status: 'error',
+        error: res.error,
+        httpStatus: res.status,
+      };
+    })();
+
+    inFlightAutoAttach.set(key, task);
+    try {
+      return await task;
+    } finally {
+      inFlightAutoAttach.delete(key);
+    }
+  }
+
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const currentUrl = changeInfo.url ?? tab.url ?? '';
+    const pattern = normalizePageUrlPattern(currentUrl);
+    const prevPattern = lastTabPattern.get(tabId) ?? null;
+
+    if (changeInfo.url) {
+      if (pattern !== prevPattern) {
+        lastTabPattern.set(tabId, pattern);
+        const prevOverride = tabOverrides.get(tabId);
+        if (prevOverride && prevOverride.pattern !== pattern) {
+          tabOverrides.delete(tabId);
+        }
+        attemptedAutoAttach.delete(tabId);
+        pendingNotices.delete(tabId);
+
+        // On SPA navigation, push the new URL's state immediately so stale subtitles clear
+        // (or switch immediately if the target URL already has an exact mapping).
+        void resolveTabState(tabId, currentUrl).then((state) => notifyTabState(tabId, state));
+      }
+    } else if (changeInfo.status === 'loading') {
+      // Full page reload: allow auto-attach to run again if unattached.
+      attemptedAutoAttach.delete(tabId);
+    }
+
+    if (!pattern) return;
+    if (changeInfo.url || changeInfo.status === 'complete' || changeInfo.title) {
+      if (changeInfo.title || !shouldWaitForTabTitle(currentUrl, tab.status)) {
+        void runAutoAttachForTab(tabId, currentUrl, tab.title ?? '');
+      }
+    }
+  });
+
+  browser.tabs.onRemoved.addListener((tabId) => {
+    tabOverrides.delete(tabId);
+    lastTabPattern.delete(tabId);
+    attemptedAutoAttach.delete(tabId);
+    pendingNotices.delete(tabId);
+    manualSearchTabs.delete(tabId);
+  });
+
   browser.runtime.onMessage.addListener(
-    (message: unknown, sender: { tab?: { id?: number; url?: string; windowId?: number } }) => {
+    (
+      message: unknown,
+      sender: { tab?: { id?: number; url?: string; title?: string; status?: string; windowId?: number } },
+    ) => {
       if (isApiCallMessage(message)) {
         const method = (message.init?.method ?? 'GET').toUpperCase();
         const epMatch = /^\/episodes\/(\d+)$/.exec(message.path);
@@ -328,28 +657,43 @@ export default defineBackground(() => {
       if (isGetTabStateMessage(message)) {
         const tabId = message.tabId ?? sender.tab?.id ?? null;
         const pageUrl = message.pageUrl ?? sender.tab?.url ?? '';
-        return resolveTabState(tabId, pageUrl);
+        return (async () => {
+          const state = await resolveTabState(tabId, pageUrl);
+          // Opportunistically trigger auto-attach when a content script boots on an unattached tab
+          // (handles worker restarts or already-loaded pages when the extension reloads).
+          if (
+            tabId !== null &&
+            state.episodeId === null &&
+            sender.tab?.id === tabId &&
+            pageUrl &&
+            !shouldWaitForTabTitle(pageUrl, sender.tab?.status)
+          ) {
+            void runAutoAttachForTab(tabId, pageUrl, sender.tab?.title ?? '');
+          }
+          return state;
+        })();
       }
 
       if (isSetTabStateMessage(message)) {
         return (async () => {
           const settings = await getSettings();
           const pattern = normalizePageUrlPattern(message.pageUrl);
-          const nextMappings = { ...settings.urlMappings };
+          pendingNotices.delete(message.tabId);
 
-          if (pattern) {
-            if (message.episodeId !== null) {
-              nextMappings[pattern] = message.episodeId;
-            } else {
-              delete nextMappings[pattern];
-            }
+          if (message.episodeId !== null) {
+            await rememberEpisodeMappings(message.pageUrl, message.episodeId, message.animeId);
+          } else if (pattern) {
+            const nextMappings = { ...settings.urlMappings };
+            delete nextMappings[pattern];
             await saveSettings({ urlMappings: nextMappings });
           }
 
           tabOverrides.set(message.tabId, {
+            pattern,
             episodeId: message.episodeId,
             enabled: message.enabled && message.episodeId !== null,
           });
+          lastTabPattern.set(message.tabId, pattern);
 
           const state: TabEpisodeState = {
             tabId: message.tabId,
@@ -359,17 +703,43 @@ export default defineBackground(() => {
             enabled: message.enabled && message.episodeId !== null,
           };
 
-          try {
-            await browser.tabs.sendMessage(message.tabId, {
-              type: 'SENSEI_TAB_STATE_CHANGED',
-              state,
-            } satisfies TabStateChangedMessage);
-          } catch {
-            // Content script might not be loaded on non-web tabs
-          }
-
+          await notifyTabState(message.tabId, state);
           return state;
         })();
+      }
+
+      if (isTriggerAutoAttachMessage(message)) {
+        return runAutoAttachForTab(message.tabId, message.pageUrl, message.pageTitle, false);
+      }
+
+      if (isOpenPopupSearchMessage(message)) {
+        return (async (): Promise<OpenPopupSearchResponse> => {
+          const tabId = sender.tab?.id;
+          if (typeof tabId === 'number') {
+            manualSearchTabs.set(tabId, Date.now());
+          }
+          const ok = await tryOpenActionPopup();
+          return { ok };
+        })();
+      }
+
+      if (isConsumeManualSearchFlagMessage(message)) {
+        const ts = manualSearchTabs.get(message.tabId);
+        manualSearchTabs.delete(message.tabId);
+        const openManualSearch =
+          typeof ts === 'number' && Date.now() - ts <= MANUAL_SEARCH_FLAG_TTL_MS;
+        return Promise.resolve({ openManualSearch });
+      }
+
+      if (isConsumeAutoAttachNoticeMessage(message)) {
+        const tabId = sender.tab?.id;
+        if (typeof tabId === 'number') {
+          const entry = pendingNotices.get(tabId);
+          if (entry && entry.notice.id === message.noticeId) {
+            pendingNotices.delete(tabId);
+          }
+        }
+        return Promise.resolve({ ok: true });
       }
 
       return undefined;
