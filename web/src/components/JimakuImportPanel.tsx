@@ -13,6 +13,7 @@ import {
   findNextImportableFile,
   formatJimakuError,
   formatJimakuFileSize,
+  isJimakuFileDimmed,
   pickDefaultJimakuFile,
   suggestNextEpisodeNumber,
 } from '../lib/jimaku';
@@ -229,7 +230,7 @@ export function JimakuImportPanel({ existingEpisodes, onClose }: JimakuImportPan
                 {files.map((file) => {
                   const warning = describeJimakuFileWarning(file);
                   const disabled = !file.supported;
-                  const dimmed = !file.supported || file.multi_episode;
+                  const dimmed = isJimakuFileDimmed(file);
                   const checked = selectedFileName === file.name;
                   return (
                     <label
@@ -239,7 +240,9 @@ export function JimakuImportPanel({ existingEpisodes, onClose }: JimakuImportPan
                         disabled
                           ? 'opacity-45 cursor-not-allowed bg-slate-950/60 border-slate-800/70'
                           : dimmed
-                            ? 'opacity-70 cursor-pointer bg-slate-950/70 border-slate-800 hover:border-slate-700'
+                            ? checked
+                              ? 'opacity-80 cursor-pointer bg-sky-500/15 border-sky-400'
+                              : 'opacity-65 cursor-pointer bg-slate-950/70 border-slate-800 hover:border-slate-700'
                             : checked
                               ? 'cursor-pointer bg-sky-500/15 border-sky-400'
                               : 'cursor-pointer bg-slate-950 border-slate-800 hover:border-slate-700'
@@ -263,7 +266,15 @@ export function JimakuImportPanel({ existingEpisodes, onClose }: JimakuImportPan
                           )}
                           {file.web_source && (
                             <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 font-semibold">
-                              Web/TV
+                              Web
+                            </span>
+                          )}
+                          {file.dual_language && (
+                            <span
+                              title="Contains non-Japanese lines"
+                              className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 font-semibold"
+                            >
+                              JP+EN
                             </span>
                           )}
                           <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase">

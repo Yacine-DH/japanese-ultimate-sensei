@@ -23,8 +23,10 @@ export function suggestNextEpisodeNumber(
 export function pickDefaultJimakuFile(files: readonly JimakuFile[]): JimakuFile | null {
   const rec = files.find((f) => f.recommended);
   if (rec) return rec;
-  const usable = files.find((f) => f.supported && !f.multi_episode);
+  const usable = files.find((f) => f.supported && !f.multi_episode && !f.dual_language);
   if (usable) return usable;
+  const singleEp = files.find((f) => f.supported && !f.multi_episode);
+  if (singleEp) return singleEp;
   return files.find((f) => f.supported) ?? null;
 }
 
@@ -35,20 +37,33 @@ export function findNextImportableFile(
   const idx = files.findIndex((f) => f.name === failedFileName);
   const after = idx >= 0 ? files.slice(idx + 1) : files;
   return (
+    after.find((f) => f.supported && !f.multi_episode && !f.dual_language) ??
     after.find((f) => f.supported && !f.multi_episode) ??
     after.find((f) => f.supported) ??
     null
   );
 }
 
+export function isJimakuFileDimmed(
+  file: Pick<JimakuFile, 'supported' | 'multi_episode' | 'dual_language'>,
+): boolean {
+  return !file.supported || file.multi_episode || Boolean(file.dual_language);
+}
+
 export function describeJimakuFileWarning(
-  file: Pick<JimakuFile, 'supported' | 'multi_episode' | 'format'>,
+  file: Pick<JimakuFile, 'supported' | 'multi_episode' | 'dual_language' | 'format'>,
 ): string | null {
   if (!file.supported) {
     return `Unsupported format (.${file.format}) — cannot be imported`;
   }
+  if (file.multi_episode && file.dual_language) {
+    return 'Multi-episode bundle · Contains non-Japanese lines';
+  }
   if (file.multi_episode) {
     return 'Multi-episode bundle — prefer a single-episode subtitle file';
+  }
+  if (file.dual_language) {
+    return 'Contains non-Japanese lines';
   }
   return null;
 }
