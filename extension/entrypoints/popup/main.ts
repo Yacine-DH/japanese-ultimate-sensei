@@ -1,6 +1,8 @@
 import {
   api,
+  type AutoImportOut,
   type EpisodeOut,
+  isTabStateChangedMessage,
   type JimakuEntry,
   type JimakuFile,
   type OpenMissedPanelMessage,
@@ -8,13 +10,17 @@ import {
   type StartAutoSyncResponse,
   verifyServerConnection,
 } from '../../src/api/client';
+import {
+  buildAutoSuggestionPresentation,
+  decideAutoAttach,
+  resolvePageEpisodeInfo,
+} from '../../src/lib/auto-attach';
 import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
 import {
   describeJimakuFileWarning,
   findNextImportableFile,
   formatJimakuError,
   formatJimakuFileSize,
-  guessAnimeQueryFromTitle,
   isJimakuFileDimmed,
   pickDefaultJimakuFile,
   suggestNextEpisodeNumber,
@@ -28,7 +34,6 @@ import {
 } from '../../src/lib/settings';
 import {
   buildPrimingUrl,
-  extractUrlEpisodeInfo,
   filterEpisodes,
   resolveEpisodeForUrl,
 } from '../../src/lib/url-mapping';
@@ -48,6 +53,16 @@ const translationModeSelect = document.getElementById(
   'translation-mode-select',
 ) as HTMLSelectElement;
 const pagePatternText = document.getElementById('page-pattern-text') as HTMLSpanElement;
+const autoSuggestCard = document.getElementById('auto-suggest-card') as HTMLDivElement;
+const autoSuggestTitle = document.getElementById('auto-suggest-title') as HTMLDivElement;
+const autoSuggestSub = document.getElementById('auto-suggest-sub') as HTMLDivElement;
+const autoSuggestMeta = document.getElementById('auto-suggest-meta') as HTMLDivElement;
+const autoSuggestAttachBtn = document.getElementById(
+  'auto-suggest-attach-btn',
+) as HTMLButtonElement;
+const autoSuggestManualBtn = document.getElementById(
+  'auto-suggest-manual-btn',
+) as HTMLButtonElement;
 const suggestBanner = document.getElementById('suggest-banner') as HTMLDivElement;
 const suggestText = document.getElementById('suggest-text') as HTMLSpanElement;
 const applySuggestBtn = document.getElementById('apply-suggest-btn') as HTMLButtonElement;
@@ -84,11 +99,64 @@ let activeTabTitle = '';
 let allEpisodes: EpisodeOut[] = [];
 let attachedEpisodeId: number | null = null;
 let suggestedEpisode: EpisodeOut | null = null;
+let pendingAutoSuggestion: AutoImportOut | null = null;
+let autoSuggestSeq = 0;
 let currentServerUrl = '';
 let jimakuSelectedEntry: JimakuEntry | null = null;
 let jimakuFiles: JimakuFile[] = [];
 let jimakuSelectedFileName = '';
 let guessedEpFromTab: number | null = null;
+
+function hideAutoSuggestCard(): void {
+  pendingAutoSuggestion = null;
+  autoSuggestCard.className = 'auto-suggest-card';
+  autoSuggestTitle.textContent = '';
+  autoSuggestSub.textContent = '';
+  autoSuggestMeta.textContent = '';
+}
+
+function showAutoSuggestLoading(title: string, subtitle: string): void {
+  pendingAutoSuggestion = null;
+  autoSuggestTitle.textContent = title;
+  autoSuggestSub.textContent = subtitle;
+  autoSuggestMeta.textContent = '';
+  autoSuggestAttachBtn.style.display = 'none';
+  autoSuggestManualBtn.textContent = 'Search manually';
+  autoSuggestCard.className = 'auto-suggest-card visible';
+}
+
+function showAutoSuggestMatch(result: AutoImportOut): void {
+  pendingAutoSuggestion = result;
+  const pres = buildAutoSuggestionPresentation(result);
+  autoSuggestTitle.textContent = pres.headline;
+  autoSuggestSub.textContent = pres.subtitle;
+  autoSuggestSub.style.display = pres.subtitle ? 'block' : 'none';
+  autoSuggestMeta.textContent = pres.meta;
+  autoSuggestMeta.style.display = pres.meta ? 'block' : 'none';
+  autoSuggestAttachBtn.style.display = '';
+  autoSuggestAttachBtn.disabled = false;
+  autoSuggestManualBtn.textContent = 'Wrong anime? Search manually';
+  autoSuggestCard.className = 'auto-suggest-card visible';
+}
+
+function openManualJimakuSearch(statusMessage?: string): void {
+  autoSuggestSeq += 1;
+  hideAutoSuggestCard();
+  jimakuDetails.open = true;
+  if (statusMessage) {
+    jimakuStatus.textContent = statusMessage;
+  }
+  jimakuQuery.focus();
+}
+
+function upsertEpisode(ep: EpisodeOut): void {
+  const existingIdx = allEpisodes.findIndex((item) => item.id === ep.id);
+  if (existingIdx >= 0) {
+    allEpisodes[existingIdx] = ep;
+  } else {
+    allEpisodes = [ep, ...allEpisodes];
+  }
+}
 
 function updatePrimerButton(): void {
   const url =
@@ -122,18 +190,94 @@ function renderEpisodeOptions(): void {
   }
 }
 
-async function applyTabSelection(episodeId: number | null, enabled: boolean): Promise<void> {
+async function applyTabSelection(
+  episodeId: number | null,
+  enabled: boolean,
+  explicitAnimeId?: number | null,
+): Promise<void> {
   if (activeTabId === null) return;
+  if (episodeId !== null) {
+    autoSuggestSeq += 1;
+    hideAutoSuggestCard();
+    suggestBanner.className = 'suggest-banner';
+  }
   attachedEpisodeId = episodeId;
   tabEnableToggle.checked = enabled && episodeId !== null;
+  const resolvedAnimeId =
+    explicitAnimeId ??
+    (episodeId !== null ? (allEpisodes.find((e) => e.id === episodeId)?.anime_id ?? null) : null);
   await api.setTabState({
     tabId: activeTabId,
     pageUrl: activeTabUrl,
     episodeId,
     enabled: enabled && episodeId !== null,
+    animeId: resolvedAnimeId,
   });
   renderEpisodeOptions();
   updatePrimerButton();
+}
+
+async function runPopupAutoSuggestion(
+  query: string,
+  episodeNumber: number,
+  seq: number,
+): Promise<void> {
+  showAutoSuggestLoading(
+    `Finding "${query}" · episode ${episodeNumber}…`,
+    'Checking library and jimaku.cc (first import takes a few seconds).',
+  );
+  const res = await api.autoImportEpisode({
+    query,
+    episode_number: episodeNumber,
+  });
+  if (seq !== autoSuggestSeq || attachedEpisodeId !== null) {
+    return;
+  }
+  if (res.ok && res.data) {
+    showAutoSuggestMatch(res.data);
+  } else {
+    const msg =
+      res.status === 404
+        ? res.error || 'No matching episode found on jimaku.cc — search manually below.'
+        : formatJimakuError(res.status, res.error);
+    openManualJimakuSearch(msg);
+  }
+}
+
+async function runPopupAutoAttach(
+  tabId: number,
+  episodeNumber: number,
+  seq: number,
+): Promise<void> {
+  showAutoSuggestLoading(
+    `Auto-attaching episode ${episodeNumber}…`,
+    'Using remembered series for this site.',
+  );
+  const res = await api.triggerAutoAttach(tabId, activeTabUrl, activeTabTitle);
+  if (seq !== autoSuggestSeq || attachedEpisodeId !== null) {
+    return;
+  }
+  if (res.status === 'attached' && res.episode) {
+    upsertEpisode(res.episode);
+    attachedEpisodeId = res.episode.id;
+    tabEnableToggle.checked = true;
+    hideAutoSuggestCard();
+    suggestBanner.className = 'suggest-banner';
+    jimakuDetails.open = false;
+    renderEpisodeOptions();
+    updatePrimerButton();
+    return;
+  }
+  if (res.status === 'error') {
+    const msg =
+      res.httpStatus === 404
+        ? res.error || 'No Japanese subtitles found for this episode.'
+        : formatJimakuError(res.httpStatus ?? 0, res.error);
+    openManualJimakuSearch(msg);
+    return;
+  }
+  hideAutoSuggestCard();
+  jimakuDetails.open = true;
 }
 
 async function refreshPopup(): Promise<void> {
@@ -171,23 +315,23 @@ async function refreshPopup(): Promise<void> {
   activeTabUrl = currentTab?.url ?? '';
   activeTabTitle = currentTab?.title ?? '';
 
-  const titleGuess = guessAnimeQueryFromTitle(activeTabTitle);
-  const urlEpInfo = extractUrlEpisodeInfo(activeTabUrl);
-  guessedEpFromTab = urlEpInfo?.episodeNumber ?? titleGuess.episodeNumber;
-  if (!jimakuQuery.value && titleGuess.query) {
-    jimakuQuery.value = titleGuess.query;
+  const pageInfo = resolvePageEpisodeInfo(activeTabUrl, activeTabTitle);
+  guessedEpFromTab = pageInfo.episodeNumber;
+  if (!jimakuQuery.value && pageInfo.titleQuery) {
+    jimakuQuery.value = pageInfo.titleQuery;
   }
   if (!jimakuEpNum.value && guessedEpFromTab !== null) {
     jimakuEpNum.value = String(guessedEpFromTab);
   }
 
-  const tabState = await api.getTabState(activeTabId ?? undefined, activeTabUrl);
+  const [tabState, forcedManualSearch] = await Promise.all([
+    api.getTabState(activeTabId ?? undefined, activeTabUrl),
+    activeTabId !== null ? api.consumeManualSearchFlag(activeTabId) : Promise.resolve(false),
+  ]);
   attachedEpisodeId = tabState.episodeId;
   tabEnableToggle.checked = tabState.enabled;
   pagePatternText.textContent = tabState.pattern ?? 'unsupported page';
-  if (attachedEpisodeId === null) {
-    jimakuDetails.open = true;
-  }
+  hideAutoSuggestCard();
   updatePrimerButton();
 
   if (!configured) {
@@ -239,12 +383,52 @@ async function refreshPopup(): Promise<void> {
     allEpisodes = episodesRes.data;
     renderEpisodeOptions();
 
-    const resolved = resolveEpisodeForUrl(
-      activeTabUrl,
-      settings.urlMappings,
-      allEpisodes,
-    );
-    if (attachedEpisodeId === null && resolved.suggestedEpisode) {
+    if (attachedEpisodeId !== null) {
+      suggestedEpisode = null;
+      suggestBanner.className = 'suggest-banner';
+      jimakuDetails.open = false;
+      return;
+    }
+
+    if (forcedManualSearch || tabState.autoAttachNotice?.kind === 'error') {
+      suggestedEpisode = null;
+      suggestBanner.className = 'suggest-banner';
+      openManualJimakuSearch(
+        tabState.autoAttachNotice?.kind === 'error' ? tabState.autoAttachNotice.title : undefined,
+      );
+      return;
+    }
+
+    const decision = decideAutoAttach({
+      pageUrl: activeTabUrl,
+      pageTitle: activeTabTitle,
+      urlMappings: settings.urlMappings,
+      animeMappings: settings.animeMappings,
+      isTabAttached: false,
+    });
+
+    if (decision.mode === 'auto' && activeTabId !== null) {
+      suggestedEpisode = null;
+      suggestBanner.className = 'suggest-banner';
+      jimakuDetails.open = false;
+      const seq = ++autoSuggestSeq;
+      void runPopupAutoAttach(activeTabId, decision.episodeNumber, seq);
+      return;
+    }
+
+    if (decision.mode === 'suggest') {
+      suggestedEpisode = null;
+      suggestBanner.className = 'suggest-banner';
+      jimakuDetails.open = false;
+      const seq = ++autoSuggestSeq;
+      void runPopupAutoSuggestion(decision.query, decision.episodeNumber, seq);
+      return;
+    }
+
+    // Manual flow (no episode number or no guess)
+    jimakuDetails.open = true;
+    const resolved = resolveEpisodeForUrl(activeTabUrl, settings.urlMappings, allEpisodes);
+    if (resolved.suggestedEpisode) {
       suggestedEpisode = resolved.suggestedEpisode;
       suggestText.textContent = `Next up: ${formatEpisodeLabel(suggestedEpisode)}`;
       suggestBanner.className = 'suggest-banner visible';
@@ -318,10 +502,25 @@ translationModeSelect.addEventListener('change', async () => {
   await saveSettings({ translationMode: translationModeSelect.value as TranslationDisplayMode });
 });
 
+autoSuggestAttachBtn.addEventListener('click', async () => {
+  if (!pendingAutoSuggestion) return;
+  const chosen = pendingAutoSuggestion.episode;
+  autoSuggestAttachBtn.disabled = true;
+  upsertEpisode(chosen);
+  hideAutoSuggestCard();
+  await applyTabSelection(chosen.id, true, chosen.anime_id);
+  jimakuDetails.open = false;
+});
+
+autoSuggestManualBtn.addEventListener('click', () => {
+  openManualJimakuSearch();
+});
+
 applySuggestBtn.addEventListener('click', async () => {
   if (!suggestedEpisode) return;
+  const ep = suggestedEpisode;
   suggestBanner.className = 'suggest-banner';
-  await applyTabSelection(suggestedEpisode.id, true);
+  await applyTabSelection(ep.id, true, ep.anime_id);
 });
 
 uploadForm.addEventListener('submit', async (event) => {
@@ -347,8 +546,8 @@ uploadForm.addEventListener('submit', async (event) => {
 
   if (res.ok && res.data) {
     uploadStatus.textContent = `Uploaded (${res.data.line_count} lines, ${res.data.understanding.token_pct}% known)`;
-    allEpisodes = [res.data, ...allEpisodes];
-    await applyTabSelection(res.data.id, true);
+    upsertEpisode(res.data);
+    await applyTabSelection(res.data.id, true, res.data.anime_id);
     uploadForm.reset();
   } else {
     uploadStatus.textContent = `Error: ${res.error ?? 'Upload failed'}`;
@@ -564,8 +763,8 @@ jimakuImportBtn.addEventListener('click', async () => {
 
   if (res.ok && res.data) {
     jimakuStatus.textContent = `Imported & attached (${res.data.line_count} lines, ${res.data.understanding.token_pct}% known).`;
-    allEpisodes = [res.data, ...allEpisodes];
-    await applyTabSelection(res.data.id, true);
+    upsertEpisode(res.data);
+    await applyTabSelection(res.data.id, true, res.data.anime_id);
     jimakuDetails.open = false;
   } else {
     jimakuStatus.textContent = formatJimakuError(res.status, res.error);
@@ -602,6 +801,31 @@ missedEpisodeBtn.addEventListener('click', async () => {
   const url = buildPrimingUrl(currentServerUrl, attachedEpisodeId);
   if (url) {
     void browser.tabs.create({ url: url.replace('?prime=1', '?missed=1') });
+  }
+});
+
+browser.runtime.onMessage.addListener((msg: unknown) => {
+  if (isTabStateChangedMessage(msg) && msg.state.tabId === activeTabId) {
+    if (msg.state.episodeId !== attachedEpisodeId) {
+      attachedEpisodeId = msg.state.episodeId;
+      tabEnableToggle.checked = msg.state.enabled;
+      if (attachedEpisodeId !== null) {
+        autoSuggestSeq += 1;
+        hideAutoSuggestCard();
+        suggestBanner.className = 'suggest-banner';
+        jimakuDetails.open = false;
+        if (!allEpisodes.some((e) => e.id === attachedEpisodeId)) {
+          void api.listEpisodes().then((res) => {
+            if (res.ok && res.data) {
+              allEpisodes = res.data;
+              renderEpisodeOptions();
+            }
+          });
+        }
+      }
+      renderEpisodeOptions();
+      updatePrimerButton();
+    }
   }
 });
 

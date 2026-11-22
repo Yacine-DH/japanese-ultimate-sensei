@@ -406,6 +406,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/episodes/auto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Episode Auto
+         * @description One step from "I'm watching X episode N" to an episode: finds the anime on Jimaku
+         *     (or reuses the library anime's entry), returns the episode if it's already imported,
+         *     else imports the recommended Japanese subtitle file.
+         */
+        post: operations["episode_auto_episodes_auto_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activity/watch": {
         parameters: {
             query?: never;
@@ -910,6 +932,36 @@ export interface components {
             field_used: string;
             /** Notes */
             notes: number;
+        };
+        /** AutoImport */
+        AutoImport: {
+            /**
+             * Query
+             * @description Anime title guessed from the page (needed without anime_id)
+             */
+            query?: string | null;
+            /** Episode Number */
+            episode_number: number;
+            /**
+             * Anime Id
+             * @description A library anime (e.g. remembered for this site): skips search
+             */
+            anime_id?: number | null;
+        };
+        /** AutoImportOut */
+        AutoImportOut: {
+            episode: components["schemas"]["EpisodeCreated"];
+            /**
+             * Existing
+             * @description True: the episode was already in the library
+             */
+            existing: boolean;
+            entry: components["schemas"]["JimakuEntry"];
+            /**
+             * File Name
+             * @description The Jimaku file imported (None if existing)
+             */
+            file_name?: string | null;
         };
         /** Body_create_episode_episodes_post */
         Body_create_episode_episodes_post: {
@@ -2686,6 +2738,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EpisodeCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    episode_auto_episodes_auto_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoImportOut"];
                 };
             };
             /** @description Validation Error */

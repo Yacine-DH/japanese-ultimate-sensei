@@ -1,4 +1,5 @@
 import type { components, paths } from './schema';
+import type { AutoAttachNotice } from '../lib/auto-attach';
 import {
   type ExtensionSettings,
   getSettings,
@@ -31,6 +32,8 @@ export type MediaOut = components['schemas']['MediaOut'];
 export type JimakuEntry = components['schemas']['JimakuEntry'];
 export type JimakuFile = components['schemas']['JimakuFile'];
 export type JimakuImport = components['schemas']['JimakuImport'];
+export type AutoImport = components['schemas']['AutoImport'];
+export type AutoImportOut = components['schemas']['AutoImportOut'];
 export type WatchIn = components['schemas']['WatchIn'];
 export type WatchOut = components['schemas']['WatchOut'];
 export type AnkiModel = components['schemas']['AnkiModel'];
@@ -75,6 +78,8 @@ export interface TabEpisodeState {
   pattern: string | null;
   episodeId: number | null;
   enabled: boolean;
+  autoAttachStatus?: 'idle' | 'loading' | 'attached' | 'error';
+  autoAttachNotice?: AutoAttachNotice | null;
 }
 
 export interface GetTabStateMessage {
@@ -89,6 +94,44 @@ export interface SetTabStateMessage {
   pageUrl: string;
   episodeId: number | null;
   enabled: boolean;
+  animeId?: number | null;
+}
+
+export interface AutoAttachNoticeMessage {
+  type: 'SENSEI_AUTO_ATTACH_NOTICE';
+  notice: AutoAttachNotice;
+}
+
+export interface TriggerAutoAttachMessage {
+  type: 'SENSEI_TRIGGER_AUTO_ATTACH';
+  tabId: number;
+  pageUrl: string;
+  pageTitle: string;
+}
+
+export interface TriggerAutoAttachResponse {
+  status: 'attached' | 'error' | 'skipped';
+  episode?: EpisodeCreated;
+  error?: string;
+  httpStatus?: number;
+}
+
+export interface OpenPopupSearchMessage {
+  type: 'SENSEI_OPEN_POPUP_SEARCH';
+}
+
+export interface OpenPopupSearchResponse {
+  ok: boolean;
+}
+
+export interface ConsumeManualSearchFlagMessage {
+  type: 'SENSEI_CONSUME_MANUAL_SEARCH_FLAG';
+  tabId: number;
+}
+
+export interface ConsumeAutoAttachNoticeMessage {
+  type: 'SENSEI_CONSUME_AUTO_ATTACH_NOTICE';
+  noticeId: string;
 }
 
 export interface UploadSubtitleMessage {
@@ -264,6 +307,54 @@ export function isTabStateChangedMessage(msg: unknown): msg is TabStateChangedMe
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_TAB_STATE_CHANGED'
+  );
+}
+
+export function isAutoAttachNoticeMessage(msg: unknown): msg is AutoAttachNoticeMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_AUTO_ATTACH_NOTICE'
+  );
+}
+
+export function isTriggerAutoAttachMessage(msg: unknown): msg is TriggerAutoAttachMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_TRIGGER_AUTO_ATTACH' &&
+    typeof (msg as { tabId?: unknown }).tabId === 'number' &&
+    typeof (msg as { pageUrl?: unknown }).pageUrl === 'string'
+  );
+}
+
+export function isOpenPopupSearchMessage(msg: unknown): msg is OpenPopupSearchMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_OPEN_POPUP_SEARCH'
+  );
+}
+
+export function isConsumeManualSearchFlagMessage(
+  msg: unknown,
+): msg is ConsumeManualSearchFlagMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_CONSUME_MANUAL_SEARCH_FLAG' &&
+    typeof (msg as { tabId?: unknown }).tabId === 'number'
+  );
+}
+
+export function isConsumeAutoAttachNoticeMessage(
+  msg: unknown,
+): msg is ConsumeAutoAttachNoticeMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_CONSUME_AUTO_ATTACH_NOTICE' &&
+    typeof (msg as { noticeId?: unknown }).noticeId === 'string'
   );
 }
 
@@ -872,6 +963,87 @@ export const api = {
       method: 'POST',
       json: payload,
     });
+  },
+
+  autoImportEpisode(payload: AutoImport): Promise<ApiCallResponse<AutoImportOut>> {
+    return api.call<AutoImportOut>('/episodes/auto', {
+      method: 'POST',
+      json: payload,
+    });
+  },
+
+  async triggerAutoAttach(
+    tabId: number,
+    pageUrl: string,
+    pageTitle: string,
+  ): Promise<TriggerAutoAttachResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { status: 'skipped' };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_TRIGGER_AUTO_ATTACH',
+        tabId,
+        pageUrl,
+        pageTitle,
+      } satisfies TriggerAutoAttachMessage)) as TriggerAutoAttachResponse | undefined;
+      if (res && typeof res.status === 'string') {
+        return res;
+      }
+      return { status: 'skipped' };
+    } catch (err) {
+      return {
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  },
+
+  async openPopupSearch(): Promise<OpenPopupSearchResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { ok: false };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_OPEN_POPUP_SEARCH',
+      } satisfies OpenPopupSearchMessage)) as OpenPopupSearchResponse | undefined;
+      return { ok: Boolean(res?.ok) };
+    } catch {
+      return { ok: false };
+    }
+  },
+
+  async consumeManualSearchFlag(tabId: number): Promise<boolean> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return false;
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_CONSUME_MANUAL_SEARCH_FLAG',
+        tabId,
+      } satisfies ConsumeManualSearchFlagMessage)) as { openManualSearch?: boolean } | undefined;
+      return Boolean(res?.openManualSearch);
+    } catch {
+      return false;
+    }
+  },
+
+  async consumeAutoAttachNotice(noticeId: string): Promise<void> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return;
+    }
+    try {
+      await runtime.sendMessage({
+        type: 'SENSEI_CONSUME_AUTO_ATTACH_NOTICE',
+        noticeId,
+      } satisfies ConsumeAutoAttachNoticeMessage);
+    } catch {
+      // Ignore background unavailability
+    }
   },
 
   sendWatchHeartbeat(payload: WatchIn): Promise<ApiCallResponse<WatchOut>> {

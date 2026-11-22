@@ -1,5 +1,6 @@
 import {
   api,
+  isAutoAttachNoticeMessage,
   isOpenMissedPanelMessage,
   isStartAutoSyncMessage,
   isTabStateChangedMessage,
@@ -13,6 +14,7 @@ import {
   type WatchIn,
   type WordStatus,
 } from '../src/api/client';
+import type { AutoAttachNotice } from '../src/lib/auto-attach';
 import {
   type ActiveSyncRecordingHandle,
   type AutoSyncAbortReason,
@@ -122,6 +124,8 @@ export default defineContentScript({
     let missedPromptedEpisodeId: number | null = null;
     let toastEl: HTMLDivElement | null = null;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingAutoAttachNotice: AutoAttachNotice | null = null;
+    const shownAutoAttachNoticeIds = new Set<string>();
     let overlayControlsEl: HTMLDivElement | null = null;
     let syncStatusEl: HTMLDivElement | null = null;
     let syncStatusTextEl: HTMLSpanElement | null = null;
@@ -971,6 +975,41 @@ export default defineContentScript({
       toastTimer = setTimeout(() => {
         toastEl?.classList.remove('visible', 'interactive');
       }, 2800);
+    }
+
+    function flushPendingAutoAttachNotice(): void {
+      if (!pendingAutoAttachNotice || !currentVideo) return;
+      ensureOverlayMounted(currentVideo);
+      if (!toastEl) return;
+      const notice = pendingAutoAttachNotice;
+      pendingAutoAttachNotice = null;
+      shownAutoAttachNoticeIds.add(notice.id);
+      void api.consumeAutoAttachNotice(notice.id);
+
+      if (notice.kind === 'attached') {
+        showToast(notice.title, 3800);
+        return;
+      }
+
+      showRichToast({
+        title: notice.title,
+        hint: notice.hint,
+        actionLabel: notice.actionLabel ?? 'Search manually',
+        durationMs: 12_000,
+        onAction: () => {
+          void api.openPopupSearch().then((res) => {
+            if (!res.ok) {
+              showToast('Click the Sensei extension icon in your toolbar to search manually', 4200);
+            }
+          });
+        },
+      });
+    }
+
+    function queueAutoAttachNotice(notice: AutoAttachNotice | null | undefined): void {
+      if (!notice || shownAutoAttachNoticeIds.has(notice.id)) return;
+      pendingAutoAttachNotice = notice;
+      flushPendingAutoAttachNotice();
     }
 
     function syncOverlayControlsVisibility(): void {
@@ -2228,6 +2267,7 @@ export default defineContentScript({
           videoResizeObserver.observe(currentVideo);
         }
         ensureOverlayMounted(currentVideo);
+        flushPendingAutoAttachNotice();
         void maybeLoadTranscript();
         startFrameLoop();
         syncWatchHeartbeat();
@@ -2394,6 +2434,9 @@ export default defineContentScript({
           closeExplainPanel();
         }
         applyTabState(msg.state.episodeId, msg.state.enabled);
+        queueAutoAttachNotice(msg.state.autoAttachNotice);
+      } else if (isAutoAttachNoticeMessage(msg)) {
+        queueAutoAttachNotice(msg.notice);
       } else if (isOpenMissedPanelMessage(msg)) {
         if (currentVideo && currentEpisodeId !== null) {
           void openMissedWordsPanel(currentEpisodeId);
@@ -2423,6 +2466,7 @@ export default defineContentScript({
       settings = initial;
       scanForVideo();
       applyTabState(tabState.episodeId, tabState.enabled);
+      queueAutoAttachNotice(tabState.autoAttachNotice);
       setInterval(scanForVideo, 1500);
       setInterval(() => {
         if (currentVideo) {

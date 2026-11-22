@@ -35,6 +35,7 @@ describe('settings utilities', () => {
       romaji: true,
       highlightLimit: 99,
       urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
+      animeMappings: { 'site.to/watch/frieren-ep-*': 3 },
     });
     expect(s).toEqual({
       serverUrl: 'http://100.64.0.1:8000',
@@ -52,6 +53,7 @@ describe('settings utilities', () => {
       ankiDeckName: 'Sensei',
       ankiModelName: 'Sensei Japanese',
       urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
+      animeMappings: { 'site.to/watch/frieren-ep-*': 3 },
       hotkeys: DEFAULT_HOTKEYS,
     });
   });

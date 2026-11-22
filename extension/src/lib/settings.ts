@@ -20,6 +20,7 @@ export interface ExtensionSettings {
   ankiDeckName: string;
   ankiModelName: string;
   urlMappings: Record<string, number>;
+  animeMappings: Record<string, number>;
   hotkeys: HotkeyBindings;
 }
 
@@ -44,6 +45,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   ankiDeckName: DEFAULT_ANKI_DECK_NAME,
   ankiModelName: DEFAULT_ANKI_MODEL_NAME,
   urlMappings: {},
+  animeMappings: {},
   hotkeys: DEFAULT_HOTKEYS,
 };
 
@@ -107,6 +109,7 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     ankiDeckName: ankiDeck || DEFAULT_ANKI_DECK_NAME,
     ankiModelName: ankiModel || DEFAULT_ANKI_MODEL_NAME,
     urlMappings: sanitizeUrlMappings(merged.urlMappings),
+    animeMappings: sanitizeUrlMappings(merged.animeMappings),
     hotkeys: sanitizeHotkeys(merged.hotkeys),
   };
 }
@@ -132,6 +135,7 @@ export async function getSettings(): Promise<ExtensionSettings> {
     return {
       ...memorySettings,
       urlMappings: { ...memorySettings.urlMappings },
+      animeMappings: { ...memorySettings.animeMappings },
     };
   }
   const result = await storage.get(SETTINGS_STORAGE_KEY);
