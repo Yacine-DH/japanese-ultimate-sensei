@@ -9,7 +9,8 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **O-2** Install Node.js 22 LTS on the server (e.g. `fnm install 22` or nvm), plus `pnpm` (`corepack enable`) (antigravity, 2026-11-17: Node v22.23.5 + pnpm 12.21.0 installed in `~/.local/bin`)
 - [x] **O-3** Make a free [jimaku.cc](https://jimaku.cc) account and API key → `SENSEI_JIMAKU_API_KEY` in `server/.env`
 - [x] **O-4** `SENSEI_API_TOKEN` in `server/.env`, required since #11; `bash deploy/install-service.sh` generates it (claude, 2026-11-19: set on the home server)
-- [ ] **O-5** Tell Claude your laptop specs (CPU/GPU/RAM), which decides which LLM runs where
+- [x] **O-5** Tell Claude your laptop specs (CPU/GPU/RAM), which decides which LLM runs where (claude, 2026-11-22: Dell Precision, ~4 GB VRAM GPU, Ollama over Tailscale)
+- [ ] **O-6** (#131) Set up whisper-server on the Precision (setup notes sent in chat), then tell Claude
 
 ## Phase 0: Foundation
 - [x] **S-0** Repo, docs, agent conventions, server skeleton: subtitle ingest, Sudachi tokens + furigana + romaji, JMdict EN/DE, word status, understanding %, token auth, tests (claude, 2026-11-17)
@@ -48,7 +49,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 
 ## Phase 2
 - [x] **S-8** (#27) "Words you missed": `GET /episodes/{id}/missed` ranked by frequency (add a real frequency list) (claude, 2026-11-21: wordfreq zipf on words/tokens, `/missed`, better JMdict homophone linking; JLPT level not yet)
-- [~] **S-9** (#28) LLM layer (OpenAI-compatible; Ollama on server by default): batch line translations EN/DE + grammar notes, cached per line. deps: O-5 (claude, 2026-11-21: endpoints + jobs + cache done; model/host choice pending O-5)
+- [x] **S-9** (#28) LLM layer (OpenAI-compatible; Ollama on server by default): batch line translations EN/DE + grammar notes, cached per line. deps: O-5 (claude, 2026-11-21: endpoints + jobs + cache done; model/host choice pending O-5) · done 2026-11-22: gemma3:4b on the Precision chosen by `app.llm_bench`, see README
 - [x] **E-7** (#29) Post-episode "missed words" panel with bulk add. deps: S-8 (antigravity, 2026-11-21: auto-triggered + on-demand Shadow DOM missed-words panel in extension + MissedWordsPanel on web EpisodeDetailPage with bulk Save Cards / Known / Ignore, plus Zipf highlight ranking, word_id dictionary lookups, and Words sort=frequency, unit tests)
 - [x] **E-9/W-9** (#87) LLM line translations + "Explain this line" grammar notes in web + extension overlay. deps: S-9 (antigravity, 2026-11-21: `/llm/status` graceful degradation, web Translate Episode polling progress bar + collapsible EN/DE line translations + sticky Markdown Explain Line panel, extension overlay translation setting off/EN/DE + reveal-line & explain-line hotkeys with video pause & spinner, unit tests)
 
@@ -66,6 +67,17 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **E-13** (#111) Draggable Japanese overlay (position saved per site relative to video box, double-click / popup reset) + romaji toggle hotkey & popup toggle (antigravity, 2026-11-22: pure `overlay-position.ts` fraction↔px & clamping helpers, hover drag grip + double-click reset + per-host persistence across reloads/fullscreen/iframes, `toggleRomaji` hotkey `Alt+R` + popup Show romaji toggle & Reset overlay position button, unit tests)
 - [x] **E-14** (#124) Extension toolbar & manifest icon (`先生` / `先` deep-red `#c0392b` hanko stamp at 16, 32, 48, 128 px) for Chrome MV3 and Firefox MV2, plus popup header icon (antigravity, 2026-11-22: reproducible ImageMagick generator `extension/scripts/generate-icons.sh`, committed 8-bit PNGs in `extension/public/icon/`, `manifest.icons` + `action`/`browser_action.default_icon` in `wxt.config.ts` preserving stable manifest key, popup header brand icon, unit tests)
 - [x] **W-6** (#32) Built-in player for downloaded files (same overlay component as the extension) (antigravity, 2026-11-22: local blob video player at /player and /episodes/:id/watch with fullscreen-safe furigana + Zipf highlight overlay, hover/click word_id dictionary popup, untainted canvas/audio card capture, timing/replay/LLM hotkeys, watch heartbeats, synced transcript sidebar, and post-watch missed words, unit tests)
+
+## Audit 2026-11-22 (Claude)
+- [ ] **S-14** (#127) Server tests must not read the real `server/.env` (bug)
+- [ ] **S-15** (#128) Re-importing the same anime + episode replaces subtitles in place instead of duplicating (bug)
+- [ ] **S-16** (#129) Auto-translate on import + resume pending translations after restart
+- [ ] **S-17** (#130) Sentence translation EN/DE on Anki cards (export + AnkiConnect)
+- [ ] **S-18** (#131) Verify STT end to end with a real whisper-server. deps: O-6
+- [ ] **W-10** (#132) Review page: sentence translation on the answer side
+- [ ] **W-11** (#133) Web app 先生 favicon + installable PWA for phone reviews
+- [ ] **W-12/E-15** (#134) "Prep this episode": 10 most useful words before watching
+- [ ] **E-16** (#135) Popup: translation progress for the attached episode. deps: S-16
 
 ## Requests (cross-team)
 - [x] **R-1** (#12) (claude, 2026-11-19: `GET /words` + `POST /words/bulk-status`, see API.md) from antigravity: need `GET /words?status=&anime_id=&q=&limit=&offset=` and `POST /words/bulk-status` (`{"word_ids": int[], "status": WordStatus}`) because **W-4** requires a vocabulary table filterable by status/anime and bulk mark known, whereas `docs/API.md` currently only exposes single-word `GET /words/{id}` and `POST /words/{id}/status`.
