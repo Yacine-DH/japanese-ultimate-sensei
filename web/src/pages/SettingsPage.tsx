@@ -82,6 +82,13 @@ export function SettingsPage() {
     retry: false,
   });
 
+  const sttStatusQuery = useQuery({
+    queryKey: ['stt-status', savedSettings.serverUrl, savedSettings.apiToken],
+    queryFn: () => apiClient.getSttStatus(),
+    enabled: healthQuery.data?.state === 'connected',
+    retry: false,
+  });
+
   async function handleTestConnection() {
     setTestResult({ state: 'testing' });
     const res = await verifyWebConnection({ serverUrl, apiToken });
@@ -141,6 +148,22 @@ export function SettingsPage() {
                       : `Configured (${llmStatusQuery.data.model}), unreachable: ${llmStatusQuery.data.detail}`}
                 </div>
               )}
+              {sttStatusQuery.data && (
+                <div
+                  className={`text-xs ${
+                    sttStatusQuery.data.configured && sttStatusQuery.data.reachable
+                      ? 'text-emerald-300'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  STT (Whisper):{' '}
+                  {!sttStatusQuery.data.configured
+                    ? 'Not configured (set SENSEI_STT_BASE_URL)'
+                    : sttStatusQuery.data.reachable
+                      ? `Ready${sttStatusQuery.data.model ? ` (${sttStatusQuery.data.model})` : ''}`
+                      : `Unreachable — start whisper-server on the laptop (${sttStatusQuery.data.detail})`}
+                </div>
+              )}
             </div>
           ) : healthQuery.data?.state === 'unauthorized' ? (
             <div className="text-xs text-amber-400 mt-1">{healthQuery.data.message}</div>
@@ -155,6 +178,7 @@ export function SettingsPage() {
           onClick={() => {
             void healthQuery.refetch();
             void llmStatusQuery.refetch();
+            void sttStatusQuery.refetch();
           }}
           className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
         >

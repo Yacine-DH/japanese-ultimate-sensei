@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type EpisodeOut, SenseiApiError } from '../api/client';
 import { JimakuImportPanel } from '../components/JimakuImportPanel';
+import { TranscribePanel } from '../components/TranscribePanel';
 import { computeBarSegments, groupEpisodesByAnime } from '../lib/transcript';
 
 function EpisodeUnderstandingBar({ episodeId }: { episodeId: number }) {
@@ -106,6 +107,7 @@ export function LibraryPage() {
 
   const [showUpload, setShowUpload] = useState(false);
   const [showJimaku, setShowJimaku] = useState(false);
+  const [showTranscribe, setShowTranscribe] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [animeTitle, setAnimeTitle] = useState('');
   const [episodeNumber, setEpisodeNumber] = useState('');
@@ -187,6 +189,7 @@ export function LibraryPage() {
             onClick={() => {
               setShowJimaku((v) => !v);
               setShowUpload(false);
+              setShowTranscribe(false);
             }}
             className="px-4 py-2 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm cursor-pointer"
           >
@@ -197,10 +200,22 @@ export function LibraryPage() {
             onClick={() => {
               setShowUpload((v) => !v);
               setShowJimaku(false);
+              setShowTranscribe(false);
             }}
             className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-sm border border-slate-700 cursor-pointer"
           >
             {showUpload ? 'Close Upload' : '+ Upload File'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowTranscribe((v) => !v);
+              setShowJimaku(false);
+              setShowUpload(false);
+            }}
+            className="px-4 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 font-semibold text-sm border border-indigo-400/50 cursor-pointer"
+          >
+            {showTranscribe ? 'Close Transcribe' : '+ Transcribe File'}
           </button>
         </div>
       </div>
@@ -210,6 +225,32 @@ export function LibraryPage() {
           existingEpisodes={episodesQuery.data ?? []}
           onClose={() => setShowJimaku(false)}
         />
+      )}
+
+      {showTranscribe ? (
+        <TranscribePanel onClose={() => setShowTranscribe(false)} />
+      ) : (
+        <div className="bg-slate-900/70 border border-slate-800 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-slate-300">
+            <span className="font-semibold text-indigo-300">
+              No Japanese subtitles? Transcribe the episode file
+            </span>{' '}
+            <span className="text-slate-400">
+              — generate a Japanese transcript from video or audio using Whisper.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowTranscribe(true);
+              setShowJimaku(false);
+              setShowUpload(false);
+            }}
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-200 font-semibold text-xs border border-indigo-500/40 cursor-pointer"
+          >
+            Open Transcriber
+          </button>
+        </div>
       )}
 
       {showUpload && (
