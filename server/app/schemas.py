@@ -98,6 +98,21 @@ class EpisodePatch(BaseModel):
     number: float | None = None
 
 
+class SyncOut(BaseModel):
+    offset_ms: int = Field(description="Best sub_offset_ms found (a guess when not confident)")
+    previous_offset_ms: int
+    applied: bool = Field(description="True when the episode's sub_offset_ms was set to offset_ms")
+    confident: bool = Field(description="confidence >= 5")
+    confidence: float = Field(
+        description="How far the best offset stands out (std devs above all others; noise ≈ 3)"
+    )
+    correlation: float = Field(description="Speech/subtitle correlation at the best offset")
+    speech_ms: int = Field(description="Speech detected in the sample")
+    sample_ms: int
+    lines_in_window: int
+    detail: str = Field(description="'ok', or why the result isn't confident")
+
+
 class WordOut(BaseModel):
     id: int
     lemma: str

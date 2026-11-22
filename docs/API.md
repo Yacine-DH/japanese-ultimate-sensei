@@ -33,6 +33,20 @@ Fields: `subtitle` (file: .srt/.ass/.ssa/.vtt, UTF-8/Shift-JIS/EUC-JP/UTF-16, �
 Display rule for clients: line is active when
 `line.start_ms + sub_offset_ms <= video_ms < line.end_ms + sub_offset_ms`.
 
+### `POST /episodes/{id}/sync` (multipart) → `SyncOut`
+Automatic subtitle offset from the episode's audio. Form: `file` (audio or video recorded from
+the stream, 30–90 s recommended, ≤ 15 MB; webm/opus from `MediaRecorder` is fine), `video_start_ms`
+(video time when recording **actually started**, e.g. at `MediaRecorder` `onstart`), `apply`
+(default `true`: set `sub_offset_ms` when confident), `search_ms` (default 120000: search ± this
+around the current offset). Playback must run at 1× without seeking or pausing while recording.
+Pick a part with dialogue (not the opening song).
+```json
+{"offset_ms":3140,"previous_offset_ms":0,"applied":true,"confident":true,"confidence":7.8,
+ "correlation":0.23,"speech_ms":24310,"sample_ms":60000,"lines_in_window":21,"detail":"ok"}
+```
+Not confident → `applied:false`, `offset_ms` is the best guess, `detail` says why (too little
+speech, too few lines nearby, no clear match). 422 = unreadable audio. ~1 s per minute of audio.
+
 ### `DELETE /episodes/{id}` → 204
 
 ### `GET /episodes/{id}/lines` → `LineOut[]` (ordered by `idx`)

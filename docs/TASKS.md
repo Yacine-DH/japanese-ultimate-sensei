@@ -54,7 +54,8 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 
 ## Phase 3
 - [ ] **S-10** STT fallback: episode audio (server fetch or extension upload) → faster-whisper / kotoba-whisper, overnight queue
-- [ ] **S-11** Audio-based automatic subtitle sync
+- [x] **S-11** (#31) Audio-based automatic subtitle sync (claude, 2026-11-22: `POST /episodes/{id}/sync`, VAD + loudness vs line timing, cross-correlation ±2 min, confidence-gated apply)
+- [ ] **E-10** (#99) Extension Auto-sync button: record 45 s of audio → `POST /episodes/{id}/sync`, apply/toast. deps: S-11
 - [ ] **W-6** Built-in player for downloaded files (same overlay component as the extension)
 
 ## Requests (cross-team)
