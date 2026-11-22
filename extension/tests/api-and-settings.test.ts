@@ -36,6 +36,7 @@ describe('settings utilities', () => {
       highlightLimit: 99,
       urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
       animeMappings: { 'site.to/watch/frieren-ep-*': 3 },
+      overlayPositions: { 'site.to': { x: 0.5, y: 0.72 } },
     });
     expect(s).toEqual({
       serverUrl: 'http://100.64.0.1:8000',
@@ -54,6 +55,7 @@ describe('settings utilities', () => {
       ankiModelName: 'Sensei Japanese',
       urlMappings: { 'site.to/watch/frieren-ep-1': 7 },
       animeMappings: { 'site.to/watch/frieren-ep-*': 3 },
+      overlayPositions: { 'site.to': { x: 0.5, y: 0.72 } },
       hotkeys: DEFAULT_HOTKEYS,
     });
   });
