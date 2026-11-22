@@ -9,6 +9,7 @@ import {
   executeApiCall,
   executeMediaUpload,
   executeSubtitleUpload,
+  executeSyncEpisode,
   type ImportReport,
   isAnkiFlushQueueMessage,
   isAnkiImportDeckMessage,
@@ -18,6 +19,7 @@ import {
   isCaptureVisibleTabMessage,
   isGetTabStateMessage,
   isSetTabStateMessage,
+  isSyncEpisodeMessage,
   isUploadMediaMessage,
   isUploadSubtitleMessage,
   type LineOut,
@@ -232,6 +234,17 @@ export default defineBackground(() => {
 
       if (isUploadMediaMessage(message)) {
         return getSettings().then((settings) => executeMediaUpload(settings, message));
+      }
+
+      if (isSyncEpisodeMessage(message)) {
+        return (async () => {
+          const settings = await getSettings();
+          const res = await executeSyncEpisode(settings, message);
+          if (res.ok && res.data?.applied) {
+            await transcriptCache.updateEpisodeOffset(message.episodeId, res.data.offset_ms);
+          }
+          return res;
+        })();
       }
 
       if (isAnkiPushCardMessage(message)) {

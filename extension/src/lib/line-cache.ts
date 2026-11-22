@@ -164,6 +164,26 @@ export class EpisodeTranscriptCache {
     }
   }
 
+  async updateEpisodeOffset(episodeId: number, subOffsetMs: number): Promise<void> {
+    const cached = this.episodes.get(episodeId);
+    if (cached) {
+      await this.setEpisode({ ...cached, sub_offset_ms: subOffsetMs });
+      return;
+    }
+    if (this.sessionStorage) {
+      try {
+        const key = this.epKey(episodeId);
+        const stored = await this.sessionStorage.get(key);
+        const ep = stored?.[key] as EpisodeOut | undefined;
+        if (ep && typeof ep.id === 'number') {
+          await this.setEpisode({ ...ep, sub_offset_ms: subOffsetMs });
+        }
+      } catch {
+        // Ignore session storage errors
+      }
+    }
+  }
+
   async invalidateEpisode(episodeId: number): Promise<void> {
     this.episodes.delete(episodeId);
     this.lines.delete(episodeId);

@@ -340,11 +340,20 @@
         <option value="">None (detached)</option>
       </select>
 
+      <div id="auto-sync-wrap" style="display: none; margin-top: 6px; margin-bottom: 4px">
+        <button id="auto-sync-btn" type="button" class="primary">
+          Auto-sync Subtitles (45 s)
+        </button>
+        <div class="muted" style="font-size: 0.71rem; margin-top: 4px">
+          Sync during dialogue, not during the opening song.
+        </div>
+        <div id="auto-sync-status" class="upload-status muted" style="display: none"></div>
+      </div>
+
       <button
         id="prime-episode-btn"
         type="button"
-        class="primary"
-        style="display: none; margin-top: 4px"
+        style="display: none; margin-top: 6px"
       >
         Pre-Watch Primer (Top 10 Words)
       </button>

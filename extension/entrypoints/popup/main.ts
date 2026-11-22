@@ -4,6 +4,8 @@ import {
   type JimakuEntry,
   type JimakuFile,
   type OpenMissedPanelMessage,
+  type StartAutoSyncMessage,
+  type StartAutoSyncResponse,
   verifyServerConnection,
 } from '../../src/api/client';
 import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
@@ -51,6 +53,9 @@ const suggestText = document.getElementById('suggest-text') as HTMLSpanElement;
 const applySuggestBtn = document.getElementById('apply-suggest-btn') as HTMLButtonElement;
 const episodeSearch = document.getElementById('episode-search') as HTMLInputElement;
 const episodeSelect = document.getElementById('episode-select') as HTMLSelectElement;
+const autoSyncWrap = document.getElementById('auto-sync-wrap') as HTMLDivElement;
+const autoSyncBtn = document.getElementById('auto-sync-btn') as HTMLButtonElement;
+const autoSyncStatus = document.getElementById('auto-sync-status') as HTMLDivElement;
 const primeEpisodeBtn = document.getElementById('prime-episode-btn') as HTMLButtonElement;
 const missedEpisodeBtn = document.getElementById('missed-episode-btn') as HTMLButtonElement;
 const uploadForm = document.getElementById('upload-form') as HTMLFormElement;
@@ -88,6 +93,11 @@ let guessedEpFromTab: number | null = null;
 function updatePrimerButton(): void {
   const url =
     attachedEpisodeId !== null ? buildPrimingUrl(currentServerUrl, attachedEpisodeId) : null;
+  autoSyncWrap.style.display = attachedEpisodeId !== null ? 'block' : 'none';
+  if (attachedEpisodeId === null) {
+    autoSyncStatus.style.display = 'none';
+    autoSyncStatus.textContent = '';
+  }
   primeEpisodeBtn.style.display = url ? 'block' : 'none';
   missedEpisodeBtn.style.display = url ? 'block' : 'none';
 }
@@ -350,6 +360,29 @@ primeEpisodeBtn.addEventListener('click', () => {
   const url = buildPrimingUrl(currentServerUrl, attachedEpisodeId);
   if (url) {
     void browser.tabs.create({ url });
+  }
+});
+
+autoSyncBtn.addEventListener('click', async () => {
+  if (attachedEpisodeId === null || activeTabId === null) return;
+  autoSyncBtn.disabled = true;
+  autoSyncStatus.style.display = 'block';
+  autoSyncStatus.textContent = 'Starting 45 s audio sync on the video…';
+  try {
+    const res = (await browser.tabs.sendMessage(activeTabId, {
+      type: 'SENSEI_START_AUTO_SYNC',
+    } satisfies StartAutoSyncMessage)) as StartAutoSyncResponse | undefined;
+    if (res?.ok) {
+      window.close();
+      return;
+    }
+    autoSyncStatus.textContent =
+      res?.error ?? 'No active video player found on this tab. Start playback at 1× first.';
+  } catch {
+    autoSyncStatus.textContent =
+      'No active video player found on this tab. Start playback at 1× first.';
+  } finally {
+    autoSyncBtn.disabled = false;
   }
 });
 
