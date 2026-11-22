@@ -216,6 +216,59 @@
         }
       }
     },
+    "/episodes/{episode_id}/sync": {
+      "post": {
+        "tags": [
+          "episodes"
+        ],
+        "summary": "Sync Episode",
+        "description": "Find the subtitle offset from the episode's audio: voice activity in the sample is\nmatched against when lines are on screen. Takes about a second per minute of audio.",
+        "operationId": "sync_episode_episodes__episode_id__sync_post",
+        "parameters": [
+          {
+            "name": "episode_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Episode Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_sync_episode_episodes__episode_id__sync_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/episodes/{episode_id}/lines": {
       "get": {
         "tags": [
@@ -2473,6 +2526,41 @@
         ],
         "title": "Body_import_anki_import_anki_post"
       },
+      "Body_sync_episode_episodes__episode_id__sync_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "Audio (or video) recorded from the stream, 30–90 s"
+          },
+          "video_start_ms": {
+            "type": "integer",
+            "title": "Video Start Ms",
+            "description": "Video time when the recording started"
+          },
+          "apply": {
+            "type": "boolean",
+            "title": "Apply",
+            "description": "Set sub_offset_ms when the result is confident",
+            "default": true
+          },
+          "search_ms": {
+            "type": "integer",
+            "maximum": 600000.0,
+            "minimum": 10000.0,
+            "title": "Search Ms",
+            "description": "Search ± this around the current offset",
+            "default": 120000
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "video_start_ms"
+        ],
+        "title": "Body_sync_episode_episodes__episode_id__sync_post"
+      },
       "Body_upload_media_media_post": {
         "properties": {
           "file": {
@@ -3997,6 +4085,77 @@
           "glosses"
         ],
         "title": "Sense"
+      },
+      "SyncOut": {
+        "properties": {
+          "offset_ms": {
+            "type": "integer",
+            "title": "Offset Ms",
+            "description": "Best sub_offset_ms found (a guess when not confident)"
+          },
+          "previous_offset_ms": {
+            "type": "integer",
+            "title": "Previous Offset Ms"
+          },
+          "applied": {
+            "type": "boolean",
+            "title": "Applied",
+            "description": "True when the episode's sub_offset_ms was set to offset_ms"
+          },
+          "confident": {
+            "type": "boolean",
+            "title": "Confident",
+            "description": "confidence >= 4.5 and >= runner_up + 1"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "description": "How far the best offset stands out (std devs above all others; noise ≈ 2-4)"
+          },
+          "runner_up": {
+            "type": "number",
+            "title": "Runner Up",
+            "description": "The same for the best offset ≥ 1.5 s away"
+          },
+          "correlation": {
+            "type": "number",
+            "title": "Correlation",
+            "description": "Speech/subtitle correlation at the best offset"
+          },
+          "speech_ms": {
+            "type": "integer",
+            "title": "Speech Ms",
+            "description": "Speech detected in the sample"
+          },
+          "sample_ms": {
+            "type": "integer",
+            "title": "Sample Ms"
+          },
+          "lines_in_window": {
+            "type": "integer",
+            "title": "Lines In Window"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "'ok', or why the result isn't confident"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offset_ms",
+          "previous_offset_ms",
+          "applied",
+          "confident",
+          "confidence",
+          "runner_up",
+          "correlation",
+          "speech_ms",
+          "sample_ms",
+          "lines_in_window",
+          "detail"
+        ],
+        "title": "SyncOut"
       },
       "TokenOut": {
         "properties": {

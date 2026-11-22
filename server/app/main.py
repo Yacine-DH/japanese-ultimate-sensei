@@ -7,6 +7,8 @@ import hmac
 import json
 import logging
 import re
+import tempfile
+from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -31,6 +33,7 @@ from sqlmodel import Session, delete, func, or_, select
 from app import __version__, anki_export, anki_import, srs
 from app import activity as act
 from app import media as media_lib
+from app import sync as sync_lib
 from app.config import Settings, check_auth_settings, get_settings
 from app.db import get_session, make_engine
 from app.dictionary import Dictionary, load_dictionary
@@ -97,6 +100,7 @@ from app.schemas import (
     ReviewIn,
     ReviewOut,
     ReviewQueue,
+    SyncOut,
     TokenOut,
     TranslationJob,
     Understanding,
@@ -337,6 +341,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session.commit()
         session.refresh(ep)
         return episode_out(session, ep)
+
+    @app.post(
+        "/episodes/{episode_id}/sync", response_model=SyncOut, dependencies=auth, tags=["episodes"]
+    )
+    def sync_episode(
+        episode_id: int,
+        file: UploadFile = File(description="Audio (or video) recorded from the stream, 30–90 s"),
+        video_start_ms: int = Form(description="Video time when the recording started"),
+        apply: bool = Form(True, description="Set sub_offset_ms when the result is confident"),
+        search_ms: int = Form(
+            120_000, ge=10_000, le=600_000, description="Search ± this around the current offset"
+        ),
+        session: Session = Depends(get_session),
+    ):
+        """Find the subtitle offset from the episode's audio: voice activity in the sample is
+        matched against when lines are on screen. Takes about a second per minute of audio."""
+        if not media_lib.ffmpeg_available():
+            raise HTTPException(503, "ffmpeg is not installed on the server")
+        ep = get_episode(session, episode_id)
+        limit = media_lib.MAX_BYTES[MediaKind.audio]
+        raw = file.file.read(limit + 1)
+        if len(raw) > limit:
+            raise HTTPException(413, f"sample too large (max {limit // 1024 // 1024} MB)")
+        if not raw:
+            raise HTTPException(422, "empty file")
+        lines = [
+            (s, e)
+            for s, e in session.exec(
+                select(SubtitleLine.start_ms, SubtitleLine.end_ms).where(
+                    SubtitleLine.episode_id == episode_id
+                )
+            ).all()
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sample"
+            path.write_bytes(raw)
+            try:
+                r = sync_lib.sync_file(path, lines, video_start_ms, search_ms, ep.sub_offset_ms)
+            except sync_lib.SyncError as e:
+                raise HTTPException(422, str(e)) from e
+        previous = ep.sub_offset_ms
+        applied = apply and r.confident
+        if applied:
+            ep.sub_offset_ms = r.offset_ms
+            session.add(ep)
+            session.commit()
+        log.info("sync episode %s: %s (applied=%s)", episode_id, r, applied)
+        return SyncOut(previous_offset_ms=previous, applied=applied, **asdict(r))
 
     @app.delete("/episodes/{episode_id}", status_code=204, dependencies=auth, tags=["episodes"])
     def delete_episode(episode_id: int, session: Session = Depends(get_session)):
