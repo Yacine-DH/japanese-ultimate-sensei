@@ -1,5 +1,6 @@
 """Background translation jobs: one worker thread, one episode at a time (the CPU is slow)."""
 
+import json
 import logging
 import queue
 import threading
@@ -9,7 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
-from app.llm import LLM, LLMError, translate_batch
+from app.llm import LLM, LLMError, name_candidates, translate_batch
 from app.models import SubtitleLine
 
 log = logging.getLogger("sensei.llm")
@@ -76,12 +77,15 @@ class Translator:
                     ).all()
                 )
                 todo = [i for i, line in enumerate(lines) if not line.translation_en]
+                names = name_candidates([json.loads(line.tokens_json) for line in lines])
                 for start in range(0, len(todo), BATCH):
                     idxs = todo[start : start + BATCH]
                     batch = [lines[i] for i in idxs]
                     first = idxs[0]
                     context = [line.text for line in lines[max(0, first - CONTEXT) : first]]
-                    result = translate_batch(self.llm, [line.text for line in batch], context)
+                    result = translate_batch(
+                        self.llm, [line.text for line in batch], context, names
+                    )
                     for k, line in enumerate(batch):
                         if k in result:
                             line.translation_en, line.translation_de = result[k]

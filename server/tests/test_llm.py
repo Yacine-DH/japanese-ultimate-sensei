@@ -103,6 +103,7 @@ def test_explain_is_cached_and_deleted_with_episode(llm_client):
     first = llm_client.post(f"/lines/{line['id']}/explain", params={"lang": "de"}).json()
     assert first["text"].startswith("**Translation:**") and not first["cached"]
     assert "German" in calls[-1]["messages"][0]["content"]
+    assert "Words of the line with their readings: " in calls[-1]["messages"][1]["content"]
     n = len(calls)
     again = llm_client.post(f"/lines/{line['id']}/explain", params={"lang": "de"}).json()
     assert again["cached"] and len(calls) == n
@@ -114,3 +115,31 @@ def test_explain_is_cached_and_deleted_with_episode(llm_client):
     )
     assert llm_client.post("/lines/99999/explain").status_code == 404
     assert llm_client.delete(f"/episodes/{ep['id']}").status_code == 204  # notes don't block it
+
+
+def test_name_candidates_word_hints_and_language_check():
+    from app.llm import looks_german, name_candidates, word_hints
+
+    def tok(
+        surface, reading, pos="名詞", detail=("固有名詞", "人名", "一般"), lemma=None, romaji=""
+    ):
+        return {"surface": surface, "reading": reading, "pos": pos, "pos_detail": list(detail),
+                "lemma": lemma or surface, "romaji": romaji}  # fmt: skip
+
+    lines = [[tok("ハイター", "はいたー")], [tok("ハイター", "はいたー"), tok("フフフ", "ふふふ")],
+             [tok("悪魔", "あくま")], [tok("悪魔", "あくま")]]  # fmt: skip
+    assert name_candidates(lines) == ["ハイター"]  # once-only and kanji "names" left out
+
+    hints = word_hints([
+        tok("決して", "けっして", "副詞", (), romaji="kesshite"),
+        tok("かなう", "かなう", "動詞", (), romaji="kanau"),
+        tok("なかった", "なかった", "助動詞", (), lemma="ない", romaji="nakatta"),
+        tok("！", "！", "補助記号", ()),
+    ])  # fmt: skip
+    assert hints == (
+        "決して (けっして, kesshite) · かなう (kanau) · なかった (nakatta) [dictionary form ない]"
+    )
+    assert looks_german("Sie hat sich die ganze Zeit eingeschlossen")
+    assert looks_german("Hey, Fern, ich bin müde")
+    assert not looks_german("Is Fern's training going well?")
+    assert not looks_german("Die, demon!")  # one German-looking word isn't enough
