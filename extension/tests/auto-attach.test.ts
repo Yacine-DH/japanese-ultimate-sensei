@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { AutoImportOut } from '../src/api/client';
 import {
+  advanceTabTitleWatch,
   buildAutoSuggestionPresentation,
   decideAutoAttach,
   extractSeriesPrefixPattern,
   formatAutoAttachFailureNotice,
   formatAutoAttachSuccessToast,
   isPlausibleEpisodeNumber,
+  removeMappingsForDetach,
+  requiresTitleForEpisodeNumber,
   resolvePageEpisodeInfo,
   shouldWaitForTabTitle,
+  STALE_TITLE_WAIT_MS,
 } from '../src/lib/auto-attach';
 
 function makeAutoImportOut(overrides: Partial<AutoImportOut> = {}): AutoImportOut {
@@ -238,5 +242,141 @@ describe('E-11 auto-attach decision logic (#107)', () => {
       makeAutoImportOut({ existing: true, file_name: null }),
     );
     expect(existingPres.meta).toBe('Already in your library');
+  });
+
+  it('waits when SPA pushState changes an opaque ?ep= URL while tab.title is still from episode N (#113)', () => {
+    // 1. Initial episode 4 settled
+    const ep4 = advanceTabTitleWatch({
+      prevState: undefined,
+      pageUrl: 'https://hianime.to/watch/frieren-18542?ep=107257',
+      tabTitle: 'Watch Frieren Episode 4 English Sub | HiAnime',
+      tabStatus: 'complete',
+      urlChanged: false,
+      titleChanged: false,
+      nowMs: 1000,
+    });
+    expect(ep4.readiness).toBe('ready');
+
+    // 2. SPA "Auto Next" pushState to episode 5: tab.status is still 'complete' and title is still episode 4!
+    const nav = advanceTabTitleWatch({
+      prevState: ep4.nextState,
+      pageUrl: 'https://hianime.to/watch/frieren-18542?ep=107258',
+      tabTitle: 'Watch Frieren Episode 4 English Sub | HiAnime',
+      tabStatus: 'complete',
+      urlChanged: true,
+      titleChanged: false,
+      nowMs: 2000,
+    });
+    expect(nav.readiness).toBe('wait');
+
+    // 3. Another event 1s later with the same stale title STILL waits
+    const stillStale = advanceTabTitleWatch({
+      prevState: nav.nextState,
+      pageUrl: 'https://hianime.to/watch/frieren-18542?ep=107258',
+      tabTitle: 'Watch Frieren Episode 4 English Sub | HiAnime',
+      tabStatus: 'complete',
+      urlChanged: false,
+      titleChanged: false,
+      nowMs: 3000,
+    });
+    expect(stillStale.readiness).toBe('wait');
+
+    // 4. Real title for episode 5 arrives -> becomes ready immediately
+    const freshTitle = advanceTabTitleWatch({
+      prevState: stillStale.nextState,
+      pageUrl: 'https://hianime.to/watch/frieren-18542?ep=107258',
+      tabTitle: 'Watch Frieren Episode 5 English Sub | HiAnime',
+      tabStatus: 'complete',
+      urlChanged: false,
+      titleChanged: true,
+      nowMs: 3200,
+    });
+    expect(freshTitle.readiness).toBe('ready');
+    expect(freshTitle.nextState.staleTitleFromPrevPattern).toBeNull();
+  });
+
+  it('guards against stale title even after an MV3 service worker cold wake on SPA pushState (#113)', () => {
+    // No prevState in memory, yet changeInfo.url arrives while tab.status === 'complete' without changeInfo.title
+    const coldNav = advanceTabTitleWatch({
+      prevState: undefined,
+      pageUrl: 'https://hianime.to/watch/frieren-18542?ep=107258',
+      tabTitle: 'Watch Frieren Episode 4 English Sub | HiAnime',
+      tabStatus: 'complete',
+      urlChanged: true,
+      titleChanged: false,
+      nowMs: 10_000,
+    });
+    expect(coldNav.readiness).toBe('wait');
+
+    // Gives up silently after ~5s if the title never updates instead of guessing episode 4
+    const timedOut = advanceTabTitleWatch({
+      prevState: coldNav.nextState,
+      pageUrl: 'https://hianime.to/watch/frieren-18542?ep=107258',
+      tabTitle: 'Watch Frieren Episode 4 English Sub | HiAnime',
+      tabStatus: 'complete',
+      urlChanged: false,
+      titleChanged: false,
+      nowMs: 10_000 + STALE_TITLE_WAIT_MS,
+    });
+    expect(timedOut.readiness).toBe('give_up');
+  });
+
+  it('does not wait for tab title when the episode number comes directly from the URL (#113)', () => {
+    expect(requiresTitleForEpisodeNumber('https://site.to/watch/frieren-ep-5')).toBe(false);
+    expect(requiresTitleForEpisodeNumber('https://hianime.to/watch/frieren-18542?ep=107258')).toBe(
+      true,
+    );
+
+    const ep4 = advanceTabTitleWatch({
+      prevState: undefined,
+      pageUrl: 'https://site.to/watch/frieren-ep-4',
+      tabTitle: 'Frieren Episode 4',
+      tabStatus: 'complete',
+      urlChanged: false,
+      titleChanged: false,
+      nowMs: 1000,
+    });
+    const ep5 = advanceTabTitleWatch({
+      prevState: ep4.nextState,
+      pageUrl: 'https://site.to/watch/frieren-ep-5',
+      tabTitle: 'Frieren Episode 4', // stale title doesn't matter because URL has ep-5
+      tabStatus: 'complete',
+      urlChanged: true,
+      titleChanged: false,
+      nowMs: 2000,
+    });
+    expect(ep5.readiness).toBe('ready');
+  });
+
+  it('drops both exact urlMappings and remembered animeMappings prefix on detach (#113)', () => {
+    const urlMappings = {
+      'hianime.to/watch/frieren-18542?ep=107257': 14,
+      'site.to/watch/other-ep-1': 99,
+    };
+    const animeMappings = {
+      'hianime.to/watch/frieren-18542?ep=*': 7,
+      'site.to/watch/other-ep-*': 2,
+    };
+
+    const res = removeMappingsForDetach(
+      'https://hianime.to/watch/frieren-18542?ep=107257',
+      urlMappings,
+      animeMappings,
+    );
+
+    expect(res.changed).toBe(true);
+    expect(res.urlMappings).toEqual({ 'site.to/watch/other-ep-1': 99 });
+    expect(res.animeMappings).toEqual({ 'site.to/watch/other-ep-*': 2 });
+    // Original objects stay unmutated
+    expect(urlMappings['hianime.to/watch/frieren-18542?ep=107257']).toBe(14);
+    expect(animeMappings['hianime.to/watch/frieren-18542?ep=*']).toBe(7);
+
+    // Detaching an unmapped page is a no-op
+    const noop = removeMappingsForDetach(
+      'https://hianime.to/watch/frieren-18542?ep=107257',
+      res.urlMappings,
+      res.animeMappings,
+    );
+    expect(noop.changed).toBe(false);
   });
 });
