@@ -18,7 +18,8 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.jimaku import Jimaku, extract_subtitle, rank
-from app.llm import LLM, LLMError, explain_line, translate_batch
+from app.llm import LLM, LLMError, explain_line, name_candidates, translate_batch
+from app.nlp.tokenizer import tokenize
 from app.subtitles import parse_bytes
 from app.translate_jobs import BATCH, CONTEXT
 
@@ -53,7 +54,14 @@ def fetch_jimaku(api_key: str, query: str, episode: int) -> tuple[str, bytes]:
     return extract_subtitle(pick.name, jimaku.download(entry["id"], pick.name), episode)
 
 
-def run_model(llm: LLM, texts: list[str], explain_idx: int, lang: str) -> Result:
+def run_model(
+    llm: LLM,
+    texts: list[str],
+    explain_idx: int,
+    lang: str,
+    names: list[str] | None = None,
+    explain_tokens: list[dict] | None = None,
+) -> Result:
     res = Result(model=llm.model)
     try:
         t = time.monotonic()
@@ -63,7 +71,7 @@ def run_model(llm: LLM, texts: list[str], explain_idx: int, lang: str) -> Result
         for start in range(0, len(texts), BATCH):
             batch = texts[start : start + BATCH]
             context = texts[max(0, start - CONTEXT) : start]
-            got = translate_batch(llm, batch, context)
+            got = translate_batch(llm, batch, context, names)
             res.completion_tokens += int(llm.last_usage.get("completion_tokens") or 0)
             res.failed += len(batch) - len(got)
             res.lines.update({start + k: v for k, v in got.items()})
@@ -72,7 +80,7 @@ def run_model(llm: LLM, texts: list[str], explain_idx: int, lang: str) -> Result
         t = time.monotonic()
         i = explain_idx
         res.explanation = explain_line(
-            llm, texts[i], texts[max(0, i - 2) : i], texts[i + 1 : i + 3], lang
+            llm, texts[i], texts[max(0, i - 2) : i], texts[i + 1 : i + 3], lang, explain_tokens
         )
         res.explain_s = time.monotonic() - t
     except LLMError as e:
@@ -151,6 +159,10 @@ def main(argv: list[str] | None = None) -> None:
     if not texts:
         sys.exit("no Japanese lines in that range")
     explain_idx = max(range(len(texts)), key=lambda i: len(texts[i]))  # the meatiest line
+    # Same hints as the server: names from the whole episode, readings for the explained line.
+    names = name_candidates([[t.to_dict() for t in tokenize(x)] for x in all_lines])
+    explain_tokens = [t.to_dict() for t in tokenize(texts[explain_idx])]
+    print(f"names: {', '.join(names) or '-'}", file=sys.stderr)
 
     results = []
     for model in [m.strip() for m in args.models.split(",") if m.strip()]:
@@ -161,7 +173,7 @@ def main(argv: list[str] | None = None) -> None:
             results.append(Result(model=model, error=detail))
             continue
         print(f"{model}: running", file=sys.stderr)
-        results.append(run_model(llm, texts, explain_idx, args.explain_lang))
+        results.append(run_model(llm, texts, explain_idx, args.explain_lang, names, explain_tokens))
     args.out.write_text(report(name, texts, len(all_lines), results, explain_idx), encoding="utf-8")
     print(f"report: {args.out.resolve()}", file=sys.stderr)
 
