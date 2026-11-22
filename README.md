@@ -151,10 +151,15 @@ SENSEI_STT_BASE_URL=http://<gpu-host>:8080/v1         # whisper.cpp whisper-serv
 ```
 
 ### Install the extension
-Download `http://<server>:8000/downloads/sensei-extension-chrome.zip` (or `-firefox.zip`), extract
-it to a folder, and load it unpacked (`edge://extensions` → Developer mode → Load unpacked). Enter
-the server URL and token in Options. For later updates, the popup shows "Update available" with a
-one-line command, then Reload.
+One-time setup on the laptop (Windows, PowerShell, no admin):
+```powershell
+iwr http://<server>:8000/downloads/install-updater.ps1 -OutFile $env:TEMP\i.ps1; powershell -ExecutionPolicy Bypass -File $env:TEMP\i.ps1
+```
+It downloads the extension into a folder (or finds the one Edge already uses) and installs a small
+updater. Load that folder once in `edge://extensions` (Developer mode → Load unpacked) and enter
+the server URL and token in Options. After that, updates are one click: **Update now** in the
+popup. Every new extension version is also published as a
+[GitHub release](../../releases) with the zips.
 
 ## Docs
 - [Vision & decisions](docs/VISION.md): what we're building and why

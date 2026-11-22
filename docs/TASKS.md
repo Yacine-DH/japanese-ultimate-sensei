@@ -78,6 +78,11 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **W-11** (#133) Web app 先生 favicon + installable PWA for phone reviews
 - [ ] **W-12/E-15** (#134) "Prep this episode": 10 most useful words before watching
 - [ ] **E-16** (#135) Popup: translation progress for the attached episode. deps: S-16
+- [ ] **S-19** (#137) Piecewise sync points (subtitles survive cuts)
+- [ ] **E-17** (#138) Background re-sync + sync points in the extension. deps: S-19
+- [ ] **S-20** (#139) Netflix [cc] subtitles: 漢字(よみ) as furigana, speaker labels / sound effects apart
+- [x] **S-21** (#140) One-click updater (native messaging host) + GitHub releases (claude, 2026-11-22: `scripts/install-updater.ps1`, `scripts/sensei-updater/`, `scripts/release.sh`, version 0.1.N)
+- [ ] **E-18** (#141) Popup **Update now** via the updater + version from `SENSEI_EXT_VERSION`. deps: S-21
 
 ## Requests (cross-team)
 - [x] **R-1** (#12) (claude, 2026-11-19: `GET /words` + `POST /words/bulk-status`, see API.md) from antigravity: need `GET /words?status=&anime_id=&q=&limit=&offset=` and `POST /words/bulk-status` (`{"word_ids": int[], "status": WordStatus}`) because **W-4** requires a vocabulary table filterable by status/anime and bulk mark known, whereas `docs/API.md` currently only exposes single-word `GET /words/{id}` and `POST /words/{id}/status`.

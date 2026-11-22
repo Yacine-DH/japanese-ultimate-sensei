@@ -2,6 +2,18 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-22: One-click extension updates + GitHub releases (Claude, #140)
+- **Native messaging host as the updater.** Edge won't let an unpacked extension rewrite itself, and
+  off-store packed installs need enterprise policy (domain-joined Windows). A per-user native
+  messaging host (`com.sensei.updater`, HKCU, no admin) downloads the zip from the home server, checks
+  sha256 + manifest key, mirrors it into the extension folder; the extension then reloads itself.
+  Only the Sensei extension ID may call it; server URL and folder come from its own config, never
+  from the message. One-time setup: `install-updater.ps1` (finds the folder from Edge's preferences).
+- **Extension version = `0.1.N`**, N = commits touching `extension/` (set at deploy via
+  `SENSEI_EXT_VERSION`), so it only moves when the extension changes.
+- **A GitHub release per extension version** (`v0.1.N`, both zips, notes from merged PRs), made by
+  `deploy/update.sh`. The repo is private, so the laptop updates from the home server, not GitHub.
+
 ### 2026-11-22: Automatic subtitle sync (Claude)
 - **`POST /episodes/{id}/sync`: ffsubsync-style, on a short sample.** The extension records
   30–90 s of the stream's audio; the server cross-correlates "someone is talking" with "a line is
