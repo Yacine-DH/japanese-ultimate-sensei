@@ -110,16 +110,27 @@ foreach ($k in $RegistryKeys) {
   Set-Item -Path $k -Value $hostManifest
 }
 
-# 3. Fresh install if the folder doesn't hold the extension yet.
+# 3. Fresh install if the folder doesn't hold the extension yet, or bring an existing install up
+#    to the server's build (so this one script also does the first update to a build with the
+#    "Update now" button). Same folder + same extension ID = settings are kept.
 $fresh = -not (Get-ExtensionKey $Folder)
-if ($fresh) {
-  if ((Test-Path -LiteralPath $Folder) -and (Get-ChildItem -LiteralPath $Folder -Force | Select-Object -First 1)) {
-    throw "$Folder isn't empty and doesn't hold the Sensei extension. Pick an empty folder with -Folder."
-  }
+if ($fresh -and (Test-Path -LiteralPath $Folder) -and (Get-ChildItem -LiteralPath $Folder -Force | Select-Object -First 1)) {
+  throw "$Folder isn't empty and doesn't hold the Sensei extension. Pick an empty folder with -Folder."
+}
+$installedVersion = $null
+if (-not $fresh) {
+  try { $installedVersion = (Get-Content -LiteralPath (Join-Path $Folder "manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch { }
+}
+$updated = $false
+if ($fresh -or ($latest.version -and $installedVersion -ne $latest.version)) {
   New-Item -ItemType Directory -Force -Path $Folder | Out-Null
   $zip = Join-Path $env:TEMP "sensei-extension-chrome.zip"
   Invoke-WebRequest "$Server/downloads/sensei-extension-chrome.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 120
+  if ($latest.sha256_chrome -and ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $latest.sha256_chrome)) {
+    throw "The download didn't match the server's checksum. Wait a minute (the server may be deploying) and run this again."
+  }
   Expand-Archive -LiteralPath $zip -DestinationPath $Folder -Force
+  $updated = -not $fresh
 }
 
 Write-Host ""
@@ -130,6 +141,11 @@ if ($fresh) {
   Write-Host ""
   Write-Host "Last manual step: in edge://extensions turn on Developer mode, click 'Load unpacked'"
   Write-Host "and pick the folder above. If an older Sensei card is there, remove it first."
+} elseif ($updated) {
+  Write-Host ""
+  Write-Host "Updated the extension from $installedVersion to $($latest.version)." -ForegroundColor Green
+  Write-Host "Click Reload on the Sensei card in edge://extensions once (your settings stay)."
+  Write-Host "After that, updates are one click: 'Update now' in the Sensei popup."
 } else {
-  Write-Host "From now on, click 'Update now' in the Sensei popup when it says an update is available."
+  Write-Host "The extension is up to date. Next time, click 'Update now' in the Sensei popup."
 }
