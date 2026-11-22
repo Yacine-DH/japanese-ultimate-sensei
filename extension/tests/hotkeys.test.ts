@@ -74,6 +74,16 @@ describe('layout-independent hotkeys (#4)', () => {
       }),
     ).toBe('autoSync');
 
+    expect(
+      matchHotkey(DEFAULT_HOTKEYS, {
+        code: 'KeyR',
+        altKey: true,
+        ctrlKey: false,
+        shiftKey: false,
+        metaKey: false,
+      }),
+    ).toBe('toggleRomaji');
+
     // Pressing with Shift should NOT accidentally match a non-Shift binding
     expect(
       matchHotkey(DEFAULT_HOTKEYS, {

@@ -12,6 +12,7 @@ export type HotkeyAction =
   | 'replayLine'
   | 'slowReplayLine'
   | 'toggleAutoPause'
+  | 'toggleRomaji'
   | 'revealTranslation'
   | 'explainLine';
 
@@ -33,6 +34,7 @@ export const HOTKEY_ACTIONS: readonly HotkeyAction[] = [
   'replayLine',
   'slowReplayLine',
   'toggleAutoPause',
+  'toggleRomaji',
   'revealTranslation',
   'explainLine',
 ];
@@ -45,6 +47,7 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
   replayLine: 'Replay current / last line',
   slowReplayLine: 'Slow replay line (0.75×)',
   toggleAutoPause: 'Toggle auto-pause after line',
+  toggleRomaji: 'Toggle romaji line',
   revealTranslation: 'Reveal translation (current line)',
   explainLine: 'Explain current line (LLM)',
 };
@@ -62,6 +65,7 @@ export const DEFAULT_HOTKEYS: HotkeyBindings = {
   replayLine: key('KeyR'),
   slowReplayLine: key('KeyR', { shift: true }),
   toggleAutoPause: key('KeyP', { alt: true }),
+  toggleRomaji: key('KeyR', { alt: true }),
   revealTranslation: key('KeyT'),
   explainLine: key('KeyE'),
 };

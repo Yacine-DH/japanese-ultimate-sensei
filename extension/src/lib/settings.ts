@@ -1,5 +1,6 @@
 import { DEFAULT_HOTKEYS, type HotkeyBindings, sanitizeHotkeys } from './hotkeys';
 import { DEFAULT_HOVER_CONFIG, sanitizeHoverDelayMs } from './hover-intent';
+import { type OverlayPosition, sanitizeOverlayPositions } from './overlay-position';
 
 export type GlossLanguage = 'eng' | 'ger';
 export type TranslationDisplayMode = 'off' | 'en' | 'de';
@@ -21,6 +22,7 @@ export interface ExtensionSettings {
   ankiModelName: string;
   urlMappings: Record<string, number>;
   animeMappings: Record<string, number>;
+  overlayPositions: Record<string, OverlayPosition>;
   hotkeys: HotkeyBindings;
 }
 
@@ -46,6 +48,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   ankiModelName: DEFAULT_ANKI_MODEL_NAME,
   urlMappings: {},
   animeMappings: {},
+  overlayPositions: {},
   hotkeys: DEFAULT_HOTKEYS,
 };
 
@@ -110,6 +113,7 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     ankiModelName: ankiModel || DEFAULT_ANKI_MODEL_NAME,
     urlMappings: sanitizeUrlMappings(merged.urlMappings),
     animeMappings: sanitizeUrlMappings(merged.animeMappings),
+    overlayPositions: sanitizeOverlayPositions(merged.overlayPositions),
     hotkeys: sanitizeHotkeys(merged.hotkeys),
   };
 }
@@ -136,6 +140,7 @@ export async function getSettings(): Promise<ExtensionSettings> {
       ...memorySettings,
       urlMappings: { ...memorySettings.urlMappings },
       animeMappings: { ...memorySettings.animeMappings },
+      overlayPositions: { ...memorySettings.overlayPositions },
     };
   }
   const result = await storage.get(SETTINGS_STORAGE_KEY);

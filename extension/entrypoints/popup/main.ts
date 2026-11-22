@@ -27,6 +27,11 @@ import {
 } from '../../src/lib/jimaku';
 import { getKeyboardLayoutMap } from '../../src/lib/keyboard-layout';
 import {
+  extractOverlayHostKey,
+  getOverlayPositionForHost,
+  withOverlayPositionForHost,
+} from '../../src/lib/overlay-position';
+import {
   getSettings,
   isServerUrlConfigured,
   saveSettings,
@@ -63,9 +68,11 @@ const dictText = document.getElementById('dict-text') as HTMLSpanElement;
 const llmText = document.getElementById('llm-text') as HTMLSpanElement;
 const tabEnableToggle = document.getElementById('tab-enable-toggle') as HTMLInputElement;
 const autoPauseToggle = document.getElementById('auto-pause-toggle') as HTMLInputElement;
+const romajiToggle = document.getElementById('romaji-toggle') as HTMLInputElement;
 const translationModeSelect = document.getElementById(
   'translation-mode-select',
 ) as HTMLSelectElement;
+const resetPositionBtn = document.getElementById('reset-position-btn') as HTMLButtonElement;
 const pagePatternText = document.getElementById('page-pattern-text') as HTMLSpanElement;
 const autoSuggestCard = document.getElementById('auto-suggest-card') as HTMLDivElement;
 const autoSuggestTitle = document.getElementById('auto-suggest-title') as HTMLDivElement;
@@ -331,6 +338,7 @@ async function refreshPopup(): Promise<void> {
   setupServerUrl.value = settings.serverUrl;
   setupApiToken.value = settings.apiToken;
   autoPauseToggle.checked = settings.autoPauseEachLine;
+  romajiToggle.checked = settings.romaji;
   translationModeSelect.value = settings.translationMode;
 
   void getKeyboardLayoutMap().then((layoutMap) => {
@@ -355,6 +363,16 @@ async function refreshPopup(): Promise<void> {
   activeTabId = currentTab?.id ?? null;
   activeTabUrl = currentTab?.url ?? '';
   activeTabTitle = currentTab?.title ?? '';
+
+  const activeHostKey = extractOverlayHostKey(activeTabUrl);
+  const hasSavedPosition = Boolean(
+    activeHostKey && getOverlayPositionForHost(settings.overlayPositions, activeHostKey),
+  );
+  resetPositionBtn.disabled = !hasSavedPosition;
+  resetPositionBtn.textContent = 'Reset overlay position';
+  resetPositionBtn.title = hasSavedPosition
+    ? `Reset saved overlay position for ${activeHostKey}`
+    : 'Overlay is at the default bottom position';
 
   const pageInfo = resolvePageEpisodeInfo(activeTabUrl, activeTabTitle);
   guessedEpFromTab = pageInfo.episodeNumber;
@@ -542,8 +560,25 @@ autoPauseToggle.addEventListener('change', async () => {
   await saveSettings({ autoPauseEachLine: autoPauseToggle.checked });
 });
 
+romajiToggle.addEventListener('change', async () => {
+  await saveSettings({ romaji: romajiToggle.checked });
+});
+
 translationModeSelect.addEventListener('change', async () => {
   await saveSettings({ translationMode: translationModeSelect.value as TranslationDisplayMode });
+});
+
+resetPositionBtn.addEventListener('click', async () => {
+  const host = extractOverlayHostKey(activeTabUrl);
+  if (!host) return;
+  const current = await getSettings();
+  const nextPositions = withOverlayPositionForHost(current.overlayPositions, host, null);
+  await saveSettings({ overlayPositions: nextPositions });
+  resetPositionBtn.disabled = true;
+  resetPositionBtn.textContent = 'Position reset';
+  setTimeout(() => {
+    resetPositionBtn.textContent = 'Reset overlay position';
+  }, 1500);
 });
 
 autoSuggestAttachBtn.addEventListener('click', async () => {

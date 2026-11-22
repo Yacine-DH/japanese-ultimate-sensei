@@ -86,6 +86,16 @@ import {
   resolvePopupWordAction,
 } from '../src/lib/hover-intent';
 import {
+  clampNumber,
+  computeDraggedOverlayPlacement,
+  extractOverlayHostKey,
+  fractionToBoxPixels,
+  getOverlayPositionForHost,
+  type OverlayPosition,
+  shouldPlacePopupBelow,
+  withOverlayPositionForHost,
+} from '../src/lib/overlay-position';
+import {
   computeOverlayBounds,
   findBestVideoInDocument,
   resolveOverlayMountTarget,
@@ -110,8 +120,20 @@ export default defineContentScript({
     let frameLoopMode: 'rvfc' | 'raf' | null = null;
     let hostEl: HTMLDivElement | null = null;
     let shadowRoot: ShadowRoot | null = null;
+    let subShellEl: HTMLDivElement | null = null;
+    let dragGripEl: HTMLButtonElement | null = null;
     let subBoxEl: HTMLDivElement | null = null;
     let popupEl: HTMLDivElement | null = null;
+    let currentTabPageUrl = window.location.href;
+    let activeDragState: {
+      pointerId: number;
+      startClientX: number;
+      startClientY: number;
+      startLeft: number;
+      startTop: number;
+      moved: boolean;
+      lastFraction: OverlayPosition | null;
+    } | null = null;
     let missedPanelEl: HTMLDivElement | null = null;
     let explainPanelEl: HTMLDivElement | null = null;
     let explainPanelOpen = false;
@@ -341,8 +363,57 @@ export default defineContentScript({
             background: #334155;
             color: #f8fafc;
           }
-          .sensei-sub-box {
+          .sensei-sub-shell {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
             max-width: 86%;
+            pointer-events: auto;
+          }
+          .sensei-sub-shell.empty {
+            display: none;
+          }
+          .sensei-sub-shell.positioned {
+            position: absolute;
+            max-width: calc(100% - 16px);
+          }
+          .sensei-drag-grip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            align-self: stretch;
+            min-width: 22px;
+            padding: 0 5px;
+            margin-right: 4px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.88);
+            color: #94a3b8;
+            font-size: 13px;
+            line-height: 1;
+            letter-spacing: -1px;
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+            opacity: 0;
+            transition: opacity 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+          }
+          .sensei-sub-shell:hover .sensei-drag-grip,
+          .sensei-sub-shell:focus-within .sensei-drag-grip,
+          .sensei-sub-shell.dragging .sensei-drag-grip {
+            opacity: 0.92;
+          }
+          .sensei-drag-grip:hover {
+            color: #e0f2fe;
+            border-color: #38bdf8;
+          }
+          .sensei-sub-shell.dragging .sensei-drag-grip {
+            cursor: grabbing;
+            color: #38bdf8;
+            border-color: #38bdf8;
+          }
+          .sensei-sub-box {
+            max-width: 100%;
             background: rgba(10, 15, 28, 0.82);
             color: #f8fafc;
             padding: 8px 18px 10px;
@@ -571,9 +642,12 @@ export default defineContentScript({
           }
           .sensei-hover-popup {
             display: none;
+            position: absolute;
+            bottom: calc(100% + 10px);
+            left: 50%;
+            transform: translateX(-50%);
             width: 320px;
             max-width: 90vw;
-            margin-bottom: 10px;
             background: rgba(15, 23, 42, 0.96);
             border: 1px solid #334155;
             border-radius: 10px;
@@ -584,6 +658,11 @@ export default defineContentScript({
             text-align: left;
             font-size: 14px;
             line-height: 1.4;
+            z-index: 11;
+          }
+          .sensei-sub-shell.popup-below .sensei-hover-popup {
+            bottom: auto;
+            top: calc(100% + 10px);
           }
           .sensei-hover-popup.visible {
             display: block;
@@ -815,17 +894,42 @@ export default defineContentScript({
         popupEl.addEventListener('mouseenter', cancelHoverClose);
         popupEl.addEventListener('mouseleave', scheduleHoverClose);
 
+        subShellEl = document.createElement('div');
+        subShellEl.className = 'sensei-sub-shell empty';
+
+        dragGripEl = document.createElement('button');
+        dragGripEl.type = 'button';
+        dragGripEl.className = 'sensei-drag-grip';
+        dragGripEl.textContent = '⋮⋮';
+        dragGripEl.title = 'Drag to move overlay · Double-click to reset';
+        dragGripEl.setAttribute('aria-label', 'Drag to move subtitles; double-click to reset position');
+        dragGripEl.addEventListener('pointerdown', handleGripPointerDown);
+        dragGripEl.addEventListener('pointermove', handleGripPointerMove);
+        dragGripEl.addEventListener('pointerup', handleGripPointerUp);
+        dragGripEl.addEventListener('pointercancel', handleGripPointerUp);
+        dragGripEl.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+        });
+        dragGripEl.addEventListener('dblclick', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          void resetOverlayPositionForCurrentSite();
+        });
+
         subBoxEl = document.createElement('div');
         subBoxEl.className = 'sensei-sub-box';
         subBoxEl.addEventListener('mouseleave', scheduleHoverClose);
+
+        subShellEl.appendChild(popupEl);
+        subShellEl.appendChild(dragGripEl);
+        subShellEl.appendChild(subBoxEl);
 
         root.appendChild(overlayControlsEl);
         root.appendChild(syncStatusEl);
         root.appendChild(toastEl);
         root.appendChild(explainPanelEl);
         root.appendChild(missedPanelEl);
-        root.appendChild(popupEl);
-        root.appendChild(subBoxEl);
+        root.appendChild(subShellEl);
         shadowRoot.appendChild(style);
         shadowRoot.appendChild(root);
       }
@@ -836,6 +940,162 @@ export default defineContentScript({
 
       syncOverlayControlsVisibility();
       updateOverlayPosition(video);
+    }
+
+    function getCurrentOverlayHostKey(): string | null {
+      return (
+        extractOverlayHostKey(currentTabPageUrl) ?? extractOverlayHostKey(window.location.href)
+      );
+    }
+
+    function applyOverlayPlacement(): void {
+      if (!shadowRoot || !subShellEl) return;
+      const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
+      if (!root) return;
+
+      const host = getCurrentOverlayHostKey();
+      const saved =
+        settings && host ? getOverlayPositionForHost(settings.overlayPositions, host) : null;
+      const effectivePos = activeDragState?.lastFraction ?? saved;
+
+      if (!effectivePos) {
+        subShellEl.classList.remove('positioned', 'popup-below');
+        subShellEl.style.left = '';
+        subShellEl.style.top = '';
+        return;
+      }
+
+      if (subShellEl.classList.contains('empty')) {
+        return;
+      }
+
+      const rootRect = root.getBoundingClientRect();
+      if (rootRect.width <= 0 || rootRect.height <= 0) {
+        return;
+      }
+
+      subShellEl.classList.add('positioned');
+      const shellRect = subShellEl.getBoundingClientRect();
+      const pixels = fractionToBoxPixels(
+        effectivePos,
+        { width: rootRect.width, height: rootRect.height },
+        { width: shellRect.width, height: shellRect.height },
+      );
+      subShellEl.style.left = `${pixels.left}px`;
+      subShellEl.style.top = `${pixels.top}px`;
+      subShellEl.classList.toggle(
+        'popup-below',
+        shouldPlacePopupBelow(pixels.top, rootRect.height),
+      );
+    }
+
+    async function saveOverlayPositionForCurrentSite(pos: OverlayPosition): Promise<void> {
+      const host = getCurrentOverlayHostKey();
+      if (!host) return;
+      const basePositions = settings?.overlayPositions ?? {};
+      const nextPositions = withOverlayPositionForHost(basePositions, host, pos);
+      if (settings) {
+        settings = { ...settings, overlayPositions: nextPositions };
+      }
+      await saveSettings({ overlayPositions: nextPositions });
+    }
+
+    async function resetOverlayPositionForCurrentSite(): Promise<void> {
+      const host = getCurrentOverlayHostKey();
+      activeDragState = null;
+      subShellEl?.classList.remove('dragging');
+      if (host) {
+        const basePositions = settings?.overlayPositions ?? {};
+        const nextPositions = withOverlayPositionForHost(basePositions, host, null);
+        if (settings) {
+          settings = { ...settings, overlayPositions: nextPositions };
+        }
+        await saveSettings({ overlayPositions: nextPositions });
+      }
+      applyOverlayPlacement();
+      showToast('Overlay position reset');
+    }
+
+    function handleGripPointerDown(ev: PointerEvent): void {
+      if (ev.button !== 0 || !shadowRoot || !subShellEl || !dragGripEl) return;
+      const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
+      if (!root) return;
+      const rootRect = root.getBoundingClientRect();
+      const shellRect = subShellEl.getBoundingClientRect();
+      if (rootRect.width <= 0 || rootRect.height <= 0) return;
+
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeHoverPopup();
+
+      activeDragState = {
+        pointerId: ev.pointerId,
+        startClientX: ev.clientX,
+        startClientY: ev.clientY,
+        startLeft: shellRect.left - rootRect.left,
+        startTop: shellRect.top - rootRect.top,
+        moved: false,
+        lastFraction: null,
+      };
+      subShellEl.classList.add('dragging');
+      try {
+        dragGripEl.setPointerCapture(ev.pointerId);
+      } catch {
+        // Synthetic pointer events in tests or unsupported browsers
+      }
+    }
+
+    function handleGripPointerMove(ev: PointerEvent): void {
+      if (!activeDragState || ev.pointerId !== activeDragState.pointerId) return;
+      if (!shadowRoot || !subShellEl) return;
+      const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
+      if (!root) return;
+
+      const deltaX = ev.clientX - activeDragState.startClientX;
+      const deltaY = ev.clientY - activeDragState.startClientY;
+      if (!activeDragState.moved && Math.hypot(deltaX, deltaY) < 3) {
+        return;
+      }
+      activeDragState.moved = true;
+
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const rootRect = root.getBoundingClientRect();
+      const shellRect = subShellEl.getBoundingClientRect();
+      const placement = computeDraggedOverlayPlacement({
+        startBox: { left: activeDragState.startLeft, top: activeDragState.startTop },
+        deltaX,
+        deltaY,
+        container: { width: rootRect.width, height: rootRect.height },
+        box: { width: shellRect.width, height: shellRect.height },
+      });
+
+      activeDragState.lastFraction = placement.fraction;
+      subShellEl.classList.add('positioned');
+      subShellEl.style.left = `${placement.pixels.left}px`;
+      subShellEl.style.top = `${placement.pixels.top}px`;
+      subShellEl.classList.toggle(
+        'popup-below',
+        shouldPlacePopupBelow(placement.pixels.top, rootRect.height),
+      );
+    }
+
+    function handleGripPointerUp(ev: PointerEvent): void {
+      if (!activeDragState || ev.pointerId !== activeDragState.pointerId) return;
+      const finalFraction = activeDragState.moved ? activeDragState.lastFraction : null;
+      activeDragState = null;
+      subShellEl?.classList.remove('dragging');
+      try {
+        dragGripEl?.releasePointerCapture(ev.pointerId);
+      } catch {
+        // Ignore if capture was already released
+      }
+      if (finalFraction) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        void saveOverlayPositionForCurrentSite(finalFraction);
+      }
     }
 
     function updateOverlayPosition(video: HTMLVideoElement): void {
@@ -850,6 +1110,7 @@ export default defineContentScript({
       root.style.top = `${bounds.top}px`;
       root.style.width = `${bounds.width}px`;
       root.style.height = `${bounds.height}px`;
+      applyOverlayPlacement();
     }
 
     function scheduleOverlayPositionUpdate(): void {
@@ -1359,6 +1620,24 @@ export default defineContentScript({
 
       popupEl.innerHTML = '';
       popupEl.classList.add('visible');
+      if (shadowRoot && subShellEl) {
+        const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
+        if (root) {
+          popupEl.style.left = '50%';
+          popupEl.style.transform = 'translateX(-50%)';
+          const rootRect = root.getBoundingClientRect();
+          const shellRect = subShellEl.getBoundingClientRect();
+          const popupRect = popupEl.getBoundingClientRect();
+          if (rootRect.width > 0 && popupRect.width > 0) {
+            const desiredLeft =
+              shellRect.left - rootRect.left + shellRect.width / 2 - popupRect.width / 2;
+            const maxLeft = Math.max(8, rootRect.width - popupRect.width - 8);
+            const clampedLeft = clampNumber(desiredLeft, 8, maxLeft);
+            popupEl.style.left = `${Math.round(clampedLeft - (shellRect.left - rootRect.left))}px`;
+            popupEl.style.transform = 'none';
+          }
+        }
+      }
 
       const header = document.createElement('div');
       header.className = 'sensei-popup-header';
@@ -1465,11 +1744,13 @@ export default defineContentScript({
       if (!subBoxEl || !settings) return;
       if (activeLines.length === 0) {
         subBoxEl.innerHTML = '';
+        subShellEl?.classList.add('empty');
         renderedLinesKey = '';
         return;
       }
 
       subBoxEl.innerHTML = '';
+      subShellEl?.classList.remove('empty');
       renderedLinesKey = formatActiveLinesKey(activeLines);
 
       for (const line of activeLines) {
@@ -1515,8 +1796,10 @@ export default defineContentScript({
 
           if (isLookupableToken(token)) {
             span.addEventListener('mouseenter', (ev) => {
+              if (activeDragState) return;
               cancelHoverClose();
               hoverIntent.enter(token, ev.shiftKey, (t) => {
+                if (activeDragState) return;
                 void openHoverPopup(t, line);
               });
             });
@@ -1568,6 +1851,7 @@ export default defineContentScript({
 
         subBoxEl.appendChild(lineContainer);
       }
+      applyOverlayPlacement();
     }
 
     function restoreSlowReplayIfNeeded(videoMs: number, force = false): void {
@@ -2367,6 +2651,15 @@ export default defineContentScript({
           showToast(`Study auto-pause: ${next ? 'ON' : 'OFF'}`);
           return;
         }
+        if (action === 'toggleRomaji') {
+          const next = !settings.romaji;
+          settings = { ...settings, romaji: next };
+          renderedLinesKey = null;
+          syncSubtitleFrame();
+          void saveSettings({ romaji: next });
+          showToast(`Romaji: ${next ? 'ON' : 'OFF'}`);
+          return;
+        }
         if (action === 'revealTranslation') {
           revealTranslationForCurrentLine();
           return;
@@ -2427,6 +2720,9 @@ export default defineContentScript({
 
     browser.runtime.onMessage.addListener((msg: unknown) => {
       if (isTabStateChangedMessage(msg)) {
+        if (msg.state.pageUrl) {
+          currentTabPageUrl = msg.state.pageUrl;
+        }
         if (msg.state.episodeId !== currentEpisodeId) {
           missedPromptedEpisodeId = null;
           revealedTranslationLineIds.clear();
@@ -2434,6 +2730,7 @@ export default defineContentScript({
           closeExplainPanel();
         }
         applyTabState(msg.state.episodeId, msg.state.enabled);
+        applyOverlayPlacement();
         queueAutoAttachNotice(msg.state.autoAttachNotice);
       } else if (isAutoAttachNoticeMessage(msg)) {
         queueAutoAttachNotice(msg.notice);
@@ -2456,16 +2753,24 @@ export default defineContentScript({
       if (changes[SETTINGS_STORAGE_KEY]) {
         void Promise.all([getSettings(), api.getTabState()]).then(([next, tabState]) => {
           settings = next;
+          if (tabState.pageUrl) {
+            currentTabPageUrl = tabState.pageUrl;
+          }
           renderedLinesKey = null;
           applyTabState(tabState.episodeId, tabState.enabled);
+          applyOverlayPlacement();
         });
       }
     });
 
     void Promise.all([getSettings(), api.getTabState()]).then(([initial, tabState]) => {
       settings = initial;
+      if (tabState.pageUrl) {
+        currentTabPageUrl = tabState.pageUrl;
+      }
       scanForVideo();
       applyTabState(tabState.episodeId, tabState.enabled);
+      applyOverlayPlacement();
       queueAutoAttachNotice(tabState.autoAttachNotice);
       setInterval(scanForVideo, 1500);
       setInterval(() => {
