@@ -57,6 +57,7 @@ export interface ApiCallInit {
   headers?: Record<string, string>;
   body?: string;
   json?: unknown;
+  cache?: RequestCache;
 }
 
 export interface ApiCallResponse<T = unknown> {
@@ -462,11 +463,15 @@ export async function executeApiCall<T = unknown>(
   const body = init?.json !== undefined ? JSON.stringify(init.json) : init?.body;
 
   try {
-    const response = await fetchImpl(url, {
+    const fetchInit: RequestInit = {
       method: init?.method ?? 'GET',
       headers,
       body,
-    });
+    };
+    if (init?.cache) {
+      fetchInit.cache = init.cache;
+    }
+    const response = await fetchImpl(url, fetchInit);
 
     if (response.status === 204) {
       return { ok: true, status: 204 };
@@ -844,6 +849,10 @@ export const api = {
 
   getHealth(): Promise<ApiCallResponse<Health>> {
     return api.call<Health>('/health');
+  },
+
+  getExtensionVersion(): Promise<ApiCallResponse<unknown>> {
+    return api.call<unknown>('/downloads/version.json', { cache: 'no-store' });
   },
 
   listEpisodes(): Promise<ApiCallResponse<EpisodeOut[]>> {

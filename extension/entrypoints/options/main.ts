@@ -16,8 +16,10 @@ import {
   saveSettings,
   type TranslationDisplayMode,
 } from '../../src/lib/settings';
+import { formatVersionLine, getBuildCommit } from '../../src/lib/update';
 
 const form = document.getElementById('settings-form') as HTMLFormElement;
+const extensionVersionEl = document.getElementById('extension-version') as HTMLParagraphElement;
 const serverUrlInput = document.getElementById('server-url') as HTMLInputElement;
 const apiTokenInput = document.getElementById('api-token') as HTMLInputElement;
 const glossLangSelect = document.getElementById('gloss-lang') as HTMLSelectElement;
@@ -115,6 +117,7 @@ async function refreshLlmHint(serverUrl: string): Promise<void> {
 }
 
 async function init(): Promise<void> {
+  extensionVersionEl.textContent = formatVersionLine(getBuildCommit());
   const settings = await getSettings();
   serverUrlInput.value = settings.serverUrl;
   apiTokenInput.value = settings.apiToken;
