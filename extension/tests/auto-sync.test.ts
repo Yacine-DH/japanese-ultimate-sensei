@@ -9,8 +9,10 @@ import {
   AUTO_SYNC_ABORT_MESSAGE,
   AUTO_SYNC_DIALOGUE_HINT,
   AUTO_SYNC_DURATION_MS,
+  AUTO_SYNC_MAX_DRIFT_MS,
   AutoSyncStateMachine,
   buildSyncOutcomePresentation,
+  checkSyncPlaybackDrift,
   formatManualApplyToast,
   formatOffsetSeconds,
   formatSyncConfidenceMeta,
@@ -310,8 +312,12 @@ describe('startSyncAudioRecording (#99)', () => {
     expect(capturedStreamTracks).toEqual([audioTrack]);
     expect(recorderCreated).toBe(true);
 
-    // Advance past onstart (50 ms) + full 2 s recording window
-    await vi.advanceTimersByTimeAsync(2_400);
+    // Advance past onstart (50 ms) + full 2 s recording window, advancing video time at 1x
+    await vi.advanceTimersByTimeAsync(50);
+    for (let i = 0; i < 12; i++) {
+      (fakeVideo as unknown as { currentTime: number }).currentTime += 0.2;
+      await vi.advanceTimersByTimeAsync(200);
+    }
     const result = await handle.promise;
 
     expect(result.ok).toBe(true);
@@ -389,6 +395,122 @@ describe('startSyncAudioRecording (#99)', () => {
       reason: 'seeked',
       message: AUTO_SYNC_ABORT_MESSAGE,
     });
+  });
+
+  it('checks video-vs-wall-clock drift and aborts when cumulative short stalls exceed 250 ms (#102)', async () => {
+    expect(AUTO_SYNC_MAX_DRIFT_MS).toBe(250);
+
+    // Within 250 ms tolerance -> ok
+    expect(
+      checkSyncPlaybackDrift({
+        videoStartMs: 10_000,
+        videoEndMs: 54_820,
+        wallStartMs: 1_000,
+        wallEndMs: 46_000,
+      }),
+    ).toEqual({
+      ok: true,
+      driftMs: 180,
+      videoProgressMs: 44_820,
+      wallDurationMs: 45_000,
+    });
+
+    // Cumulative 600 ms stall -> rejected
+    expect(
+      checkSyncPlaybackDrift({
+        videoStartMs: 10_000,
+        videoEndMs: 54_400,
+        wallStartMs: 1_000,
+        wallEndMs: 46_000,
+      }),
+    ).toEqual({
+      ok: false,
+      driftMs: 600,
+      videoProgressMs: 44_400,
+      wallDurationMs: 45_000,
+    });
+
+    // Forward jump (missed seek) -> rejected
+    expect(
+      checkSyncPlaybackDrift({
+        videoStartMs: 10_000,
+        videoEndMs: 56_000,
+        wallStartMs: 1_000,
+        wallEndMs: 46_000,
+      }).ok,
+    ).toBe(false);
+
+    // Integration: three 300 ms micro-stalls (each < 1 s maxBufferingMs) sum to 900 ms drift -> abort
+    vi.useFakeTimers();
+    const listeners = new Map<string, Set<() => void>>();
+    const fakeVideo = {
+      paused: false,
+      ended: false,
+      playbackRate: 1,
+      currentTime: 30.0,
+      captureStream: () => ({
+        getAudioTracks: () => [{ kind: 'audio' }],
+        getVideoTracks: () => [],
+      }),
+      addEventListener: (ev: string, fn: () => void) => {
+        if (!listeners.has(ev)) listeners.set(ev, new Set());
+        listeners.get(ev)!.add(fn);
+      },
+      removeEventListener: (ev: string, fn: () => void) => {
+        listeners.get(ev)?.delete(fn);
+      },
+    } as unknown as HTMLVideoElement;
+
+    class FakeMediaStream {
+      constructor(public tracks: unknown[]) {}
+    }
+    class FakeMediaRecorder {
+      static isTypeSupported = () => true;
+      state: 'inactive' | 'recording' = 'inactive';
+      mimeType = 'audio/webm;codecs=opus';
+      onstart: (() => void) | null = null;
+      onstop: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      ondataavailable: ((ev: { data: Blob }) => void) | null = null;
+      start(): void {
+        this.state = 'recording';
+        this.onstart?.();
+      }
+      stop(): void {
+        if (this.state === 'inactive') return;
+        this.state = 'inactive';
+        this.ondataavailable?.({ data: new Blob(['opus-bytes'], { type: this.mimeType }) });
+        this.onstop?.();
+      }
+    }
+
+    vi.stubGlobal('MediaStream', FakeMediaStream);
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+
+    const machine = new AutoSyncStateMachine({ durationMs: 2_000 });
+    const handle = startSyncAudioRecording({
+      video: fakeVideo,
+      machine,
+      onStateChange: () => {},
+      tickIntervalMs: 200,
+    });
+
+    // Advance 2.0 s of wall time while video only progresses 1.1 s (three 300 ms stalls)
+    for (let i = 0; i < 10; i++) {
+      if (i % 3 !== 0) {
+        (fakeVideo as unknown as { currentTime: number }).currentTime += 0.18;
+      }
+      await vi.advanceTimersByTimeAsync(200);
+    }
+
+    const res = await handle.promise;
+    expect(res).toEqual({
+      ok: false,
+      reason: 'drifted',
+      message: AUTO_SYNC_ABORT_MESSAGE,
+    });
+    expect(machine.getState().phase).toBe('aborted');
+    expect(machine.getState().abortReason).toBe('drifted');
   });
 });
 

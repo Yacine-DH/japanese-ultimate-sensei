@@ -8,6 +8,7 @@ import {
 
 export const AUTO_SYNC_DURATION_MS = 45_000;
 export const AUTO_SYNC_MAX_BUFFERING_MS = 1_000;
+export const AUTO_SYNC_MAX_DRIFT_MS = 250;
 export const AUTO_SYNC_MIN_SEARCH_MS = 10_000;
 
 export const AUTO_SYNC_ABORT_MESSAGE = 'Keep it playing at 1× while syncing';
@@ -21,11 +22,53 @@ export type AutoSyncAbortReason =
   | 'seeked'
   | 'rate_changed'
   | 'buffered'
+  | 'drifted'
   | 'cancelled'
   | 'unavailable'
   | 'recorder_error'
   | 'episode_changed'
   | 'upload_error';
+
+export interface SyncDriftCheckInput {
+  videoStartMs: number;
+  videoEndMs: number;
+  wallStartMs: number;
+  wallEndMs: number;
+  maxDriftMs?: number;
+}
+
+export interface SyncDriftCheckResult {
+  ok: boolean;
+  driftMs: number;
+  videoProgressMs: number;
+  wallDurationMs: number;
+}
+
+/**
+ * Compare video-time progress against recorded wall-clock duration (#102).
+ * Catches cumulative short stalls (< 1 s each), missed seeks, and throttled tabs
+ * that shift recorded audio relative to `video_start_ms`.
+ */
+export function checkSyncPlaybackDrift(input: SyncDriftCheckInput): SyncDriftCheckResult {
+  const maxDriftMs = Math.max(0, input.maxDriftMs ?? AUTO_SYNC_MAX_DRIFT_MS);
+  const videoProgressMs = input.videoEndMs - input.videoStartMs;
+  const wallDurationMs = input.wallEndMs - input.wallStartMs;
+  if (!Number.isFinite(videoProgressMs) || !Number.isFinite(wallDurationMs)) {
+    return {
+      ok: false,
+      driftMs: Number.POSITIVE_INFINITY,
+      videoProgressMs: 0,
+      wallDurationMs: 0,
+    };
+  }
+  const driftMs = Math.abs(videoProgressMs - wallDurationMs);
+  return {
+    ok: driftMs <= maxDriftMs,
+    driftMs,
+    videoProgressMs,
+    wallDurationMs,
+  };
+}
 
 export interface AutoSyncPlaybackCheck {
   paused: boolean;
@@ -148,6 +191,7 @@ export function defaultAbortMessage(reason: AutoSyncAbortReason): string {
     case 'seeked':
     case 'rate_changed':
     case 'buffered':
+    case 'drifted':
       return AUTO_SYNC_ABORT_MESSAGE;
     case 'cancelled':
       return 'Auto-sync cancelled';
@@ -417,10 +461,12 @@ export function startSyncAudioRecording(params: {
   onStateChange: (snapshot: AutoSyncSnapshot) => void;
   now?: () => number;
   tickIntervalMs?: number;
+  maxDriftMs?: number;
 }): ActiveSyncRecordingHandle {
   const { video, machine, onStateChange } = params;
   const now = params.now ?? (() => Date.now());
   const tickIntervalMs = params.tickIntervalMs ?? 250;
+  const maxDriftMs = params.maxDriftMs ?? AUTO_SYNC_MAX_DRIFT_MS;
 
   const initial = machine.startRecording(now(), {
     paused: video.paused,
@@ -493,6 +539,7 @@ export function startSyncAudioRecording(params: {
   let settled = false;
   let finishing = false;
   let recordedVideoStartMs: number | null = null;
+  let recordedWallStartMs: number | null = null;
   let lastProgressSec = initial.remainingSeconds;
   const chunks: Blob[] = [];
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -591,8 +638,10 @@ export function startSyncAudioRecording(params: {
 
   recorder.onstart = () => {
     if (settled) return;
+    const startWall = now();
+    recordedWallStartMs = startWall;
     recordedVideoStartMs = Math.max(0, Math.round(video.currentTime * 1000));
-    const started = machine.markRecorderStarted(recordedVideoStartMs, now());
+    const started = machine.markRecorderStarted(recordedVideoStartMs, startWall);
     lastProgressSec = started.remainingSeconds;
     onStateChange(started);
   };
@@ -624,6 +673,25 @@ export function startSyncAudioRecording(params: {
         message: aborted.abortMessage ?? defaultAbortMessage('recorder_error'),
       });
       return;
+    }
+    if (recordedVideoStartMs !== null && recordedWallStartMs !== null) {
+      const drift = checkSyncPlaybackDrift({
+        videoStartMs: recordedVideoStartMs,
+        videoEndMs: Math.max(0, Math.round(video.currentTime * 1000)),
+        wallStartMs: recordedWallStartMs,
+        wallEndMs: now(),
+        maxDriftMs,
+      });
+      if (!drift.ok) {
+        const aborted = machine.abort('drifted');
+        onStateChange(aborted);
+        resolveResult({
+          ok: false,
+          reason: 'drifted',
+          message: aborted.abortMessage ?? AUTO_SYNC_ABORT_MESSAGE,
+        });
+        return;
+      }
     }
     const finalMime = recorder.mimeType || mimeType || 'audio/webm';
     const blob = new Blob(chunks, { type: finalMime });
