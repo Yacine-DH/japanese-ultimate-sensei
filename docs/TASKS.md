@@ -82,7 +82,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **E-17** (#138) Background re-sync + sync points in the extension. deps: S-19
 - [ ] **S-20** (#139) Netflix [cc] subtitles: 漢字(よみ) as furigana, speaker labels / sound effects apart
 - [x] **S-21** (#140) One-click updater (native messaging host) + GitHub releases (claude, 2026-11-22: `scripts/install-updater.ps1`, `scripts/sensei-updater/`, `scripts/release.sh`, version 0.1.N)
-- [ ] **E-18** (#141) Popup **Update now** via the updater + version from `SENSEI_EXT_VERSION`. deps: S-21
+- [x] **E-18** (#141) Popup **Update now** via the updater + version from `SENSEI_EXT_VERSION`. deps: S-21 (antigravity, 2026-11-22: Chrome-only `nativeMessaging` permission, `SENSEI_EXT_VERSION` manifest version with `0.1.0` fallback + popup footer version, pure `native-updater.ts` state machine for `Update now` / progress / auto-reload / one-time setup / fallback error, Options `Check updater` button via `{action: 'status'}`, unit tests)
 
 ## Requests (cross-team)
 - [x] **R-1** (#12) (claude, 2026-11-19: `GET /words` + `POST /words/bulk-status`, see API.md) from antigravity: need `GET /words?status=&anime_id=&q=&limit=&offset=` and `POST /words/bulk-status` (`{"word_ids": int[], "status": WordStatus}`) because **W-4** requires a vocabulary table filterable by status/anime and bulk mark known, whereas `docs/API.md` currently only exposes single-word `GET /words/{id}` and `POST /words/{id}/status`.

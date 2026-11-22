@@ -10,16 +10,28 @@ import {
 } from '../../src/lib/hotkeys';
 import { getKeyboardLayoutMap, type LayoutMap } from '../../src/lib/keyboard-layout';
 import {
+  canUseNativeUpdater,
+  interpretStatusResponse,
+  sendNativeUpdaterMessage,
+} from '../../src/lib/native-updater';
+import {
   type GlossLanguage,
   getSettings,
   isServerUrlConfigured,
   saveSettings,
   type TranslationDisplayMode,
 } from '../../src/lib/settings';
-import { formatVersionLine, getBuildCommit } from '../../src/lib/update';
+import { formatVersionLine, getBuildCommit, getExtensionVersion } from '../../src/lib/update';
 
 const form = document.getElementById('settings-form') as HTMLFormElement;
 const extensionVersionEl = document.getElementById('extension-version') as HTMLParagraphElement;
+const checkUpdaterBtn = document.getElementById('check-updater-btn') as HTMLButtonElement;
+const updaterStatusBox = document.getElementById('updater-status') as HTMLDivElement;
+const updaterInstallBox = document.getElementById('updater-install-box') as HTMLDivElement;
+const updaterInstallCmd = document.getElementById('updater-install-cmd') as HTMLElement;
+const copyUpdaterInstallBtn = document.getElementById(
+  'copy-updater-install-btn',
+) as HTMLButtonElement;
 const serverUrlInput = document.getElementById('server-url') as HTMLInputElement;
 const apiTokenInput = document.getElementById('api-token') as HTMLInputElement;
 const extensionFolderInput = document.getElementById('extension-folder') as HTMLInputElement;
@@ -118,7 +130,10 @@ async function refreshLlmHint(serverUrl: string): Promise<void> {
 }
 
 async function init(): Promise<void> {
-  extensionVersionEl.textContent = formatVersionLine(getBuildCommit());
+  extensionVersionEl.textContent = formatVersionLine(getBuildCommit(), getExtensionVersion());
+  if (!canUseNativeUpdater()) {
+    checkUpdaterBtn.style.display = 'none';
+  }
   const settings = await getSettings();
   serverUrlInput.value = settings.serverUrl;
   apiTokenInput.value = settings.apiToken;
@@ -195,6 +210,63 @@ testBtn.addEventListener('click', async () => {
     showStatus(check.message, false);
   } else {
     showStatus(`Server unreachable: ${check.message}`, false);
+  }
+});
+
+let currentUpdaterInstallCmd = '';
+
+checkUpdaterBtn.addEventListener('click', async () => {
+  checkUpdaterBtn.disabled = true;
+  updaterInstallBox.style.display = 'none';
+  currentUpdaterInstallCmd = '';
+  updaterStatusBox.textContent = 'Checking updater…';
+  updaterStatusBox.className = 'status ok';
+  try {
+    const res = await sendNativeUpdaterMessage({ action: 'status' });
+    const ui = interpretStatusResponse(res, serverUrlInput.value.trim());
+    updaterStatusBox.innerHTML = '';
+    const summaryEl = document.createElement('div');
+    summaryEl.textContent = ui.summary;
+    updaterStatusBox.appendChild(summaryEl);
+
+    if (ui.details) {
+      const lines = [
+        `Folder: ${ui.details.folder}`,
+        `Installed: ${ui.details.installedVersion}`,
+        `Latest: ${ui.details.latestVersion}`,
+      ];
+      for (const line of lines) {
+        const lineEl = document.createElement('div');
+        lineEl.className = 'updater-detail-line';
+        lineEl.textContent = line;
+        updaterStatusBox.appendChild(lineEl);
+      }
+    }
+
+    updaterStatusBox.className = `status ${ui.ok ? 'ok' : 'err'}`;
+    if (ui.installCommand) {
+      currentUpdaterInstallCmd = ui.installCommand;
+      updaterInstallCmd.textContent = ui.installCommand;
+      updaterInstallBox.style.display = 'block';
+    }
+  } finally {
+    checkUpdaterBtn.disabled = false;
+  }
+});
+
+copyUpdaterInstallBtn.addEventListener('click', async () => {
+  if (!currentUpdaterInstallCmd) return;
+  try {
+    await navigator.clipboard.writeText(currentUpdaterInstallCmd);
+    copyUpdaterInstallBtn.textContent = 'Copied';
+    setTimeout(() => {
+      copyUpdaterInstallBtn.textContent = 'Copy';
+    }, 1500);
+  } catch {
+    copyUpdaterInstallBtn.textContent = 'Copy failed';
+    setTimeout(() => {
+      copyUpdaterInstallBtn.textContent = 'Copy';
+    }, 1500);
   }
 });
 

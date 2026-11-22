@@ -192,10 +192,51 @@
         color: #fca5a5;
       }
       .version-line {
-        margin: 14px 0 0;
+        margin: 0;
         font-size: 0.78rem;
         color: #94a3b8;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .updater-footer {
+        margin-top: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .updater-footer button {
+        padding: 6px 11px;
+        font-size: 0.78rem;
+      }
+      .updater-detail-line {
+        margin: 2px 0 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.78rem;
+        overflow-wrap: anywhere;
+      }
+      .updater-install-box {
+        margin-top: 10px;
+      }
+      .updater-cmd-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .updater-cmd {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: block;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.76rem;
+        color: #e2e8f0;
+        background: #0f172a;
+        border: 1px solid #475569;
+        border-radius: 6px;
+        padding: 7px 9px;
+        overflow-x: auto;
+        white-space: nowrap;
+        user-select: all;
       }
       @media (max-width: 420px) {
         .card {
@@ -307,7 +348,17 @@
           </div>
           <div id="status-box" class="status"></div>
         </form>
-        <p id="extension-version" class="version-line">Version: -</p>
+        <div class="updater-footer">
+          <p id="extension-version" class="version-line">Version: -</p>
+          <button type="button" id="check-updater-btn" class="secondary">Check updater</button>
+        </div>
+        <div id="updater-status" class="status"></div>
+        <div id="updater-install-box" class="updater-install-box" style="display: none">
+          <div class="updater-cmd-row">
+            <code id="updater-install-cmd" class="updater-cmd"></code>
+            <button type="button" id="copy-updater-install-btn" class="secondary">Copy</button>
+          </div>
+        </div>
       </section>
 
       <div class="options-col">

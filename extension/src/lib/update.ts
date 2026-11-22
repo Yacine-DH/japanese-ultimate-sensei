@@ -1,6 +1,8 @@
 export const DEFAULT_EXTENSION_FOLDER = '%USERPROFILE%\\Documents\\sensei-extension';
+export const DEFAULT_EXTENSION_VERSION = '0.1.0';
 
 export interface ServerVersionInfo {
+  version?: string | null;
   commit: string;
   extension_commit: string | null;
   built_at: string | null;
@@ -9,6 +11,7 @@ export interface ServerVersionInfo {
 export interface UpdateCheckResult {
   currentCommit: string;
   latestCommit: string;
+  latestVersion?: string | null;
   builtAt: string | null;
   updateAvailable: boolean;
 }
@@ -16,6 +19,37 @@ export interface UpdateCheckResult {
 export function normalizeCommit(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   return raw.trim();
+}
+
+export function formatVersionTag(version: string | null | undefined): string {
+  if (typeof version !== 'string') return '';
+  const cleaned = version.trim().replace(/^v/i, '');
+  return cleaned ? `v${cleaned}` : '';
+}
+
+export function getExtensionVersion(envOverride?: string): string {
+  if (envOverride !== undefined) {
+    const cleaned = envOverride.trim().replace(/^v/i, '');
+    return cleaned || DEFAULT_EXTENSION_VERSION;
+  }
+  const g = globalThis as unknown as {
+    browser?: { runtime?: { getManifest?: () => { version?: string } } };
+    chrome?: { runtime?: { getManifest?: () => { version?: string } } };
+  };
+  const fromManifest =
+    g.browser?.runtime?.getManifest?.()?.version ??
+    g.chrome?.runtime?.getManifest?.()?.version;
+  if (typeof fromManifest === 'string' && fromManifest.trim()) {
+    return fromManifest.trim().replace(/^v/i, '');
+  }
+  const fromEnv =
+    typeof import.meta !== 'undefined' && import.meta.env
+      ? import.meta.env.VITE_SENSEI_EXT_VERSION
+      : undefined;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return fromEnv.trim().replace(/^v/i, '');
+  }
+  return DEFAULT_EXTENSION_VERSION;
 }
 
 export function getBuildCommit(envOverride?: string): string {
@@ -61,7 +95,9 @@ export function parseVersionInfo(raw: unknown): ServerVersionInfo | null {
   const extensionCommit = normalizeCommit(record.extension_commit);
   if (!commit && !extensionCommit) return null;
   const builtAtRaw = typeof record.built_at === 'string' ? record.built_at.trim() : '';
+  const versionRaw = typeof record.version === 'string' ? record.version.trim() : '';
   return {
+    ...(versionRaw ? { version: versionRaw } : {}),
     commit: commit || extensionCommit,
     extension_commit: extensionCommit || null,
     built_at: builtAtRaw || null,
@@ -80,6 +116,7 @@ export function evaluateUpdateStatus(
   return {
     currentCommit: current,
     latestCommit: latest,
+    ...(remote.version ? { latestVersion: remote.version } : {}),
     builtAt: remote.built_at,
     updateAvailable,
   };
@@ -132,9 +169,22 @@ export function formatUpdateHeadline(result: UpdateCheckResult): string {
   return `Update available (${result.latestCommit})`;
 }
 
-export function formatVersionLine(commit: string): string {
+export function formatVersionLine(commit: string, version?: string): string {
   const normalized = normalizeCommit(commit) || 'unknown';
+  const tag = formatVersionTag(version);
+  if (tag) {
+    return `Version: ${tag} (${normalized})`;
+  }
   return `Version: ${normalized}`;
+}
+
+export function formatPopupFooterVersion(version: string, commit?: string): string {
+  const tag = formatVersionTag(version) || formatVersionTag(DEFAULT_EXTENSION_VERSION);
+  const normalized = normalizeCommit(commit);
+  if (normalized && normalized !== 'unknown') {
+    return `${tag} (${normalized})`;
+  }
+  return tag;
 }
 
 export function reloadExtension(): boolean {
