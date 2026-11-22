@@ -53,6 +53,8 @@ export type WatchOut = components['schemas']['WatchOut'];
 export type LLMStatus = components['schemas']['LLMStatus'];
 export type TranslationJob = components['schemas']['TranslationJob'];
 export type LineExplanation = components['schemas']['LineExplanation'];
+export type SttStatus = components['schemas']['SttStatus'];
+export type SttJobOut = components['schemas']['SttJobOut'];
 
 export class SenseiApiError extends Error {
   readonly status: number;
@@ -134,6 +136,102 @@ export async function apiRequest<T>(
   return payload as T;
 }
 
+export interface UploadProgressInfo {
+  loaded: number;
+  total: number;
+  percent: number | null;
+}
+
+export function uploadMultipartWithProgress<T>(
+  path: string,
+  formData: FormData,
+  options?: {
+    settings?: Pick<WebSettings, 'serverUrl' | 'apiToken'>;
+    onProgress?: (info: UploadProgressInfo) => void;
+    signal?: AbortSignal;
+  },
+): Promise<T> {
+  const settings = options?.settings ?? loadWebSettings();
+  const base = resolveApiBaseUrl(settings.serverUrl);
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const url = `${base}${normalizedPath}`;
+  const headers = buildAuthHeaders(settings);
+
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    for (const [k, v] of Object.entries(headers)) {
+      xhr.setRequestHeader(k, v);
+    }
+
+    const onAbortSignal = () => {
+      xhr.abort();
+    };
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        reject(new SenseiApiError(0, 'Upload cancelled'));
+        return;
+      }
+      options.signal.addEventListener('abort', onAbortSignal, { once: true });
+    }
+
+    const cleanup = () => {
+      options?.signal?.removeEventListener('abort', onAbortSignal);
+    };
+
+    xhr.upload.onprogress = (ev) => {
+      const percent =
+        ev.lengthComputable && ev.total > 0
+          ? Math.min(100, Math.round((ev.loaded / ev.total) * 100))
+          : null;
+      options?.onProgress?.({
+        loaded: ev.loaded,
+        total: ev.total,
+        percent,
+      });
+    };
+
+    xhr.onload = () => {
+      cleanup();
+      const rawText = xhr.responseText ?? '';
+      let parsed: unknown = rawText;
+      const contentType = xhr.getResponseHeader('content-type') ?? '';
+      if (contentType.includes('application/json') || rawText.trim().startsWith('{')) {
+        try {
+          parsed = JSON.parse(rawText);
+        } catch {
+          parsed = rawText;
+        }
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(parsed as T);
+        return;
+      }
+
+      const detail =
+        typeof parsed === 'object' && parsed !== null && 'detail' in parsed
+          ? String((parsed as { detail: unknown }).detail)
+          : typeof parsed === 'string' && parsed.trim()
+            ? parsed.trim()
+            : `HTTP ${xhr.status}`;
+      reject(new SenseiApiError(xhr.status, detail));
+    };
+
+    xhr.onerror = () => {
+      cleanup();
+      reject(new SenseiApiError(0, 'Network error while uploading file'));
+    };
+
+    xhr.onabort = () => {
+      cleanup();
+      reject(new SenseiApiError(0, 'Upload cancelled'));
+    };
+
+    xhr.send(formData);
+  });
+}
+
 export const apiClient = {
   getHealth: (settings?: Pick<WebSettings, 'serverUrl' | 'apiToken'>) =>
     apiRequest<Health>('/health', { settings }),
@@ -200,6 +298,35 @@ export const apiClient = {
     if (refresh) qs.set('refresh', 'true');
     return apiRequest<LineExplanation>(`/lines/${lineId}/explain?${qs.toString()}`, {
       method: 'POST',
+    });
+  },
+
+  getSttStatus: () => apiRequest<SttStatus>('/stt/status'),
+
+  listSttJobs: () => apiRequest<SttJobOut[]>('/stt/jobs'),
+
+  getSttJob: (jobId: number) => apiRequest<SttJobOut>(`/stt/jobs/${jobId}`),
+
+  submitSttJob: (params: {
+    file: File;
+    animeTitle: string;
+    episodeNumber?: number | null;
+    title?: string | null;
+    onProgress?: (info: UploadProgressInfo) => void;
+    signal?: AbortSignal;
+  }) => {
+    const formData = new FormData();
+    formData.append('file', params.file);
+    formData.append('anime_title', params.animeTitle);
+    if (params.episodeNumber !== undefined && params.episodeNumber !== null) {
+      formData.append('episode_number', String(params.episodeNumber));
+    }
+    if (params.title && params.title.trim()) {
+      formData.append('title', params.title.trim());
+    }
+    return uploadMultipartWithProgress<SttJobOut>('/stt/jobs', formData, {
+      onProgress: params.onProgress,
+      signal: params.signal,
     });
   },
 

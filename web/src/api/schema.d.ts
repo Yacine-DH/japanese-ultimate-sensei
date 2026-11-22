@@ -62,6 +62,27 @@ export interface paths {
         patch: operations["patch_episode_episodes__episode_id__patch"];
         trace?: never;
     };
+    "/episodes/{episode_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Episode
+         * @description Find the subtitle offset from the episode's audio: voice activity in the sample is
+         *     matched against when lines are on screen. Takes about a second per minute of audio.
+         */
+        post: operations["sync_episode_episodes__episode_id__sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/episodes/{episode_id}/lines": {
         parameters: {
             query?: never;
@@ -385,6 +406,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/episodes/auto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Episode Auto
+         * @description One step from "I'm watching X episode N" to an episode: finds the anime on Jimaku
+         *     (or reuses the library anime's entry), returns the episode if it's already imported,
+         *     else imports the recommended Japanese subtitle file.
+         */
+        post: operations["episode_auto_episodes_auto_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activity/watch": {
         parameters: {
             query?: never;
@@ -671,6 +714,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stt/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stt Status */
+        get: operations["stt_status_stt_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stt/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stt Jobs
+         * @description Jobs since the server started, newest first.
+         */
+        get: operations["stt_jobs_stt_jobs_get"];
+        put?: never;
+        /**
+         * Stt Submit
+         * @description Transcribe an episode without Japanese subtitles: the file is uploaded, its audio
+         *     sent to the speech-to-text server, and the transcript imported as a new episode
+         *     (source "stt"; translations start when an LLM is configured). Poll GET /stt/jobs/{id}.
+         */
+        post: operations["stt_submit_stt_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stt/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stt Job */
+        get: operations["stt_job_stt_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -890,6 +993,36 @@ export interface components {
             /** Notes */
             notes: number;
         };
+        /** AutoImport */
+        AutoImport: {
+            /**
+             * Query
+             * @description Anime title guessed from the page (needed without anime_id)
+             */
+            query?: string | null;
+            /** Episode Number */
+            episode_number: number;
+            /**
+             * Anime Id
+             * @description A library anime (e.g. remembered for this site): skips search
+             */
+            anime_id?: number | null;
+        };
+        /** AutoImportOut */
+        AutoImportOut: {
+            episode: components["schemas"]["EpisodeCreated"];
+            /**
+             * Existing
+             * @description True: the episode was already in the library
+             */
+            existing: boolean;
+            entry: components["schemas"]["JimakuEntry"];
+            /**
+             * File Name
+             * @description The Jimaku file imported (None if existing)
+             */
+            file_name?: string | null;
+        };
         /** Body_create_episode_episodes_post */
         Body_create_episode_episodes_post: {
             /**
@@ -932,6 +1065,45 @@ export interface components {
              * @default false
              */
             dry_run: boolean;
+        };
+        /** Body_stt_submit_stt_jobs_post */
+        Body_stt_submit_stt_jobs_post: {
+            /**
+             * File
+             * @description The episode's video or audio file
+             */
+            file: string;
+            /** Anime Title */
+            anime_title: string;
+            /** Episode Number */
+            episode_number?: number | null;
+            /** Title */
+            title?: string | null;
+        };
+        /** Body_sync_episode_episodes__episode_id__sync_post */
+        Body_sync_episode_episodes__episode_id__sync_post: {
+            /**
+             * File
+             * @description Audio (or video) recorded from the stream, 30–90 s
+             */
+            file: string;
+            /**
+             * Video Start Ms
+             * @description Video time when the recording started
+             */
+            video_start_ms: number;
+            /**
+             * Apply
+             * @description Set sub_offset_ms when the result is confident
+             * @default true
+             */
+            apply: boolean;
+            /**
+             * Search Ms
+             * @description Search ± this around the current offset
+             * @default 120000
+             */
+            search_ms: number;
         };
         /** Body_upload_media_media_post */
         Body_upload_media_media_post: {
@@ -1548,6 +1720,107 @@ export interface components {
             /** Glosses */
             glosses: string[];
         };
+        /** SttJobOut */
+        SttJobOut: {
+            /** Id */
+            id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "extracting" | "transcribing" | "importing" | "done" | "error";
+            /** Anime Title */
+            anime_title: string;
+            /** Episode Number */
+            episode_number: number | null;
+            /** Title */
+            title: string | null;
+            /** Filename */
+            filename: string;
+            /**
+             * Duration Ms
+             * @description Audio length, known once extracted
+             */
+            duration_ms: number | null;
+            /**
+             * Episode Id
+             * @description The new episode, once done
+             */
+            episode_id: number | null;
+            /** Error */
+            error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+        };
+        /** SttStatus */
+        SttStatus: {
+            /** Configured */
+            configured: boolean;
+            /** Reachable */
+            reachable: boolean;
+            /** Base Url */
+            base_url: string | null;
+            /** Model */
+            model: string | null;
+            /** Detail */
+            detail: string;
+        };
+        /** SyncOut */
+        SyncOut: {
+            /**
+             * Offset Ms
+             * @description Best sub_offset_ms found (a guess when not confident)
+             */
+            offset_ms: number;
+            /** Previous Offset Ms */
+            previous_offset_ms: number;
+            /**
+             * Applied
+             * @description True when the episode's sub_offset_ms was set to offset_ms
+             */
+            applied: boolean;
+            /**
+             * Confident
+             * @description confidence >= 4.5 and >= runner_up + 1
+             */
+            confident: boolean;
+            /**
+             * Confidence
+             * @description How far the best offset stands out (std devs above all others; noise ≈ 2-4)
+             */
+            confidence: number;
+            /**
+             * Runner Up
+             * @description The same for the best offset ≥ 1.5 s away
+             */
+            runner_up: number;
+            /**
+             * Correlation
+             * @description Speech/subtitle correlation at the best offset
+             */
+            correlation: number;
+            /**
+             * Speech Ms
+             * @description Speech detected in the sample
+             */
+            speech_ms: number;
+            /** Sample Ms */
+            sample_ms: number;
+            /** Lines In Window */
+            lines_in_window: number;
+            /**
+             * Detail
+             * @description 'ok', or why the result isn't confident
+             */
+            detail: string;
+        };
         /** TokenOut */
         TokenOut: {
             /** Surface */
@@ -1931,6 +2204,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EpisodeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_episode_episodes__episode_id__sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                episode_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_sync_episode_episodes__episode_id__sync_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncOut"];
                 };
             };
             /** @description Validation Error */
@@ -2569,6 +2877,39 @@ export interface operations {
             };
         };
     };
+    episode_auto_episodes_auto_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     watch_heartbeat_activity_watch_post: {
         parameters: {
             query?: never;
@@ -3010,6 +3351,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineExplanation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stt_status_stt_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SttStatus"];
+                };
+            };
+        };
+    };
+    stt_jobs_stt_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SttJobOut"][];
+                };
+            };
+        };
+    };
+    stt_submit_stt_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_stt_submit_stt_jobs_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SttJobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stt_job_stt_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SttJobOut"];
                 };
             };
             /** @description Validation Error */

@@ -9,6 +9,7 @@ import {
 } from '../api/client';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { MissedWordsPanel } from '../components/MissedWordsPanel';
+import { TranscribePanel } from '../components/TranscribePanel';
 import {
   captureLocalVideoScreenshot,
   computePlayerSeekSeconds,
@@ -47,10 +48,13 @@ export function PlayerPage() {
   const [selectedEpisodeId, setSelectedEpisodeId] = useState<number | null>(
     routeEpisodeId && Number.isFinite(routeEpisodeId) ? routeEpisodeId : null,
   );
+  const [explicitDetached, setExplicitDetached] = useState(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoName, setVideoName] = useState<string>('');
   const [dragActive, setDragActive] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [showTranscribe, setShowTranscribe] = useState(false);
 
   const [subOffsetMs, setSubOffsetMs] = useState(0);
   const [activeLines, setActiveLines] = useState<LineOut[]>([]);
@@ -91,7 +95,9 @@ export function PlayerPage() {
     staleTime: 60_000,
   });
 
-  const activeEpisodeId = selectedEpisodeId ?? episodesQuery.data?.[0]?.id ?? null;
+  const activeEpisodeId = explicitDetached
+    ? null
+    : (selectedEpisodeId ?? (routeEpisodeId ? null : (episodesQuery.data?.[0]?.id ?? null)));
 
   const episodeQuery = useQuery({
     queryKey: ['episode', activeEpisodeId],
@@ -601,6 +607,7 @@ export function PlayerPage() {
       return;
     }
     setVideoError(null);
+    setVideoFile(file);
     setVideoUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return URL.createObjectURL(file);
@@ -640,6 +647,7 @@ export function PlayerPage() {
             onChange={(e) => {
               const next = e.target.value ? Number(e.target.value) : null;
               setSelectedEpisodeId(next);
+              setExplicitDetached(next === null);
               setActiveLines([]);
               prevActiveIdsRef.current = [];
               setPopupToken(null);
@@ -647,16 +655,17 @@ export function PlayerPage() {
             }}
             className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 max-w-xs"
           >
-            {(episodesQuery.data ?? []).length === 0 ? (
-              <option value="">No episodes imported yet</option>
-            ) : (
-              (episodesQuery.data ?? []).map((ep) => (
-                <option key={ep.id} value={ep.id}>
-                  {ep.anime_title ?? 'Episode'}
-                  {ep.number !== null ? ` Ep ${ep.number}` : ''} ({ep.line_count} lines)
-                </option>
-              ))
-            )}
+            <option value="">
+              {(episodesQuery.data ?? []).length === 0
+                ? 'No episodes imported yet'
+                : 'None (no subtitles attached)'}
+            </option>
+            {(episodesQuery.data ?? []).map((ep) => (
+              <option key={ep.id} value={ep.id}>
+                {ep.anime_title ?? 'Episode'}
+                {ep.number !== null ? ` Ep ${ep.number}` : ''} ({ep.line_count} lines)
+              </option>
+            ))}
           </select>
 
           <label className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-500/20 border border-sky-400/50 text-sky-200 hover:bg-sky-500/30 cursor-pointer transition">
@@ -669,6 +678,16 @@ export function PlayerPage() {
             />
           </label>
 
+          {videoFile && (
+            <button
+              type="button"
+              onClick={() => setShowTranscribe((v) => !v)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-500/20 border border-indigo-400/50 text-indigo-200 hover:bg-indigo-500/30 cursor-pointer transition"
+            >
+              {showTranscribe ? 'Hide Transcribe' : 'Transcribe this file'}
+            </button>
+          )}
+
           {activeEpisodeId !== null && (
             <Link
               to={`/episodes/${activeEpisodeId}`}
@@ -679,6 +698,38 @@ export function PlayerPage() {
           )}
         </div>
       </div>
+
+      {videoFile && activeEpisodeId === null && !showTranscribe && (
+        <div className="rounded-xl bg-indigo-500/10 border border-indigo-500/35 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="text-indigo-100">
+            No episode subtitles attached to <span className="font-semibold">{videoName}</span>.
+            Need Japanese subtitles generated from this file?
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowTranscribe(true)}
+            className="px-3 py-1.5 rounded-lg bg-indigo-400 hover:bg-indigo-300 text-slate-950 font-semibold cursor-pointer"
+          >
+            Transcribe this file
+          </button>
+        </div>
+      )}
+
+      {showTranscribe && videoFile && (
+        <TranscribePanel
+          initialFile={videoFile}
+          heading="Transcribe this file"
+          showAttachButton
+          onEpisodeReady={(episodeId) => {
+            setExplicitDetached(false);
+            setSelectedEpisodeId(episodeId);
+            setActiveLines([]);
+            prevActiveIdsRef.current = [];
+            showToast('Subtitles ready & attached to player!', 3200);
+          }}
+          onClose={() => setShowTranscribe(false)}
+        />
+      )}
 
       {videoError && (
         <div className="rounded-xl bg-rose-950/50 border border-rose-800/70 px-4 py-2.5 text-xs text-rose-200">
