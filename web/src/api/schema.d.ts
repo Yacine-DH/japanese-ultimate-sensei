@@ -1321,9 +1321,15 @@ export interface components {
             multi_episode: boolean;
             /**
              * Web Source
-             * @description Web/TV release: timing likely matches streaming sites
+             * @description Web release: timing likely matches streaming sites
              */
             web_source: boolean;
+            /**
+             * Dual Language
+             * @description Also has English/Chinese lines (ja-en, CHS/JPN): avoid
+             * @default false
+             */
+            dual_language: boolean;
             /**
              * Recommended
              * @description Best pick (at most one per list)

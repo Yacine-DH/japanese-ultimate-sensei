@@ -13,6 +13,7 @@ import {
   formatJimakuError,
   formatJimakuFileSize,
   guessAnimeQueryFromTitle,
+  isJimakuFileDimmed,
   pickDefaultJimakuFile,
   suggestNextEpisodeNumber,
 } from '../../src/lib/jimaku';
@@ -365,7 +366,7 @@ function renderJimakuFiles(): void {
     if (!file.supported) {
       classes.push('disabled');
       btn.disabled = true;
-    } else if (file.multi_episode) {
+    } else if (isJimakuFileDimmed(file)) {
       classes.push('dimmed');
     }
     if (jimakuSelectedFileName === file.name) {
@@ -392,17 +393,29 @@ function renderJimakuFiles(): void {
     if (file.web_source) {
       const t = document.createElement('span');
       t.className = 'tag web';
-      t.textContent = 'Web/TV';
+      t.textContent = 'Web';
+      tags.appendChild(t);
+    }
+    if (file.dual_language) {
+      const t = document.createElement('span');
+      t.className = 'tag warn';
+      t.textContent = 'JP+EN';
+      t.title = 'Contains non-Japanese lines';
       tags.appendChild(t);
     }
     const fmt = document.createElement('span');
     fmt.className = 'tag';
     fmt.textContent = `${file.format.toUpperCase()} · ${formatJimakuFileSize(file.size)}`;
     tags.appendChild(fmt);
-    if (warning) {
+    if (!file.supported) {
       const w = document.createElement('span');
       w.className = 'tag warn';
-      w.textContent = !file.supported ? 'Unsupported' : 'Multi-ep';
+      w.textContent = 'Unsupported';
+      tags.appendChild(w);
+    } else if (file.multi_episode) {
+      const w = document.createElement('span');
+      w.className = 'tag warn';
+      w.textContent = 'Multi-ep';
       tags.appendChild(w);
     }
     btn.appendChild(tags);

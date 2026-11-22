@@ -6,6 +6,7 @@ import {
   formatJimakuError,
   formatJimakuFileSize,
   guessAnimeQueryFromTitle,
+  isJimakuFileDimmed,
   pickDefaultJimakuFile,
   suggestNextEpisodeNumber,
 } from '../src/lib/jimaku';
@@ -20,6 +21,7 @@ function makeFile(overrides: Partial<JimakuFile> = {}): JimakuFile {
     episode: 1,
     multi_episode: false,
     web_source: true,
+    dual_language: false,
     recommended: false,
     ...overrides,
   };
@@ -92,5 +94,36 @@ describe('Jimaku popup search helpers (#60)', () => {
     expect(formatJimakuError(503)).toContain('SENSEI_JIMAKU_API_KEY');
     expect(formatJimakuError(502)).toContain('jimaku.cc');
     expect(formatJimakuError(422, 'No Japanese lines')).toContain('No Japanese lines');
+  });
+
+  it('flags dual_language files as dimmed with warning and prefers Japanese-only files (#96)', () => {
+    const dual = makeFile({
+      name: 'Frieren - 01_ja-en.ass',
+      dual_language: true,
+      recommended: false,
+    });
+    const jpOnly = makeFile({
+      name: 'Frieren - 01_AT-X.ass',
+      web_source: false,
+      dual_language: false,
+      recommended: false,
+    });
+    const dualMulti = makeFile({
+      name: 'Frieren - 01-04 [CHS, JPN].zip',
+      format: 'zip',
+      multi_episode: true,
+      dual_language: true,
+    });
+
+    expect(isJimakuFileDimmed(dual)).toBe(true);
+    expect(isJimakuFileDimmed(jpOnly)).toBe(false);
+    expect(describeJimakuFileWarning(dual)).toBe('Contains non-Japanese lines');
+    expect(describeJimakuFileWarning(dualMulti)).toContain('Contains non-Japanese lines');
+    expect(describeJimakuFileWarning(dualMulti)).toContain('Multi-episode');
+    expect(pickDefaultJimakuFile([dual, jpOnly])?.name).toBe('Frieren - 01_AT-X.ass');
+    expect(pickDefaultJimakuFile([dual])?.name).toBe('Frieren - 01_ja-en.ass');
+    expect(findNextImportableFile([makeFile({ name: 'bad.srt' }), dual, jpOnly], 'bad.srt')?.name).toBe(
+      'Frieren - 01_AT-X.ass',
+    );
   });
 });
