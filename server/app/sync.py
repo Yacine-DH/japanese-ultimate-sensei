@@ -29,9 +29,14 @@ ENERGY_TREND_FRAMES = 100  # loudness is compared with the mean over ±1 s
 MIN_SPEECH_MS = 4000
 MIN_LINES = 3
 # Confidence = how many standard deviations the best offset's score stands above the scores of
-# all other offsets. Random signals peak at about 3-3.7 over a ±120 s search; true matches
-# reach 4.5-11 even under loud music in synthetic tests. Revisit with real episodes.
-MIN_CONFIDENCE = 5.0
+# the other offsets; runner_up = the same for the best offset ≥ 1.5 s away. Synthetic tests
+# (45-60 s samples, music, bursty singing): true matches 4.2-11 with a gap ≥ 1.4 over the
+# runner-up; random signals ≤ 4.4 with gaps mostly < 1.2. Revisit with real episodes.
+MIN_CONFIDENCE = 4.5
+MIN_GAP = 1.0
+MIN_COVERAGE = 0.2  # candidate offsets must put lines over ≥ 20 % of the sample
+MIN_OTHERS = 20  # off-peak offsets needed for a meaningful baseline
+BASELINE_MS = 60_000
 
 
 class SyncError(Exception):
@@ -43,6 +48,7 @@ class SyncResult:
     offset_ms: int
     confident: bool
     confidence: float  # peak height in standard deviations above all other offsets
+    runner_up: float  # the same for the best offset ≥ PEAK_EXCLUSION_MS away
     correlation: float  # Pearson correlation at the best offset (100 ms bins)
     speech_ms: int
     sample_ms: int
@@ -153,8 +159,9 @@ def _pearson(a: list[float], c: list[float], off: int) -> float:
 
 
 def _search(speech: list[float], lines: list[tuple[int, int]], video_start_ms: int,
-            lo_ms: int, hi_ms: int, step_ms: int) -> list[tuple[int, float]]:  # fmt: skip
-    """[(offset_ms, score)] for offsets lo..hi; speech is binned at step_ms.
+            lo_ms: int, hi_ms: int, step_ms: int) -> list[tuple[int, float, int]]:  # fmt: skip
+    """[(offset_ms, score, ms of the sample covered by lines)] for offsets lo..hi; speech is
+    binned at step_ms.
 
     A line is shown at video time t when start_ms + offset <= t < end_ms + offset, so the
     speech at video time V + k·step lines up with subtitle time V + k·step - offset.
@@ -164,7 +171,14 @@ def _search(speech: list[float], lines: list[tuple[int, int]], video_start_ms: i
     base = video_start_ms - k_hi * step_ms  # subtitle time of c[0]
     cov = _coverage(lines, base, n + (k_hi - k_lo), step_ms)
     # offset = k·step ↔ c index (k_hi - k)
-    return [(k * step_ms, _pearson(speech, cov, k_hi - k)) for k in range(k_lo, k_hi + 1)]
+    return [
+        (
+            k * step_ms,
+            _pearson(speech, cov, k_hi - k),
+            int(sum(cov[k_hi - k : k_hi - k + n]) * step_ms),
+        )
+        for k in range(k_lo, k_hi + 1)
+    ]
 
 
 def find_offset(
@@ -183,12 +197,24 @@ def find_offset(
     sample_ms = len(signal) * VAD_FRAME_MS
     if speech_ms is None:
         speech_ms = sum(1 for x in signal if x > 0) * VAD_FRAME_MS
-    lo, hi = around_ms - search_ms, around_ms + search_ms
-    lo, hi = lo - lo % COARSE_MS, hi - hi % COARSE_MS
-    window = [
-        (s, e) for s, e in lines if e + hi > video_start_ms and s + lo < video_start_ms + sample_ms
-    ]
-    fail = SyncResult(around_ms, False, 0.0, 0.0, speech_ms, sample_ms, len(window), "")
+
+    def snap(ms: int) -> int:
+        return ms - ms % COARSE_MS
+
+    def near(a: int, b: int) -> list[tuple[int, int]]:
+        return [
+            (s, e)
+            for s, e in lines
+            if e + b > video_start_ms and s + a < video_start_ms + sample_ms
+        ]
+
+    lo, hi = snap(around_ms - search_ms), snap(around_ms + search_ms)
+    # The baseline ("how well do wrong offsets score?") always spans ≥ ±BASELINE_MS: nearby
+    # offsets share the dialogue's rhythm, so a narrow search alone can't tell a real peak.
+    wide = max(search_ms, BASELINE_MS)
+    blo, bhi = snap(around_ms - wide), snap(around_ms + wide)
+    window = near(lo, hi)
+    fail = SyncResult(around_ms, False, 0.0, 0.0, 0.0, speech_ms, sample_ms, len(window), "")
     if speech_ms < MIN_SPEECH_MS:
         fail.detail = f"only {speech_ms / 1000:.1f} s of speech in the sample (need {MIN_SPEECH_MS // 1000} s)"
         return fail
@@ -197,22 +223,35 @@ def find_offset(
         return fail
 
     f = [float(x) for x in signal]
-    coarse = _search(_bin(f, COARSE_MS // VAD_FRAME_MS), window, video_start_ms, lo, hi, COARSE_MS)
-    best_c, corr = max(coarse, key=lambda r: (r[1], -abs(r[0] - around_ms)))
-    others = [sc for o, sc in coarse if abs(o - best_c) >= PEAK_EXCLUSION_MS]
-    spread = statistics.pstdev(others) if len(others) > 1 else 0.0
-    confidence = (corr - statistics.fmean(others)) / spread if spread > 1e-9 else 0.0
+    coarse = _search(
+        _bin(f, COARSE_MS // VAD_FRAME_MS), near(blo, bhi), video_start_ms, blo, bhi, COARSE_MS
+    )
+    # Only offsets that put enough subtitle lines over the sample are candidates (and baseline):
+    # offsets landing in the OP/ED or past the episode's ends score 0 and would fake a sharp
+    # peak, and one line meeting one burst of singing can correlate well by chance.
+    min_cov = max(MIN_SPEECH_MS, int(sample_ms * MIN_COVERAGE))
+    coarse = [r for r in coarse if r[2] >= min_cov]
+    candidates = [r for r in coarse if lo <= r[0] <= hi]
+    if not candidates:
+        fail.detail = "too few subtitle lines near this part of the episode"
+        return fail
+    best_c, corr, _ = max(candidates, key=lambda r: (r[1], -abs(r[0] - around_ms)))
+    others = [sc for o, sc, _ in coarse if abs(o - best_c) >= PEAK_EXCLUSION_MS]
+    spread = statistics.pstdev(others) if len(others) >= MIN_OTHERS else 0.0
+    mean = statistics.fmean(others) if others else 0.0
+    confidence = (corr - mean) / spread if spread > 1e-9 else 0.0
+    runner_up = (max(others) - mean) / spread if spread > 1e-9 else 0.0
     fine = _search(
         f, window, video_start_ms, best_c - FINE_RADIUS_MS, best_c + FINE_RADIUS_MS, VAD_FRAME_MS
     )
     # Speech edges are fuzzy, so the peak is a plateau: take its middle, not one noisy edge.
-    top = max(sc for _, sc in fine)
-    plateau = [o for o, sc in fine if sc >= top - PLATEAU_TOLERANCE]
+    top = max(sc for _, sc, _ in fine)
+    plateau = [o for o, sc, _ in fine if sc >= top - PLATEAU_TOLERANCE]
     best = round((min(plateau) + max(plateau)) / 2 / VAD_FRAME_MS) * VAD_FRAME_MS
-    confident = confidence >= MIN_CONFIDENCE
+    confident = confidence >= MIN_CONFIDENCE and confidence - runner_up >= MIN_GAP and corr > 0
     detail = "ok" if confident else "no clear match: try a part of the episode with more talking"
     return SyncResult(
-        best, confident, round(confidence, 2), round(corr, 3),
+        best, confident, round(confidence, 2), round(runner_up, 2), round(corr, 3),
         speech_ms, sample_ms, len(window), detail,
     )  # fmt: skip
 

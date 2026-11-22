@@ -69,6 +69,37 @@ def test_random_noise_is_not_confident():
     assert not r.confident
 
 
+def _bursty(seed, n=4500):
+    """On/off runs of 0.3-3 s: singing or effects, nothing to do with the subtitles."""
+    rnd, f, on = random.Random(seed), [], False
+    while len(f) < n:
+        f += [on] * rnd.randint(30, 300)
+        on = not on
+    return f[:n]
+
+
+def test_no_false_sync_during_op_or_ed():
+    """Offsets that land before the first / after the last line must not fake a sharp peak
+    (Antigravity's review of #100: 27/80 false positives before the fix)."""
+    lines = [(s + 90_000, e + 90_000) for s, e in episode_lines(seed=3)]  # 90 s OP, no subs
+    after_ed = lines[-1][1] + 20_000
+    for seed in range(15):
+        f = _bursty(seed)
+        assert not find_offset(f, lines, 0).confident
+        assert not find_offset(f, lines, after_ed).confident
+
+
+def test_small_search_range_still_has_a_baseline():
+    lines = episode_lines()
+    r = find_offset(
+        fake_speech(lines, 200, 400_000, 45, noise=0.0), lines, 400_000, search_ms=10_000
+    )
+    assert r.confident and abs(r.offset_ms - 200) <= 150
+    assert not any(
+        find_offset(_bursty(s), lines, 400_000, search_ms=10_000).confident for s in range(10)
+    )
+
+
 # ---- endpoint, with real audio through ffmpeg + webrtcvad ---------------------------------
 
 
@@ -132,5 +163,8 @@ def test_sync_endpoint(client):
     bad = client.post(f"/episodes/{ep['id']}/sync", data={"video_start_ms": 0},
                       files={"file": ("x.wav", b"not audio")})  # fmt: skip
     assert bad.status_code == 422
+    small = client.post(f"/episodes/{ep['id']}/sync", data={"video_start_ms": 0, "search_ms": 1000},
+                        files={"file": ("s.wav", wav)})  # fmt: skip
+    assert small.status_code == 422
     assert client.post("/episodes/999/sync", data={"video_start_ms": 0},
                        files={"file": ("s.wav", wav)}).status_code == 404  # fmt: skip

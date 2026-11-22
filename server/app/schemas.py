@@ -102,10 +102,11 @@ class SyncOut(BaseModel):
     offset_ms: int = Field(description="Best sub_offset_ms found (a guess when not confident)")
     previous_offset_ms: int
     applied: bool = Field(description="True when the episode's sub_offset_ms was set to offset_ms")
-    confident: bool = Field(description="confidence >= 5")
+    confident: bool = Field(description="confidence >= 4.5 and >= runner_up + 1")
     confidence: float = Field(
-        description="How far the best offset stands out (std devs above all others; noise ≈ 3)"
+        description="How far the best offset stands out (std devs above all others; noise ≈ 2-4)"
     )
+    runner_up: float = Field(description="The same for the best offset ≥ 1.5 s away")
     correlation: float = Field(description="Speech/subtitle correlation at the best offset")
     speech_ms: int = Field(description="Speech detected in the sample")
     sample_ms: int

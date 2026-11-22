@@ -9,8 +9,10 @@ Newest first. One entry per decision that would surprise someone later.
 - **webrtcvad-wheels** (MIT, tiny C extension) for voice activity, **plus loudness relative to the
   surrounding second**: VAD alone calls background music speech. No numpy: pure Python runs in
   about 1 s per minute of audio on the home server.
-- **Confidence = peak height in standard deviations over all other offsets** (noise ≈ 3,
-  threshold 5). Only confident results are applied. Tuned on synthetic audio with music; revisit
+- **Confidence = peak height in standard deviations over all other offsets** (≥ 4.5, and ≥ 1
+  above the runner-up offset). Only offsets that put lines over ≥ 20 % of the sample count, and
+  the baseline always spans ±60 s (Antigravity's review of #100: OP/ED and narrow searches
+  faked sharp peaks). Only confident results are applied. Tuned on synthetic audio with music; revisit
   the threshold with real episodes (the response returns `confidence` and `correlation`).
 
 ### 2026-11-21: Frequency + homophones (Claude)

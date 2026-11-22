@@ -351,7 +351,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         video_start_ms: int = Form(description="Video time when the recording started"),
         apply: bool = Form(True, description="Set sub_offset_ms when the result is confident"),
         search_ms: int = Form(
-            120_000, ge=1_000, le=600_000, description="Search ± this around the current offset"
+            120_000, ge=10_000, le=600_000, description="Search ± this around the current offset"
         ),
         session: Session = Depends(get_session),
     ):

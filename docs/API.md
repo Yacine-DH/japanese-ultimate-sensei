@@ -41,7 +41,7 @@ the stream, 30–90 s recommended, ≤ 15 MB; webm/opus from `MediaRecorder` is 
 around the current offset). Playback must run at 1× without seeking or pausing while recording.
 Pick a part with dialogue (not the opening song).
 ```json
-{"offset_ms":3140,"previous_offset_ms":0,"applied":true,"confident":true,"confidence":7.8,
+{"offset_ms":3140,"previous_offset_ms":0,"applied":true,"confident":true,"confidence":7.8,"runner_up":3.1,
  "correlation":0.23,"speech_ms":24310,"sample_ms":60000,"lines_in_window":21,"detail":"ok"}
 ```
 Not confident → `applied:false`, `offset_ms` is the best guess, `detail` says why (too little

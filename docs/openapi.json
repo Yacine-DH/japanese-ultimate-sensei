@@ -2548,7 +2548,7 @@
           "search_ms": {
             "type": "integer",
             "maximum": 600000.0,
-            "minimum": 1000.0,
+            "minimum": 10000.0,
             "title": "Search Ms",
             "description": "Search ± this around the current offset",
             "default": 120000
@@ -4105,12 +4105,17 @@
           "confident": {
             "type": "boolean",
             "title": "Confident",
-            "description": "confidence >= 5"
+            "description": "confidence >= 4.5 and >= runner_up + 1"
           },
           "confidence": {
             "type": "number",
             "title": "Confidence",
-            "description": "How far the best offset stands out (std devs above all others; noise ≈ 3)"
+            "description": "How far the best offset stands out (std devs above all others; noise ≈ 2-4)"
+          },
+          "runner_up": {
+            "type": "number",
+            "title": "Runner Up",
+            "description": "The same for the best offset ≥ 1.5 s away"
           },
           "correlation": {
             "type": "number",
@@ -4143,6 +4148,7 @@
           "applied",
           "confident",
           "confidence",
+          "runner_up",
           "correlation",
           "speech_ms",
           "sample_ms",
