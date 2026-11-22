@@ -11,14 +11,23 @@ import httpx
 
 TRANSLATE_SYSTEM = """You translate Japanese anime subtitles for a beginner learner (German and English speaker).
 Translate each numbered line naturally but faithfully, keeping the meaning and tone of the
-Japanese, not inventing content. Use the previous lines only as context. Keep character names
-in romaji. Reply with JSON only, exactly:
+Japanese, not inventing content. Use the previous lines only as context. Character names stay
+names: romanize katakana names (ハイター → Heiter), never replace them with a real person's name or
+an ordinary word. Each "en" is English and each "de" is German. Reply with JSON only, exactly:
 {"lines": [{"i": <number>, "en": "<English>", "de": "<German>"}, ...]}"""
 
 EXPLAIN_SYSTEM = """You are a patient Japanese teacher for a beginner (about JLPT N5). Explain the
 given anime subtitle line in {lang}: 1) a natural translation, 2) a word-by-word breakdown
 (word – reading – meaning), 3) the grammar points used (e.g. 〜てしまう, 〜じゃない, sentence-final
-particles) with one short explanation each. Be concise, use Markdown bullet lists, no preamble."""
+particles) with one short explanation each. Be concise, use Markdown bullet lists, no preamble.
+When the words of the line are given with their readings, follow that word split and copy those
+readings exactly (they come from a dictionary; never guess a reading)."""
+
+KATAKANA_NAME = re.compile(r"^[\u30a0-\u30ffー]{2,}$")
+GERMAN_WORDS = frozenset(
+    "der die das und ist nicht ich du sie es ein eine einen zu mit sich auf dass wird habe hat "
+    "bin bist sind war wir ihr mich dich dir mir noch schon auch aber wenn".split()
+)
 
 
 class LLMError(Exception):
@@ -113,20 +122,73 @@ def parse_translations(text: str, wanted: list[int]) -> dict[int, tuple[str, str
     return out
 
 
-def translate_batch(llm: LLM, lines: list[str], context: list[str]) -> dict[int, tuple[str, str]]:
+def name_candidates(token_lists: list[list[dict]], min_count: int = 2) -> list[str]:
+    """Katakana person names said at least `min_count` times (Sudachi's name tags are noisy:
+    laughs and loanwords get tagged too, so rare ones are left out)."""
+    counts: dict[str, int] = {}
+    for tokens in token_lists:
+        for t in tokens:
+            surface = t.get("surface", "")
+            if "人名" in (t.get("pos_detail") or []) and KATAKANA_NAME.match(surface):
+                counts[surface] = counts.get(surface, 0) + 1
+    return sorted((n for n, c in counts.items() if c >= min_count), key=lambda n: -counts[n])
+
+
+def looks_german(text: str) -> bool:
+    words = re.findall(r"[a-zäöüß]+", text.lower())
+    hits = sum(w in GERMAN_WORDS for w in words)
+    return hits >= 2 or (hits >= 1 and bool(re.search(r"[äöüß]", text.lower())))
+
+
+def word_hints(tokens: list[dict]) -> str:
+    """'決して (けっして, kesshite) · かなう (kanau) · …' from the line's tokens."""
+    out = []
+    for t in tokens:
+        surface, reading = t.get("surface", ""), t.get("reading", "")
+        if not surface.strip() or t.get("pos") in ("補助記号", "空白") or not reading:
+            continue
+        romaji = t.get("romaji") or ""
+        parts = [reading] if reading != surface else []
+        if romaji and romaji != surface:
+            parts.append(romaji)
+        lemma = t.get("lemma")
+        hint = f"{surface} ({', '.join(parts)})" if parts else surface
+        if lemma and lemma != surface:
+            hint += f" [dictionary form {lemma}]"
+        out.append(hint)
+    return " · ".join(out)
+
+
+def translate_batch(
+    llm: LLM, lines: list[str], context: list[str], names: list[str] | None = None
+) -> dict[int, tuple[str, str]]:
     user = ""
+    if names:
+        user += "Names in this episode (romanize, don't translate): " + ", ".join(names) + "\n\n"
     if context:
         user += "Previous lines (context, don't translate):\n" + "\n".join(context) + "\n\n"
     user += "Translate:\n" + "\n".join(f"{i}. {t}" for i, t in enumerate(lines))
-    return parse_translations(
+    got = parse_translations(
         llm.chat(TRANSLATE_SYSTEM, user, json_mode=True), list(range(len(lines)))
     )
+    # A small model sometimes answers in the wrong language or shifts lines; German in the
+    # English field is the cheap tell. Dropped lines count as failed and are retried next run.
+    return {i: (en, de) for i, (en, de) in got.items() if not looks_german(en)}
 
 
-def explain_line(llm: LLM, line: str, before: list[str], after: list[str], lang: str) -> str:
+def explain_line(
+    llm: LLM,
+    line: str,
+    before: list[str],
+    after: list[str],
+    lang: str,
+    tokens: list[dict] | None = None,
+) -> str:
     language = {"en": "English", "de": "German"}[lang]
     user = ""
     if before or after:
         user += "Context:\n" + "\n".join([*before, f">>> {line}", *after]) + "\n\n"
+    if tokens and (hints := word_hints(tokens)):
+        user += f"Words of the line with their readings: {hints}\n\n"
     user += f"Explain this line: {line}"
     return llm.chat(EXPLAIN_SYSTEM.format(lang=language), user).strip()
