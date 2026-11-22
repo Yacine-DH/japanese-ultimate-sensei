@@ -499,6 +499,29 @@ class TranslationJob(BaseModel):
     failed_lines: int = Field(description="Lines the model skipped in the last run (retry later)")
 
 
+class SttStatus(BaseModel):
+    configured: bool
+    reachable: bool
+    base_url: str | None
+    model: str | None
+    detail: str
+
+
+class SttJobOut(BaseModel):
+    id: int
+    status: Literal["queued", "extracting", "transcribing", "importing", "done", "error"]
+    anime_title: str
+    episode_number: float | None
+    title: str | None
+    filename: str
+    duration_ms: int | None = Field(description="Audio length, known once extracted")
+    episode_id: int | None = Field(description="The new episode, once done")
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
 class LineExplanation(BaseModel):
     line_id: int
     lang: Literal["en", "de"]

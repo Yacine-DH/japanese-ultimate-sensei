@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: str = ""
     llm_timeout_s: float = 900
+    # Speech-to-text (S-10): OpenAI-compatible /v1/audio/transcriptions, e.g. whisper.cpp's
+    # whisper-server on the Precision: http://precision:8080/v1
+    stt_base_url: str = ""
+    stt_model: str = ""
+    stt_timeout_s: float = 3600
     # Escape hatch for local development / tests only: run with auth disabled.
     allow_no_auth: bool = False
     data_dir: Path = REPO_ROOT / "data"

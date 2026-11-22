@@ -102,6 +102,8 @@ from app.schemas import (
     ReviewIn,
     ReviewOut,
     ReviewQueue,
+    SttJobOut,
+    SttStatus,
     SyncOut,
     TokenOut,
     TranslationJob,
@@ -114,6 +116,7 @@ from app.schemas import (
     WordPage,
     WordStatusIn,
 )
+from app.stt import STT, STTError, SttJob, SttJobs
 from app.subtitles import parse_bytes
 from app.translate_jobs import Translator
 from app.webapp import mount_web
@@ -140,6 +143,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.llm_timeout_s,
     )
     app.state.translator = Translator(app.state.engine, app.state.llm)
+    app.state.stt = STT(
+        settings.stt_base_url.strip(), settings.stt_model.strip(), settings.stt_timeout_s
+    )
 
     app.state.web = mount_web(app, settings.web_dist)
     app.add_middleware(
@@ -1346,5 +1352,87 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return LineExplanation(
             line_id=line_id, lang=lang, text=text, model=note.model, cached=False
         )
+
+    # ---- speech-to-text (S-10) --------------------------------------------------------------
+
+    STT_MAX_BYTES = 4 * 1024**3
+
+    def stt_import(job: SttJob, srt: bytes) -> int:
+        with Session(app.state.engine) as session:
+            try:
+                created = import_episode(
+                    session, srt, f"{Path(job.filename).stem}.stt.srt", job.anime_title,
+                    job.episode_number, job.title, source="stt",
+                )  # fmt: skip
+            except HTTPException as e:
+                raise STTError(f"transcript not usable: {e.detail}", e.status_code) from e
+        if app.state.llm.configured:
+            app.state.translator.enqueue(created["id"])
+        return created["id"]
+
+    app.state.stt_jobs = SttJobs(app.state.stt, stt_import)
+
+    def stt_job_out(job: SttJob) -> SttJobOut:
+        return SttJobOut.model_validate(job, from_attributes=True)
+
+    @app.get("/stt/status", response_model=SttStatus, dependencies=auth, tags=["stt"])
+    def stt_status():
+        stt = app.state.stt
+        reachable, detail = stt.status()
+        return SttStatus(
+            configured=stt.configured, reachable=reachable, base_url=stt.base_url or None,
+            model=stt.model or None, detail=detail,
+        )  # fmt: skip
+
+    @app.post(
+        "/stt/jobs", response_model=SttJobOut, status_code=202, dependencies=auth, tags=["stt"]
+    )
+    def stt_submit(
+        file: UploadFile = File(description="The episode's video or audio file"),
+        anime_title: str = Form(min_length=1),
+        episode_number: float | None = Form(None),
+        title: str | None = Form(None),
+    ):
+        """Transcribe an episode without Japanese subtitles: the file is uploaded, its audio
+        sent to the speech-to-text server, and the transcript imported as a new episode
+        (source "stt"; translations start when an LLM is configured). Poll GET /stt/jobs/{id}."""
+        if not media_lib.ffmpeg_available():
+            raise HTTPException(503, "ffmpeg is not installed on the server")
+        if not app.state.stt.configured:
+            raise HTTPException(503, "speech-to-text is not configured (SENSEI_STT_BASE_URL)")
+        upload_dir = settings.data_dir / "stt-uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(file.filename or "").suffix[:10] or ".bin"
+        path = upload_dir / f"{uuid4().hex}{suffix}"
+        size = 0
+        with path.open("wb") as out:
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > STT_MAX_BYTES:
+                    out.close()
+                    path.unlink(missing_ok=True)
+                    raise HTTPException(413, "file too large (max 4 GB)")
+                out.write(chunk)
+        if size == 0:
+            path.unlink(missing_ok=True)
+            raise HTTPException(422, "empty file")
+        job = app.state.stt_jobs.submit(
+            path, file.filename or "upload", anime_title.strip(), episode_number, title
+        )
+        return stt_job_out(job)
+
+    @app.get("/stt/jobs", response_model=list[SttJobOut], dependencies=auth, tags=["stt"])
+    def stt_jobs():
+        """Jobs since the server started, newest first."""
+        return [
+            stt_job_out(j) for j in sorted(app.state.stt_jobs.jobs.values(), key=lambda j: -j.id)
+        ]
+
+    @app.get("/stt/jobs/{job_id}", response_model=SttJobOut, dependencies=auth, tags=["stt"])
+    def stt_job(job_id: int):
+        job = app.state.stt_jobs.jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, "job not found (jobs are forgotten when the server restarts)")
+        return stt_job_out(job)
 
     return app
