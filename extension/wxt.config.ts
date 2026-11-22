@@ -1,5 +1,9 @@
 import { execSync } from 'node:child_process';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'wxt';
+
+const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 
 // Public RSA-2048 DER key (base64) for a stable Chromium/Edge unpacked extension ID.
 // Private key was discarded at generation time; unpacked loading only uses the public key.
@@ -8,11 +12,20 @@ export const CHROME_MANIFEST_PUBLIC_KEY =
 
 export const FIREFOX_GECKO_ID = 'sensei@japanese-ultimate-sensei.local';
 
-function resolveBuildCommit(): string {
+export function resolveBuildCommit(cwd: string = EXTENSION_DIR): string {
   const fromEnv = process.env.SENSEI_BUILD_COMMIT?.trim();
   if (fromEnv) return fromEnv;
   try {
-    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim() || 'unknown';
+    const extCommit = execSync('git log -1 --format=%h --abbrev=7 -- .', {
+      cwd,
+      encoding: 'utf8',
+    }).trim();
+    if (extCommit) return extCommit;
+  } catch {
+    // Fall through to repo HEAD fallback
+  }
+  try {
+    return execSync('git rev-parse --short=7 HEAD', { cwd, encoding: 'utf8' }).trim() || 'unknown';
   } catch {
     return 'unknown';
   }

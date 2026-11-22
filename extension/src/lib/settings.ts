@@ -1,6 +1,7 @@
 import { DEFAULT_HOTKEYS, type HotkeyBindings, sanitizeHotkeys } from './hotkeys';
 import { DEFAULT_HOVER_CONFIG, sanitizeHoverDelayMs } from './hover-intent';
 import { type OverlayPosition, sanitizeOverlayPositions } from './overlay-position';
+import { DEFAULT_EXTENSION_FOLDER } from './update';
 
 export type GlossLanguage = 'eng' | 'ger';
 export type TranslationDisplayMode = 'off' | 'en' | 'de';
@@ -8,6 +9,7 @@ export type TranslationDisplayMode = 'off' | 'en' | 'de';
 export interface ExtensionSettings {
   serverUrl: string;
   apiToken: string;
+  extensionFolder: string;
   glossLang: GlossLanguage;
   translationMode: TranslationDisplayMode;
   romaji: boolean;
@@ -34,6 +36,7 @@ export const DEFAULT_ANKI_MODEL_NAME = 'Sensei Japanese';
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   serverUrl: DEFAULT_SERVER_URL,
   apiToken: '',
+  extensionFolder: DEFAULT_EXTENSION_FOLDER,
   glossLang: 'eng',
   translationMode: 'off',
   romaji: false,
@@ -95,10 +98,12 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
   const ankiUrl = normalizeServerUrl(String(merged.ankiConnectUrl ?? DEFAULT_ANKI_CONNECT_URL));
   const ankiDeck = String(merged.ankiDeckName ?? DEFAULT_ANKI_DECK_NAME).trim();
   const ankiModel = String(merged.ankiModelName ?? DEFAULT_ANKI_MODEL_NAME).trim();
+  const extensionFolder = String(merged.extensionFolder ?? DEFAULT_EXTENSION_FOLDER).trim();
 
   return {
     serverUrl: normalizeServerUrl(String(merged.serverUrl ?? DEFAULT_SERVER_URL)),
     apiToken: String(merged.apiToken ?? '').trim(),
+    extensionFolder: extensionFolder || DEFAULT_EXTENSION_FOLDER,
     glossLang,
     translationMode,
     romaji: Boolean(merged.romaji),
