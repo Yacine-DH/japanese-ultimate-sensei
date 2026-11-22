@@ -1,16 +1,27 @@
 import {
   api,
   isOpenMissedPanelMessage,
+  isStartAutoSyncMessage,
   isTabStateChangedMessage,
   type LineExplanation,
   type LineOut,
   type LLMStatus,
   type LookupResult,
   type MissedWord,
+  type StartAutoSyncResponse,
   type TokenOut,
   type WatchIn,
   type WordStatus,
 } from '../src/api/client';
+import {
+  type ActiveSyncRecordingHandle,
+  type AutoSyncAbortReason,
+  AutoSyncStateMachine,
+  buildSyncOutcomePresentation,
+  formatManualApplyToast,
+  formatSyncProgressText,
+  startSyncAudioRecording,
+} from '../src/lib/auto-sync';
 import {
   findLineForAction,
   glossLangToLlmLang,
@@ -29,6 +40,7 @@ import {
   type WatchPlaybackSnapshot,
 } from '../src/lib/watch-heartbeat';
 import {
+  blobToBase64,
   captureVideoScreenshot,
   recordLineMedia,
   saveWordWithSceneCapture,
@@ -110,6 +122,12 @@ export default defineContentScript({
     let missedPromptedEpisodeId: number | null = null;
     let toastEl: HTMLDivElement | null = null;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
+    let overlayControlsEl: HTMLDivElement | null = null;
+    let syncStatusEl: HTMLDivElement | null = null;
+    let syncStatusTextEl: HTMLSpanElement | null = null;
+    const autoSyncMachine = new AutoSyncStateMachine();
+    let activeSyncHandle: ActiveSyncRecordingHandle | null = null;
+    let autoSyncSeq = 0;
     let pausedByHover = false;
     let capturingScene = false;
     let isVideoBuffering = false;
@@ -157,19 +175,25 @@ export default defineContentScript({
             display: flex;
             align-items: center;
             gap: 10px;
-            max-width: 300px;
-            background: rgba(15, 23, 42, 0.92);
+            max-width: 340px;
+            background: rgba(15, 23, 42, 0.94);
             color: #38bdf8;
             border: 1px solid rgba(56, 189, 248, 0.45);
             border-radius: 8px;
-            padding: 6px 12px;
+            padding: 7px 12px;
             font-size: 13px;
             font-weight: 600;
             opacity: 0;
+            pointer-events: none;
             transition: opacity 0.15s ease;
+            z-index: 14;
+            text-align: left;
           }
           .sensei-toast.visible {
             opacity: 1;
+          }
+          .sensei-toast.visible.interactive {
+            pointer-events: auto;
           }
           .sensei-toast-thumb {
             width: 56px;
@@ -185,6 +209,133 @@ export default defineContentScript({
             font-weight: 500;
             color: #94a3b8;
             margin-top: 2px;
+          }
+          .sensei-toast-hint {
+            display: block;
+            font-size: 11px;
+            font-weight: 500;
+            color: #cbd5e1;
+            margin-top: 3px;
+          }
+          .sensei-toast-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 7px;
+          }
+          .sensei-toast-btn {
+            background: #38bdf8;
+            color: #0f172a;
+            border: 1px solid #38bdf8;
+            border-radius: 6px;
+            padding: 3px 9px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+          }
+          .sensei-toast-btn:hover {
+            background: #7dd3fc;
+          }
+          .sensei-toast-close {
+            background: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+          }
+          .sensei-toast-close:hover {
+            background: #334155;
+            color: #f8fafc;
+          }
+          .sensei-overlay-controls {
+            position: absolute;
+            top: 14px;
+            left: 16px;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            pointer-events: auto;
+            opacity: 0.22;
+            transition: opacity 0.16s ease;
+            z-index: 8;
+          }
+          .sensei-overlay-controls.visible {
+            display: flex;
+          }
+          .sensei-overlay-controls:hover,
+          .sensei-overlay-controls:focus-within {
+            opacity: 1;
+          }
+          .sensei-overlay-ctrl-btn {
+            background: rgba(15, 23, 42, 0.88);
+            color: #e0f2fe;
+            border: 1px solid rgba(56, 189, 248, 0.45);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+          }
+          .sensei-overlay-ctrl-btn:hover {
+            background: rgba(56, 189, 248, 0.24);
+            border-color: #38bdf8;
+            color: #f8fafc;
+          }
+          .sensei-sync-status {
+            position: absolute;
+            top: 14px;
+            left: 16px;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            background: rgba(15, 23, 42, 0.94);
+            color: #e0f2fe;
+            border: 1px solid #38bdf8;
+            border-radius: 999px;
+            padding: 5px 10px 5px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            pointer-events: auto;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+            z-index: 13;
+          }
+          .sensei-sync-status.visible {
+            display: flex;
+          }
+          .sensei-sync-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #38bdf8;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
+            animation: sensei-pulse 1.1s ease-in-out infinite;
+          }
+          @keyframes sensei-pulse {
+            0%,
+            100% {
+              opacity: 1;
+            }
+            50% {
+              opacity: 0.35;
+            }
+          }
+          .sensei-sync-cancel-btn {
+            background: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #475569;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+          }
+          .sensei-sync-cancel-btn:hover {
+            background: #334155;
+            color: #f8fafc;
           }
           .sensei-sub-box {
             max-width: 86%;
@@ -619,6 +770,36 @@ export default defineContentScript({
         toastEl = document.createElement('div');
         toastEl.className = 'sensei-toast';
 
+        overlayControlsEl = document.createElement('div');
+        overlayControlsEl.className = 'sensei-overlay-controls';
+        const autoSyncCtrlBtn = document.createElement('button');
+        autoSyncCtrlBtn.type = 'button';
+        autoSyncCtrlBtn.className = 'sensei-overlay-ctrl-btn';
+        autoSyncCtrlBtn.textContent = '⟳ Auto-sync';
+        autoSyncCtrlBtn.title =
+          'Auto-sync subtitles from 45 s of audio — use during dialogue, not opening song';
+        autoSyncCtrlBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          void startAutoSync();
+        });
+        overlayControlsEl.appendChild(autoSyncCtrlBtn);
+
+        syncStatusEl = document.createElement('div');
+        syncStatusEl.className = 'sensei-sync-status';
+        const syncDot = document.createElement('span');
+        syncDot.className = 'sensei-sync-dot';
+        syncStatusTextEl = document.createElement('span');
+        syncStatusTextEl.textContent = 'Syncing…';
+        const syncCancelBtn = document.createElement('button');
+        syncCancelBtn.type = 'button';
+        syncCancelBtn.className = 'sensei-sync-cancel-btn';
+        syncCancelBtn.textContent = 'Cancel (Esc)';
+        syncCancelBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          cancelAutoSync('cancelled');
+        });
+        syncStatusEl.append(syncDot, syncStatusTextEl, syncCancelBtn);
+
         missedPanelEl = document.createElement('div');
         missedPanelEl.className = 'sensei-missed-panel';
 
@@ -634,6 +815,8 @@ export default defineContentScript({
         subBoxEl.className = 'sensei-sub-box';
         subBoxEl.addEventListener('mouseleave', scheduleHoverClose);
 
+        root.appendChild(overlayControlsEl);
+        root.appendChild(syncStatusEl);
         root.appendChild(toastEl);
         root.appendChild(explainPanelEl);
         root.appendChild(missedPanelEl);
@@ -647,6 +830,7 @@ export default defineContentScript({
         container.appendChild(hostEl);
       }
 
+      syncOverlayControlsVisibility();
       updateOverlayPosition(video);
     }
 
@@ -677,12 +861,83 @@ export default defineContentScript({
     function showToast(text: string, durationMs = 1600): void {
       if (!toastEl) return;
       toastEl.innerHTML = '';
+      toastEl.classList.remove('interactive');
       toastEl.textContent = text;
       toastEl.classList.add('visible');
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(() => {
-        toastEl?.classList.remove('visible');
+        toastEl?.classList.remove('visible', 'interactive');
       }, durationMs);
+    }
+
+    function showRichToast(options: {
+      title: string;
+      hint?: string;
+      meta?: string;
+      durationMs?: number;
+      actionLabel?: string;
+      onAction?: () => void;
+    }): void {
+      if (!toastEl) return;
+      toastEl.innerHTML = '';
+      toastEl.classList.remove('interactive');
+
+      const wrap = document.createElement('div');
+      wrap.style.minWidth = '0';
+
+      const main = document.createElement('div');
+      main.textContent = options.title;
+      wrap.appendChild(main);
+
+      if (options.hint) {
+        const hintEl = document.createElement('span');
+        hintEl.className = 'sensei-toast-hint';
+        hintEl.textContent = options.hint;
+        wrap.appendChild(hintEl);
+      }
+
+      if (options.meta) {
+        const metaEl = document.createElement('span');
+        metaEl.className = 'sensei-toast-meta';
+        metaEl.textContent = options.meta;
+        wrap.appendChild(metaEl);
+      }
+
+      const isInteractive = Boolean(options.actionLabel && options.onAction);
+      if (isInteractive && options.actionLabel && options.onAction) {
+        toastEl.classList.add('interactive');
+        const actions = document.createElement('div');
+        actions.className = 'sensei-toast-actions';
+
+        const actionBtn = document.createElement('button');
+        actionBtn.type = 'button';
+        actionBtn.className = 'sensei-toast-btn';
+        actionBtn.textContent = options.actionLabel;
+        actionBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          options.onAction?.();
+        });
+
+        const dismissBtn = document.createElement('button');
+        dismissBtn.type = 'button';
+        dismissBtn.className = 'sensei-toast-close';
+        dismissBtn.textContent = 'Dismiss';
+        dismissBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (toastTimer) clearTimeout(toastTimer);
+          toastEl?.classList.remove('visible', 'interactive');
+        });
+
+        actions.append(actionBtn, dismissBtn);
+        wrap.appendChild(actions);
+      }
+
+      toastEl.appendChild(wrap);
+      toastEl.classList.add('visible');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl?.classList.remove('visible', 'interactive');
+      }, options.durationMs ?? (isInteractive ? 15_000 : 4000));
     }
 
     function showSavedToast(
@@ -692,6 +947,7 @@ export default defineContentScript({
     ): void {
       if (!toastEl) return;
       toastEl.innerHTML = '';
+      toastEl.classList.remove('interactive');
       if (thumbnailDataUrl) {
         const img = document.createElement('img');
         img.className = 'sensei-toast-thumb';
@@ -713,12 +969,206 @@ export default defineContentScript({
       toastEl.classList.add('visible');
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(() => {
-        toastEl?.classList.remove('visible');
+        toastEl?.classList.remove('visible', 'interactive');
       }, 2800);
     }
 
+    function syncOverlayControlsVisibility(): void {
+      const syncing = autoSyncMachine.isActive();
+      const canShowIdleControl =
+        Boolean(currentVideo) &&
+        tabOverlayEnabled &&
+        currentEpisodeId !== null &&
+        lines.length > 0 &&
+        !syncing;
+      overlayControlsEl?.classList.toggle('visible', canShowIdleControl);
+      syncStatusEl?.classList.toggle('visible', syncing);
+    }
+
+    function updateSyncStatusIndicator(): void {
+      const snap = autoSyncMachine.getState();
+      if (syncStatusTextEl) {
+        syncStatusTextEl.textContent = formatSyncProgressText(snap) || 'Syncing…';
+      }
+      syncOverlayControlsVisibility();
+    }
+
+    function cancelAutoSync(
+      reason: AutoSyncAbortReason = 'cancelled',
+      customMessage?: string,
+    ): void {
+      if (!autoSyncMachine.isActive()) return;
+      autoSyncSeq += 1;
+      const handle = activeSyncHandle;
+      activeSyncHandle = null;
+      if (handle) {
+        handle.cancel(reason, customMessage);
+      } else {
+        autoSyncMachine.abort(reason, customMessage);
+      }
+      const msg = autoSyncMachine.getState().abortMessage;
+      autoSyncMachine.reset();
+      updateSyncStatusIndicator();
+      if (reason !== 'episode_changed' && msg) {
+        showToast(msg, 2400);
+      }
+    }
+
+    function applyManualSyncOffset(episodeId: number, offsetMs: number): void {
+      if (currentEpisodeId !== episodeId) return;
+      subOffsetMs = offsetMs;
+      renderedLinesKey = null;
+      syncSubtitleFrame();
+      showToast(formatManualApplyToast(offsetMs), 3200);
+      void api.patchEpisode(episodeId, { sub_offset_ms: offsetMs }).then((res) => {
+        if (!res.ok) {
+          showToast(`Failed to save offset: ${res.error ?? 'Unknown error'}`, 3200);
+        }
+      });
+    }
+
+    function startAutoSync(): StartAutoSyncResponse {
+      if (autoSyncMachine.isActive()) {
+        showToast('Auto-sync already in progress', 2000);
+        return { ok: false, error: 'Auto-sync already in progress' };
+      }
+      if (capturingScene) {
+        showToast('Wait for scene capture to finish before syncing', 2200);
+        return { ok: false, error: 'Wait for scene capture to finish before syncing' };
+      }
+      if (!currentVideo || !tabOverlayEnabled || currentEpisodeId === null || lines.length === 0) {
+        const err = 'Attach an episode with subtitles first';
+        showToast(err, 2200);
+        return { ok: false, error: err };
+      }
+
+      ensureOverlayMounted(currentVideo);
+      const playbackCheck = autoSyncMachine.checkPlayback({
+        paused: currentVideo.paused,
+        ended: currentVideo.ended,
+        playbackRate: currentVideo.playbackRate,
+      });
+      if (!playbackCheck.ok) {
+        showToast(playbackCheck.message, 2800);
+        return { ok: false, error: playbackCheck.message };
+      }
+
+      const targetEpisodeId = currentEpisodeId;
+      const syncSeq = ++autoSyncSeq;
+      const handle = startSyncAudioRecording({
+        video: currentVideo,
+        machine: autoSyncMachine,
+        onStateChange: () => {
+          if (syncSeq !== autoSyncSeq) return;
+          updateSyncStatusIndicator();
+        },
+      });
+      activeSyncHandle = handle;
+      updateSyncStatusIndicator();
+
+      const immediateSnap = autoSyncMachine.getState();
+      if (immediateSnap.phase === 'aborted') {
+        activeSyncHandle = null;
+        const msg = immediateSnap.abortMessage ?? 'Could not start auto-sync';
+        autoSyncMachine.reset();
+        updateSyncStatusIndicator();
+        showToast(msg, 3000);
+        return { ok: false, error: msg };
+      }
+
+      void (async () => {
+        const sample = await handle.promise;
+        if (activeSyncHandle === handle) {
+          activeSyncHandle = null;
+        }
+        if (syncSeq !== autoSyncSeq) {
+          return;
+        }
+        if (!sample.ok) {
+          autoSyncMachine.reset();
+          updateSyncStatusIndicator();
+          if (sample.reason !== 'episode_changed') {
+            showToast(sample.message, 3200);
+          }
+          return;
+        }
+
+        autoSyncMachine.beginUpload();
+        updateSyncStatusIndicator();
+
+        let contentBase64: string;
+        try {
+          contentBase64 = await blobToBase64(sample.blob);
+        } catch {
+          if (syncSeq !== autoSyncSeq) return;
+          autoSyncMachine.reset();
+          updateSyncStatusIndicator();
+          showToast('Auto-sync failed: could not encode recorded audio', 3200);
+          return;
+        }
+
+        if (syncSeq !== autoSyncSeq || currentEpisodeId !== targetEpisodeId) {
+          return;
+        }
+
+        const res = await api.syncEpisode({
+          episodeId: targetEpisodeId,
+          filename: sample.filename,
+          mimeType: sample.mimeType,
+          contentBase64,
+          videoStartMs: sample.videoStartMs,
+          apply: true,
+        });
+
+        if (syncSeq !== autoSyncSeq || currentEpisodeId !== targetEpisodeId) {
+          return;
+        }
+
+        if (res.ok && res.data) {
+          console.info('[Sensei] Auto-sync result:', {
+            episodeId: targetEpisodeId,
+            ...res.data,
+          });
+        }
+
+        const outcome = buildSyncOutcomePresentation(res);
+        if (outcome.kind === 'applied') {
+          autoSyncMachine.finishSuccess(res.data!);
+          autoSyncMachine.reset();
+          updateSyncStatusIndicator();
+          subOffsetMs = outcome.offsetMs;
+          renderedLinesKey = null;
+          syncSubtitleFrame();
+          showRichToast({
+            title: outcome.title,
+            meta: outcome.meta,
+            durationMs: 4500,
+          });
+        } else if (outcome.kind === 'not_applied') {
+          autoSyncMachine.finishSuccess(res.data!);
+          autoSyncMachine.reset();
+          updateSyncStatusIndicator();
+          showRichToast({
+            title: outcome.title,
+            hint: outcome.hint,
+            meta: outcome.meta,
+            actionLabel: outcome.useAnywayLabel,
+            durationMs: 15_000,
+            onAction: () => applyManualSyncOffset(targetEpisodeId, outcome.offsetMs),
+          });
+        } else {
+          autoSyncMachine.finishError(res.error ?? 'Unknown error');
+          autoSyncMachine.reset();
+          updateSyncStatusIndicator();
+          showToast(outcome.title, 3600);
+        }
+      })();
+
+      return { ok: true };
+    }
+
     function pauseVideoOnHover(): void {
-      if (capturingScene) return;
+      if (capturingScene || autoSyncMachine.isRecording()) return;
       if (settings && !settings.pauseOnHover) {
         return;
       }
@@ -772,6 +1222,10 @@ export default defineContentScript({
         return;
       }
       if (status === 'learning') {
+        if (autoSyncMachine.isRecording()) {
+          showToast('Finish or cancel auto-sync before saving a card');
+          return;
+        }
         if (capturingScene) {
           showToast('Capture already in progress...');
           return;
@@ -1547,6 +2001,7 @@ export default defineContentScript({
 
       if (
         !capturingScene &&
+        !autoSyncMachine.isRecording() &&
         !currentVideo.paused &&
         !skipAutoPauseOnce &&
         shouldAutoPauseAfterLine(
@@ -1633,11 +2088,13 @@ export default defineContentScript({
         loadedEpisodeId = null;
         renderedLinesKey = null;
         renderLines([]);
+        syncOverlayControlsVisibility();
         return;
       }
 
       if (loadedEpisodeId === currentEpisodeId && lines.length > 0) {
         renderedLinesKey = null;
+        syncOverlayControlsVisibility();
         syncSubtitleFrame();
         return;
       }
@@ -1660,6 +2117,7 @@ export default defineContentScript({
         lines = linesRes.data;
       }
       void ensureLlmStatus();
+      syncOverlayControlsVisibility();
       syncSubtitleFrame();
       startFrameLoop();
     }
@@ -1721,8 +2179,13 @@ export default defineContentScript({
     }
 
     function applyTabState(episodeId: number | null, enabled: boolean): void {
+      const nextEnabled = enabled && episodeId !== null;
+      if (episodeId !== currentEpisodeId || !nextEnabled) {
+        cancelAutoSync('episode_changed');
+      }
       currentEpisodeId = episodeId;
-      tabOverlayEnabled = enabled && episodeId !== null;
+      tabOverlayEnabled = nextEnabled;
+      syncOverlayControlsVisibility();
       syncWatchHeartbeat();
       void maybeLoadTranscript();
     }
@@ -1731,6 +2194,7 @@ export default defineContentScript({
       const best = findBestVideoInDocument(document);
       if (best && best !== currentVideo) {
         if (currentVideo) {
+          cancelAutoSync('episode_changed');
           currentVideo.removeEventListener('timeupdate', syncSubtitleFrame);
           currentVideo.removeEventListener('seeked', syncSubtitleFrame);
           currentVideo.removeEventListener('play', handleVideoPlay);
@@ -1800,6 +2264,15 @@ export default defineContentScript({
           return;
         }
 
+        // Escape cancels active auto-sync first
+        if (autoSyncMachine.isActive() && event.code === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          cancelAutoSync('cancelled');
+          return;
+        }
+
         // Escape closes Explain Line panel first
         if (explainPanelOpen && event.code === 'Escape') {
           event.preventDefault();
@@ -1835,6 +2308,10 @@ export default defineContentScript({
         event.stopPropagation();
         event.stopImmediatePropagation();
 
+        if (action === 'autoSync') {
+          startAutoSync();
+          return;
+        }
         if (action === 'replayLine') {
           replayCurrentOrLastLine(false);
           return;
@@ -1923,6 +2400,11 @@ export default defineContentScript({
           return Promise.resolve({ ok: true });
         }
         return Promise.resolve({ ok: false });
+      } else if (isStartAutoSyncMessage(msg)) {
+        if (currentVideo && currentEpisodeId !== null) {
+          return Promise.resolve(startAutoSync());
+        }
+        return undefined;
       }
       return undefined;
     });

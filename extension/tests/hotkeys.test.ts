@@ -64,6 +64,16 @@ describe('layout-independent hotkeys (#4)', () => {
       }),
     ).toBe('explainLine');
 
+    expect(
+      matchHotkey(DEFAULT_HOTKEYS, {
+        code: 'KeyY',
+        altKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        metaKey: false,
+      }),
+    ).toBe('autoSync');
+
     // Pressing with Shift should NOT accidentally match a non-Shift binding
     expect(
       matchHotkey(DEFAULT_HOTKEYS, {

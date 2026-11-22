@@ -47,6 +47,7 @@ export type MissedWord = components['schemas']['MissedWord'];
 export type LLMStatus = components['schemas']['LLMStatus'];
 export type TranslationJob = components['schemas']['TranslationJob'];
 export type LineExplanation = components['schemas']['LineExplanation'];
+export type SyncOut = components['schemas']['SyncOut'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -125,6 +126,26 @@ export interface TabStateChangedMessage {
 
 export interface OpenMissedPanelMessage {
   type: 'SENSEI_OPEN_MISSED_PANEL';
+}
+
+export interface StartAutoSyncMessage {
+  type: 'SENSEI_START_AUTO_SYNC';
+}
+
+export interface StartAutoSyncResponse {
+  ok: boolean;
+  error?: string;
+}
+
+export interface SyncEpisodeMessage {
+  type: 'SENSEI_SYNC_EPISODE';
+  episodeId: number;
+  filename: string;
+  mimeType: string;
+  contentBase64: string;
+  videoStartMs: number;
+  apply?: boolean;
+  searchMs?: number;
 }
 
 export interface AnkiPushCardMessage {
@@ -251,6 +272,26 @@ export function isOpenMissedPanelMessage(msg: unknown): msg is OpenMissedPanelMe
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_OPEN_MISSED_PANEL'
+  );
+}
+
+export function isStartAutoSyncMessage(msg: unknown): msg is StartAutoSyncMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_START_AUTO_SYNC'
+  );
+}
+
+export function isSyncEpisodeMessage(msg: unknown): msg is SyncEpisodeMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_SYNC_EPISODE' &&
+    typeof (msg as { episodeId?: unknown }).episodeId === 'number' &&
+    typeof (msg as { filename?: unknown }).filename === 'string' &&
+    typeof (msg as { contentBase64?: unknown }).contentBase64 === 'string' &&
+    typeof (msg as { videoStartMs?: unknown }).videoStartMs === 'number'
   );
 }
 
@@ -480,6 +521,94 @@ export async function executeMediaUpload(
       return { ok: false, status: response.status, error: detail };
     }
     return { ok: true, status: response.status, data: parsed as MediaOut };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function extractApiErrorDetail(parsed: unknown, status: number): string {
+  if (typeof parsed === 'object' && parsed !== null && 'detail' in parsed) {
+    const detail = (parsed as { detail: unknown }).detail;
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail;
+    }
+    if (Array.isArray(detail) && detail.length > 0) {
+      const msgs = detail
+        .map((item) =>
+          typeof item === 'object' && item !== null && 'msg' in item
+            ? String((item as { msg: unknown }).msg)
+            : String(item),
+        )
+        .filter(Boolean);
+      if (msgs.length > 0) {
+        return msgs.join('; ');
+      }
+    }
+    return String(detail);
+  }
+  if (typeof parsed === 'string' && parsed.trim()) {
+    return parsed;
+  }
+  return `HTTP ${status}`;
+}
+
+export async function executeSyncEpisode(
+  settings: Pick<ExtensionSettings, 'serverUrl' | 'apiToken'>,
+  msg: SyncEpisodeMessage,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ApiCallResponse<SyncOut>> {
+  const baseUrl = normalizeServerUrl(settings.serverUrl);
+  if (!isServerUrlConfigured(baseUrl)) {
+    return {
+      ok: false,
+      status: 0,
+      error: 'Server URL not configured',
+    };
+  }
+  const url = `${baseUrl}/episodes/${msg.episodeId}/sync`;
+  const headers = buildApiHeaders(settings);
+  delete headers['Content-Type'];
+
+  const binary = atob(msg.contentBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  const form = new FormData();
+  form.append(
+    'file',
+    new Blob([bytes], { type: msg.mimeType || 'audio/webm' }),
+    msg.filename,
+  );
+  form.append('video_start_ms', String(Math.max(0, Math.round(msg.videoStartMs))));
+  form.append('apply', (msg.apply ?? true) ? 'true' : 'false');
+  if (msg.searchMs !== undefined) {
+    form.append('search_ms', String(Math.max(10_000, Math.round(msg.searchMs))));
+  }
+
+  try {
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    const contentType = response.headers.get('content-type') ?? '';
+    const isJson = contentType.includes('application/json');
+    const parsed = isJson ? await response.json() : await response.text();
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: extractApiErrorDetail(parsed, response.status),
+      };
+    }
+    return { ok: true, status: response.status, data: parsed as SyncOut };
   } catch (err) {
     return {
       ok: false,
@@ -869,6 +998,46 @@ export const api = {
         type: 'SENSEI_UPLOAD_MEDIA',
         ...msg,
       } satisfies UploadMediaMessage)) as ApiCallResponse<MediaOut> | undefined;
+      if (res && typeof res.ok === 'boolean') {
+        return res;
+      }
+      return {
+        ok: false,
+        status: 0,
+        error: 'Extension background worker returned an invalid response',
+      };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        status: 0,
+        error: `Extension background worker unavailable: ${detail}`,
+      };
+    }
+  },
+
+  async syncEpisode(
+    msg: Omit<SyncEpisodeMessage, 'type'>,
+  ): Promise<ApiCallResponse<SyncOut>> {
+    if (isBackgroundContext) {
+      const settings = await getSettings();
+      return executeSyncEpisode(settings, { type: 'SENSEI_SYNC_EPISODE', ...msg });
+    }
+
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return {
+        ok: false,
+        status: 0,
+        error: 'Extension background worker unavailable',
+      };
+    }
+
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_SYNC_EPISODE',
+        ...msg,
+      } satisfies SyncEpisodeMessage)) as ApiCallResponse<SyncOut> | undefined;
       if (res && typeof res.ok === 'boolean') {
         return res;
       }

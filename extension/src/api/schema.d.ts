@@ -62,6 +62,27 @@ export interface paths {
         patch: operations["patch_episode_episodes__episode_id__patch"];
         trace?: never;
     };
+    "/episodes/{episode_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Episode
+         * @description Find the subtitle offset from the episode's audio: voice activity in the sample is
+         *     matched against when lines are on screen. Takes about a second per minute of audio.
+         */
+        post: operations["sync_episode_episodes__episode_id__sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/episodes/{episode_id}/lines": {
         parameters: {
             query?: never;
@@ -933,6 +954,31 @@ export interface components {
              */
             dry_run: boolean;
         };
+        /** Body_sync_episode_episodes__episode_id__sync_post */
+        Body_sync_episode_episodes__episode_id__sync_post: {
+            /**
+             * File
+             * @description Audio (or video) recorded from the stream, 30–90 s
+             */
+            file: string;
+            /**
+             * Video Start Ms
+             * @description Video time when the recording started
+             */
+            video_start_ms: number;
+            /**
+             * Apply
+             * @description Set sub_offset_ms when the result is confident
+             * @default true
+             */
+            apply: boolean;
+            /**
+             * Search Ms
+             * @description Search ± this around the current offset
+             * @default 120000
+             */
+            search_ms: number;
+        };
         /** Body_upload_media_media_post */
         Body_upload_media_media_post: {
             /**
@@ -1548,6 +1594,55 @@ export interface components {
             /** Glosses */
             glosses: string[];
         };
+        /** SyncOut */
+        SyncOut: {
+            /**
+             * Offset Ms
+             * @description Best sub_offset_ms found (a guess when not confident)
+             */
+            offset_ms: number;
+            /** Previous Offset Ms */
+            previous_offset_ms: number;
+            /**
+             * Applied
+             * @description True when the episode's sub_offset_ms was set to offset_ms
+             */
+            applied: boolean;
+            /**
+             * Confident
+             * @description confidence >= 4.5 and >= runner_up + 1
+             */
+            confident: boolean;
+            /**
+             * Confidence
+             * @description How far the best offset stands out (std devs above all others; noise ≈ 2-4)
+             */
+            confidence: number;
+            /**
+             * Runner Up
+             * @description The same for the best offset ≥ 1.5 s away
+             */
+            runner_up: number;
+            /**
+             * Correlation
+             * @description Speech/subtitle correlation at the best offset
+             */
+            correlation: number;
+            /**
+             * Speech Ms
+             * @description Speech detected in the sample
+             */
+            speech_ms: number;
+            /** Sample Ms */
+            sample_ms: number;
+            /** Lines In Window */
+            lines_in_window: number;
+            /**
+             * Detail
+             * @description 'ok', or why the result isn't confident
+             */
+            detail: string;
+        };
         /** TokenOut */
         TokenOut: {
             /** Surface */
@@ -1931,6 +2026,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EpisodeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_episode_episodes__episode_id__sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                episode_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_sync_episode_episodes__episode_id__sync_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncOut"];
                 };
             };
             /** @description Validation Error */

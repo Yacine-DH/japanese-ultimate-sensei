@@ -8,6 +8,7 @@ export type HotkeyAction =
   | 'offsetBack'
   | 'offsetForward'
   | 'syncNow'
+  | 'autoSync'
   | 'replayLine'
   | 'slowReplayLine'
   | 'toggleAutoPause'
@@ -28,6 +29,7 @@ export const HOTKEY_ACTIONS: readonly HotkeyAction[] = [
   'offsetBack',
   'offsetForward',
   'syncNow',
+  'autoSync',
   'replayLine',
   'slowReplayLine',
   'toggleAutoPause',
@@ -39,6 +41,7 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
   offsetBack: 'Subtitles earlier (−100 ms)',
   offsetForward: 'Subtitles later (+100 ms)',
   syncNow: 'Sync: current line starts now',
+  autoSync: 'Auto-sync subtitles from audio',
   replayLine: 'Replay current / last line',
   slowReplayLine: 'Slow replay line (0.75×)',
   toggleAutoPause: 'Toggle auto-pause after line',
@@ -55,6 +58,7 @@ export const DEFAULT_HOTKEYS: HotkeyBindings = {
   offsetBack: key('Comma'),
   offsetForward: key('Period'),
   syncNow: key('Slash'),
+  autoSync: key('KeyY'),
   replayLine: key('KeyR'),
   slowReplayLine: key('KeyR', { shift: true }),
   toggleAutoPause: key('KeyP', { alt: true }),
