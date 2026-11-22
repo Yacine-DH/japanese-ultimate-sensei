@@ -12,6 +12,13 @@ export const CHROME_MANIFEST_PUBLIC_KEY =
 
 export const FIREFOX_GECKO_ID = 'sensei@japanese-ultimate-sensei.local';
 
+export const EXTENSION_ICONS = {
+  16: 'icon/16.png',
+  32: 'icon/32.png',
+  48: 'icon/48.png',
+  128: 'icon/128.png',
+} as const;
+
 export function resolveBuildCommit(cwd: string = EXTENSION_DIR): string {
   const fromEnv = process.env.SENSEI_BUILD_COMMIT?.trim();
   if (fromEnv) return fromEnv;
@@ -39,11 +46,23 @@ export default defineConfig({
       'import.meta.env.VITE_SENSEI_BUILD_COMMIT': JSON.stringify(BUILD_COMMIT),
     },
   }),
-  manifest: ({ browser }) => ({
+  manifest: ({ browser, manifestVersion }) => ({
     name: 'Japanese Ultimate Sensei',
     description:
       'Turn every anime episode into a Japanese lesson with interactive furigana subtitles and hover dictionary.',
     version: '0.1.0',
+    icons: EXTENSION_ICONS,
+    ...(manifestVersion === 2
+      ? {
+          browser_action: {
+            default_icon: EXTENSION_ICONS,
+          },
+        }
+      : {
+          action: {
+            default_icon: EXTENSION_ICONS,
+          },
+        }),
     permissions: ['storage', 'activeTab', 'tabs'],
     host_permissions: ['<all_urls>'],
     ...(browser === 'firefox'

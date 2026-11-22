@@ -22,6 +22,17 @@
         justify-content: space-between;
         margin-bottom: 10px;
       }
+      .header-brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .header-icon {
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
+        flex-shrink: 0;
+      }
       h1 {
         margin: 0;
         font-size: 1rem;
@@ -370,7 +381,16 @@
   </head>
   <body>
     <div class="header">
-      <h1>Sensei</h1>
+      <div class="header-brand">
+        <img
+          src="/icon/48.png"
+          alt="先生"
+          class="header-icon"
+          width="22"
+          height="22"
+        />
+        <h1>Sensei</h1>
+      </div>
       <span id="health-badge" class="badge offline">Checking...</span>
     </div>
 
