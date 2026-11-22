@@ -99,3 +99,13 @@ Newest first. One entry per decision that would surprise someone later.
 - **App factory (`uvicorn --factory`).** No import-time side effects; tests build isolated apps.
 - **Auth = one static bearer token** (Tailscale is the real perimeter). Accounts are deferred.
 - **Python 3.12 pinned via uv.** The system has 3.14, where NLP wheels lag.
+
+### 2026-11-22: Speech-to-text runs on the laptop GPU behind an OpenAI-style endpoint (Claude)
+- The home server has ~2 GB free RAM and no GPU: a good Japanese model (whisper large-v3 turbo /
+  kotoba-whisper) doesn't fit next to the app. So the server only extracts audio (ffmpeg) and
+  calls any OpenAI-compatible `/v1/audio/transcriptions` server with `response_format=srt`
+  (whisper.cpp `whisper-server` on the Precision, same Tailscale-only setup as Ollama).
+- The SRT goes through the normal subtitle import, so tokens, furigana, words and translations
+  work the same as for Jimaku files. No new Python dependency.
+- Input for now: an uploaded episode file (built-in player / downloads). Recording a whole
+  stream's audio in the extension is left for later.

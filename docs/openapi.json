@@ -2025,6 +2025,135 @@
           }
         }
       }
+    },
+    "/stt/status": {
+      "get": {
+        "tags": [
+          "stt"
+        ],
+        "summary": "Stt Status",
+        "operationId": "stt_status_stt_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SttStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stt/jobs": {
+      "get": {
+        "tags": [
+          "stt"
+        ],
+        "summary": "Stt Jobs",
+        "description": "Jobs since the server started, newest first.",
+        "operationId": "stt_jobs_stt_jobs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SttJobOut"
+                  },
+                  "type": "array",
+                  "title": "Response Stt Jobs Stt Jobs Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "stt"
+        ],
+        "summary": "Stt Submit",
+        "description": "Transcribe an episode without Japanese subtitles: the file is uploaded, its audio\nsent to the speech-to-text server, and the transcript imported as a new episode\n(source \"stt\"; translations start when an LLM is configured). Poll GET /stt/jobs/{id}.",
+        "operationId": "stt_submit_stt_jobs_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_stt_submit_stt_jobs_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SttJobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stt/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "stt"
+        ],
+        "summary": "Stt Job",
+        "operationId": "stt_job_stt_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SttJobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2639,6 +2768,49 @@
           "file"
         ],
         "title": "Body_import_anki_import_anki_post"
+      },
+      "Body_stt_submit_stt_jobs_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "The episode's video or audio file"
+          },
+          "anime_title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Anime Title"
+          },
+          "episode_number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Number"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "anime_title"
+        ],
+        "title": "Body_stt_submit_stt_jobs_post"
       },
       "Body_sync_episode_episodes__episode_id__sync_post": {
         "properties": {
@@ -4199,6 +4371,183 @@
           "glosses"
         ],
         "title": "Sense"
+      },
+      "SttJobOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "extracting",
+              "transcribing",
+              "importing",
+              "done",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "anime_title": {
+            "type": "string",
+            "title": "Anime Title"
+          },
+          "episode_number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Number"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms",
+            "description": "Audio length, known once extracted"
+          },
+          "episode_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Id",
+            "description": "The new episode, once done"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "anime_title",
+          "episode_number",
+          "title",
+          "filename",
+          "duration_ms",
+          "episode_id",
+          "error",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "SttJobOut"
+      },
+      "SttStatus": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "reachable": {
+            "type": "boolean",
+            "title": "Reachable"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "reachable",
+          "base_url",
+          "model",
+          "detail"
+        ],
+        "title": "SttStatus"
       },
       "SyncOut": {
         "properties": {
