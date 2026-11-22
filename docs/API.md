@@ -243,7 +243,9 @@ oldest first: the "% understood over time" line. Episodes are ordered by number.
 
 ## LLM: line translations + grammar notes
 Any OpenAI-compatible endpoint, set on the server: `SENSEI_LLM_BASE_URL` (e.g. Ollama
-`http://localhost:11434/v1`, or the laptop over Tailscale) + `SENSEI_LLM_MODEL`. Unset → 503.
+`http://localhost:11434/v1`, or the laptop over Tailscale) + `SENSEI_LLM_MODEL`. Unset → 503. To choose a model, `cd server && uv run python -m app.llm_bench
+--models a,b --jimaku "<anime>" --episode N` translates real lines with each model (same prompts and
+batches) and writes `llm-bench.md`: speed, estimated time per episode, side-by-side EN/DE, one explanation.
 
 ### `GET /llm/status` → `{"configured":true,"reachable":true,"model":"qwen2.5:3b","base_url":"…","detail":"ok"}`
 

@@ -40,6 +40,7 @@ class LLM:
         self.model = model
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.http = httpx.Client(timeout=timeout, headers=headers, transport=transport)
+        self.last_usage: dict = {}  # token counts of the last chat() call, if the server sends them
 
     @property
     def configured(self) -> bool:
@@ -77,7 +78,9 @@ class LLM:
         if r.status_code >= 400:
             raise LLMError(f"LLM error {r.status_code}: {r.text[:200]}")
         try:
-            return r.json()["choices"][0]["message"]["content"] or ""
+            data = r.json()
+            self.last_usage = data.get("usage") or {}
+            return data["choices"][0]["message"]["content"] or ""
         except (KeyError, IndexError, ValueError) as e:
             raise LLMError("unexpected LLM response") from e
 
