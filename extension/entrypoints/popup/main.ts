@@ -57,7 +57,8 @@ import {
   reloadExtension,
 } from '../../src/lib/update';
 import {
-  buildPrimingUrl,
+  buildMissedUrl,
+  buildPrepUrl,
   filterEpisodes,
   resolveEpisodeForUrl,
 } from '../../src/lib/url-mapping';
@@ -347,7 +348,7 @@ function upsertEpisode(ep: EpisodeOut): void {
 
 function updatePrimerButton(): void {
   const url =
-    attachedEpisodeId !== null ? buildPrimingUrl(currentServerUrl, attachedEpisodeId) : null;
+    attachedEpisodeId !== null ? buildPrepUrl(currentServerUrl, attachedEpisodeId) : null;
   autoSyncWrap.style.display = attachedEpisodeId !== null ? 'block' : 'none';
   if (attachedEpisodeId === null) {
     autoSyncStatus.style.display = 'none';
@@ -779,7 +780,7 @@ uploadForm.addEventListener('submit', async (event) => {
 
 primeEpisodeBtn.addEventListener('click', () => {
   if (attachedEpisodeId === null) return;
-  const url = buildPrimingUrl(currentServerUrl, attachedEpisodeId);
+  const url = buildPrepUrl(currentServerUrl, attachedEpisodeId);
   if (url) {
     void browser.tabs.create({ url });
   }
@@ -1078,9 +1079,9 @@ missedEpisodeBtn.addEventListener('click', async () => {
       // Fallback to opening the web episode detail page with ?missed=1
     }
   }
-  const url = buildPrimingUrl(currentServerUrl, attachedEpisodeId);
+  const url = buildMissedUrl(currentServerUrl, attachedEpisodeId);
   if (url) {
-    void browser.tabs.create({ url: url.replace('?prime=1', '?missed=1') });
+    void browser.tabs.create({ url });
   }
 });
 

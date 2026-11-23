@@ -11,6 +11,7 @@ import {
 import { MarkdownContent } from '../components/MarkdownContent';
 import { MissedWordsPanel } from '../components/MissedWordsPanel';
 import { PreWatchPrimer } from '../components/PreWatchPrimer';
+import { shouldOpenPrepFromSearchParams } from '../lib/priming';
 import {
   computeTranslationProgress,
   countTranslatedLines,
@@ -62,7 +63,7 @@ export function EpisodeDetailPage() {
   const queryClient = useQueryClient();
 
   const initialSettings = loadWebSettings();
-  const [showPrimer, setShowPrimer] = useState(() => searchParams.get('prime') === '1');
+  const [showPrimer, setShowPrimer] = useState(() => shouldOpenPrepFromSearchParams(searchParams));
   const [showMissed, setShowMissed] = useState(() => searchParams.get('missed') === '1');
   const [search, setSearch] = useState('');
   const [onlyUnknown, setOnlyUnknown] = useState(false);
@@ -315,7 +316,7 @@ export function EpisodeDetailPage() {
               onClick={() => setShowPrimer((v) => !v)}
               className="px-3 py-1.5 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-xs font-bold cursor-pointer"
             >
-              {showPrimer ? 'Hide Pre-Watch Primer' : 'Pre-Watch Primer (Top 10)'}
+              {showPrimer ? 'Hide Prep' : 'Prep this episode (10 words)'}
             </button>
             <button
               type="button"

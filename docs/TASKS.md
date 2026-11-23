@@ -77,7 +77,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **S-18** (#131) Verify STT end to end with a real whisper-server. deps: O-6
 - [x] **W-10** (#132) Review page: sentence translation on the answer side (antigravity, 2026-11-23: pure `formatReviewSentenceTranslation` respecting EN/DE gloss language with fallback and null omission, shown below the furigana sentence in `ReviewPage.tsx` after reveal, unit tests)
 - [x] **W-11** (#133) Web app 先生 favicon + installable PWA for phone reviews (antigravity, 2026-11-23: reproducible `web/scripts/generate-icons.sh`, committed multi-res `favicon.ico` + PNG favicons + 180 px `apple-touch-icon.png` + 192/512/maskable PWA icons, `manifest.webmanifest`, `index.html` PWA meta/links, 390 px mobile-responsive header & ReviewPage polish, unit tests)
-- [ ] **W-12/E-15** (#134) "Prep this episode": 10 most useful words before watching
+- [x] **W-12/E-15** (#134) "Prep this episode": 10 most useful words before watching (antigravity, 2026-11-23: upgraded Prep view on `EpisodeDetailPage` to use `GET /episodes/{id}/missed?limit=10` with readings, EN/DE meanings, furigana example sentences, optional existing-card line audio playback, "Learn" `POST /cards` + "I know it" `POST /words/{id}/status`, and linked from extension popup "Prep this episode: 10 words" via `?prep=1`, unit tests)
 - [ ] **E-16** (#135) Popup: translation progress for the attached episode. deps: S-16
 - [ ] **S-19** (#137) Piecewise sync points (subtitles survive cuts)
 - [ ] **E-17** (#138) Background re-sync + sync points in the extension. deps: S-19
