@@ -47,7 +47,14 @@ from app.ingest import (
     understanding,
     word_counts,
 )
-from app.jimaku import Jimaku, JimakuError, extract_subtitle, guess_episode, rank
+from app.jimaku import (
+    Jimaku,
+    JimakuError,
+    extract_subtitle,
+    guess_episode,
+    rank,
+    rank_entries,
+)
 from app.llm import LLM, LLMError, explain_line
 from app.models import (
     Anime,
@@ -916,6 +923,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not q and anilist_id is None:
             raise HTTPException(422, "pass q or anilist_id")
         found = jimaku_call(app.state.jimaku.search, q or "", anilist_id)
+        if q:
+            found = rank_entries(q, found)
         return [entry_out(e) for e in found[:25]]
 
     @app.get(
@@ -984,6 +993,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else imports the recommended Japanese subtitle file."""
         jm = app.state.jimaku
         entry = None
+        number = body.episode_number
         if body.anime_id is not None:
             anime = session.get(Anime, body.anime_id)
             if anime is None:
@@ -994,17 +1004,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 found = jimaku_call(jm.search, "", anime.anilist_id)
                 entry = found[0] if found else None
             if entry is None:
-                found = jimaku_call(jm.search, anime.title)
+                found = rank_entries(anime.title, jimaku_call(jm.search, anime.title), number)
                 entry = found[0] if found else None
         elif body.query and body.query.strip():
-            found = jimaku_call(jm.search, body.query.strip())
-            entry = found[0] if found else None
+            query = body.query.strip()
+            found = rank_entries(query, jimaku_call(jm.search, query), number)
+            entry = found[0] if found else None  # no title match at all: Jimaku's order
         else:
             raise HTTPException(422, "pass query or anime_id")
         if entry is None:
             raise HTTPException(404, f"no anime matching {body.query or 'that title'!r} on Jimaku")
 
-        number = body.episode_number
         anime = library_anime_for(session, entry)
         if anime is not None:
             ep = session.exec(

@@ -210,6 +210,9 @@ Needs `SENSEI_JIMAKU_API_KEY` on the server (503 otherwise; 502 if jimaku.cc rej
 
 ### `GET /subs/search?q=<title>` (or `?anilist_id=`) → `JimakuEntry[]`
 `[{"id":729,"name":"Sousou no Frieren","english_name":"Frieren: Beyond Journey's End","japanese_name":"葬送のフリーレン","anilist_id":154587,"movie":false}]`
+With `q`, hits are ordered by title match (#158): exact title (any of name / English / Japanese,
+ignoring case, punctuation and ×/x) first, then prefix, then contains; shorter extra text and
+non-movies first; Jimaku's order breaks ties. "Naruto" → `NARUTO`, not `BORUTO: …`.
 
 ### `GET /subs/{entry_id}/files?episode=<n>` → `JimakuFile[]` (best first)
 ```json
@@ -235,7 +238,7 @@ episode number is replaced in place (200, `replaced: true`, see `POST /episodes`
 ### `POST /episodes/auto` body `{"query"?:"Frieren: Beyond Journey's End","episode_number":4,"anime_id"?:1}` → `AutoImportOut`
 One step from "watching X episode N" to an episode (S-12, #106):
 - `anime_id` (a library anime, e.g. remembered for this site): reuses its Jimaku entry, no search.
-- else `query` (the title guessed from the tab): the first Jimaku search hit.
+- else `query` (the title guessed from the tab): the best search hit, ranked as in `GET /subs/search`.
 - Already imported (same anime + number) → that episode, `existing: true`, nothing downloaded.
 - Otherwise imports the **recommended** file like `POST /episodes/from-jimaku`.
 ```json
