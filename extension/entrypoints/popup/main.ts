@@ -2,6 +2,7 @@ import {
   api,
   type AutoImportOut,
   type EpisodeOut,
+  isNativeUpdateStateChangedMessage,
   isTabStateChangedMessage,
   type JimakuEntry,
   type JimakuFile,
@@ -32,7 +33,6 @@ import {
   createUpdatingPopupUpdateState,
   interpretUpdateResponse,
   type PopupUpdateUiState,
-  sendNativeUpdaterMessage,
 } from '../../src/lib/native-updater';
 import {
   extractOverlayHostKey,
@@ -149,6 +149,8 @@ let currentExtensionFolder = '';
 let currentUpdateCommand = '';
 let currentSetupCommand = '';
 let isUpdatingExtension = false;
+let backgroundUpdateState: PopupUpdateUiState | null = null;
+let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let jimakuSelectedEntry: JimakuEntry | null = null;
 let jimakuFiles: JimakuFile[] = [];
 let jimakuSelectedFileName = '';
@@ -192,6 +194,50 @@ function renderUpdateBannerState(ui: PopupUpdateUiState): void {
   updateFallbackBox.style.display = ui.showFallbackCommand ? 'block' : 'none';
 }
 
+function stopUpdatePoll(): void {
+  if (updatePollTimer !== null) {
+    clearInterval(updatePollTimer);
+    updatePollTimer = null;
+  }
+}
+
+function ensureUpdatePoll(): void {
+  if (updatePollTimer !== null) return;
+  updatePollTimer = setInterval(() => {
+    void api.getNativeUpdateState().then((res) => {
+      if (res.state) {
+        applyBackgroundUpdateState(res.state);
+      } else {
+        stopUpdatePoll();
+      }
+    });
+  }, 1500);
+}
+
+function applyBackgroundUpdateState(state: PopupUpdateUiState | null): void {
+  backgroundUpdateState = state;
+  isUpdatingExtension = state?.mode === 'updating' || state?.mode === 'reloading';
+  if (state?.mode === 'updating') {
+    ensureUpdatePoll();
+  } else {
+    stopUpdatePoll();
+  }
+  if (!state) return;
+
+  if (state.mode === 'updating' || state.mode === 'reloading') {
+    if (!updateBannerTitle.textContent) {
+      updateBannerTitle.textContent = 'Updating extension…';
+    }
+    updateBanner.className = 'update-banner visible';
+    renderUpdateBannerState(state);
+    return;
+  }
+
+  if (updateBanner.classList.contains('visible')) {
+    renderUpdateBannerState(state);
+  }
+}
+
 function hideUpdateBanner(): void {
   if (isUpdatingExtension) return;
   updateBanner.className = 'update-banner';
@@ -204,18 +250,27 @@ function hideUpdateBanner(): void {
 }
 
 async function checkForExtensionUpdate(): Promise<void> {
-  if (isUpdatingExtension) return;
   const seq = ++updateCheckSeq;
-  const res = await api.getExtensionVersion();
-  if (seq !== updateCheckSeq || isUpdatingExtension) return;
+  const [res, bgStateRes] = await Promise.all([
+    api.getExtensionVersion(),
+    api.getNativeUpdateState(),
+  ]);
+  if (seq !== updateCheckSeq) return;
+  if (bgStateRes.state) {
+    applyBackgroundUpdateState(bgStateRes.state);
+  }
   if (!res.ok) {
-    hideUpdateBanner();
+    if (!isUpdatingExtension) {
+      hideUpdateBanner();
+    }
     return;
   }
   const info = parseVersionInfo(res.data);
   const status = evaluateUpdateStatus(getBuildCommit(), info);
   if (!status?.updateAvailable) {
-    hideUpdateBanner();
+    if (!isUpdatingExtension) {
+      hideUpdateBanner();
+    }
     return;
   }
   updateBannerTitle.textContent = formatUpdateHeadline(status);
@@ -225,13 +280,17 @@ async function checkForExtensionUpdate(): Promise<void> {
     currentVerTag && latestVerTag
       ? `${currentVerTag} → ${latestVerTag} (${status.currentCommit} → ${status.latestCommit})`
       : `Installed ${status.currentCommit} → server ${status.latestCommit}`;
-  renderUpdateBannerState(
-    createInitialPopupUpdateState({
-      nativeSupported: canUseNativeUpdater(),
-      serverUrl: currentServerUrl,
-      extensionFolder: currentExtensionFolder,
-    }),
-  );
+  if (backgroundUpdateState) {
+    renderUpdateBannerState(backgroundUpdateState);
+  } else {
+    renderUpdateBannerState(
+      createInitialPopupUpdateState({
+        nativeSupported: canUseNativeUpdater(),
+        serverUrl: currentServerUrl,
+        extensionFolder: currentExtensionFolder,
+      }),
+    );
+  }
   updateBanner.className = 'update-banner visible';
 }
 
@@ -464,10 +523,14 @@ async function refreshPopup(): Promise<void> {
     jimakuEpNum.value = String(guessedEpFromTab);
   }
 
-  const [tabState, forcedManualSearch] = await Promise.all([
+  const [tabState, forcedManualSearch, bgUpdateRes] = await Promise.all([
     api.getTabState(activeTabId ?? undefined, activeTabUrl),
     activeTabId !== null ? api.consumeManualSearchFlag(activeTabId) : Promise.resolve(false),
+    api.getNativeUpdateState(),
   ]);
+  if (bgUpdateRes.state) {
+    applyBackgroundUpdateState(bgUpdateRes.state);
+  }
   attachedEpisodeId = tabState.episodeId;
   tabEnableToggle.checked = tabState.enabled;
   pagePatternText.textContent = tabState.pattern ?? 'unsupported page';
@@ -945,20 +1008,21 @@ openOptionsBtn.addEventListener('click', () => {
 
 updateNowBtn.addEventListener('click', async () => {
   if (isUpdatingExtension) return;
-  isUpdatingExtension = true;
   const ctx = {
     serverUrl: currentServerUrl,
     extensionFolder: currentExtensionFolder,
   };
-  renderUpdateBannerState(createUpdatingPopupUpdateState(ctx));
-  const result = await sendNativeUpdaterMessage({ action: 'update' });
-  const nextState = interpretUpdateResponse(result, ctx);
-  isUpdatingExtension = nextState.shouldReload;
-  renderUpdateBannerState(nextState);
-  if (nextState.shouldReload) {
-    setTimeout(() => {
-      reloadExtension();
-    }, 400);
+  applyBackgroundUpdateState(createUpdatingPopupUpdateState(ctx));
+  const res = await api.startNativeUpdate();
+  if (res.state) {
+    applyBackgroundUpdateState(res.state);
+  } else {
+    applyBackgroundUpdateState(
+      interpretUpdateResponse(
+        { runtimeError: res.error ?? 'Extension background worker unavailable.' },
+        ctx,
+      ),
+    );
   }
 });
 
@@ -1021,6 +1085,10 @@ missedEpisodeBtn.addEventListener('click', async () => {
 });
 
 browser.runtime.onMessage.addListener((msg: unknown) => {
+  if (isNativeUpdateStateChangedMessage(msg)) {
+    applyBackgroundUpdateState(msg.state);
+    return;
+  }
   if (isTabStateChangedMessage(msg) && msg.state.tabId === activeTabId) {
     if (msg.state.episodeId !== attachedEpisodeId) {
       attachedEpisodeId = msg.state.episodeId;

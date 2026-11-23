@@ -1,5 +1,6 @@
 import type { components, paths } from './schema';
 import type { AutoAttachNotice } from '../lib/auto-attach';
+import type { PopupUpdateUiState } from '../lib/native-updater';
 import {
   type ExtensionSettings,
   getSettings,
@@ -247,6 +248,24 @@ export interface AnkiImportDeckResponse {
   error?: string;
 }
 
+export interface StartNativeUpdateMessage {
+  type: 'SENSEI_START_NATIVE_UPDATE';
+}
+
+export interface GetNativeUpdateStateMessage {
+  type: 'SENSEI_GET_NATIVE_UPDATE_STATE';
+}
+
+export interface NativeUpdateStateChangedMessage {
+  type: 'SENSEI_NATIVE_UPDATE_STATE_CHANGED';
+  state: PopupUpdateUiState;
+}
+
+export interface NativeUpdateStateResponse {
+  state: PopupUpdateUiState | null;
+  error?: string;
+}
+
 export function isApiCallMessage(msg: unknown): msg is ApiCallMessage {
   return (
     typeof msg === 'object' &&
@@ -418,6 +437,34 @@ export function isAnkiImportDeckMessage(msg: unknown): msg is AnkiImportDeckMess
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_ANKI_IMPORT_DECK' &&
     typeof (msg as { deck?: unknown }).deck === 'string'
+  );
+}
+
+export function isStartNativeUpdateMessage(msg: unknown): msg is StartNativeUpdateMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_START_NATIVE_UPDATE'
+  );
+}
+
+export function isGetNativeUpdateStateMessage(msg: unknown): msg is GetNativeUpdateStateMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_GET_NATIVE_UPDATE_STATE'
+  );
+}
+
+export function isNativeUpdateStateChangedMessage(
+  msg: unknown,
+): msg is NativeUpdateStateChangedMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_NATIVE_UPDATE_STATE_CHANGED' &&
+    typeof (msg as { state?: unknown }).state === 'object' &&
+    (msg as { state?: unknown }).state !== null
   );
 }
 
@@ -1255,6 +1302,45 @@ export const api = {
         ok: false,
         error: err instanceof Error ? err.message : String(err),
       };
+    }
+  },
+
+  async startNativeUpdate(): Promise<NativeUpdateStateResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { state: null, error: 'Extension background worker unavailable' };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_START_NATIVE_UPDATE',
+      } satisfies StartNativeUpdateMessage)) as NativeUpdateStateResponse | undefined;
+      if (res && 'state' in res) {
+        return res;
+      }
+      return { state: null, error: 'Invalid update response from background worker' };
+    } catch (err) {
+      return {
+        state: null,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  },
+
+  async getNativeUpdateState(): Promise<NativeUpdateStateResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { state: null };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_GET_NATIVE_UPDATE_STATE',
+      } satisfies GetNativeUpdateStateMessage)) as NativeUpdateStateResponse | undefined;
+      if (res && 'state' in res) {
+        return res;
+      }
+      return { state: null };
+    } catch {
+      return { state: null };
     }
   },
 };

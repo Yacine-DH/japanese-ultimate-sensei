@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  BackgroundNativeUpdater,
   buildInstallUpdaterCommand,
   canUseNativeUpdater,
   createInitialPopupUpdateState,
@@ -10,6 +11,8 @@ import {
   interpretUpdateResponse,
   isHostNotFoundError,
   NATIVE_UPDATER_HOST,
+  type NativeMessageTransportResult,
+  type PopupUpdateUiState,
   sendNativeUpdaterMessage,
 } from '../src/lib/native-updater';
 
@@ -281,9 +284,101 @@ describe('native updater helpers (#141)', () => {
     expect(hostErr.summary).toContain('config.json missing');
   });
 
-  it('wires Update now, One-time setup, popup version footer, and Options Check updater', () => {
+  it('runs native update in BackgroundNativeUpdater, deduplicates starts, and reloads on success (#144)', async () => {
+    let resolveHost!: (res: NativeMessageTransportResult) => void;
+    const sendNativeMessage = vi.fn(
+      () =>
+        new Promise<NativeMessageTransportResult>((resolve) => {
+          resolveHost = resolve;
+        }),
+    );
+    const scheduled: Array<{ cb: () => void; ms: number }> = [];
+    const reload = vi.fn(() => true);
+    const states: PopupUpdateUiState[] = [];
+
+    const updater = new BackgroundNativeUpdater({
+      sendNativeMessage,
+      reloadExtension: reload,
+      onStateChange: (s) => states.push(s),
+      reloadDelayMs: 400,
+      scheduleTimeout: (cb, ms) => {
+        scheduled.push({ cb, ms });
+        return 1;
+      },
+    });
+
+    expect(updater.getState()).toBeNull();
+    expect(updater.isRunning()).toBe(false);
+
+    const ctx = { serverUrl: 'http://barkhausstr64:8000', extensionFolder: 'C:\\Sensei' };
+    const first = updater.startUpdate(ctx);
+    expect(first.mode).toBe('updating');
+    expect(updater.isRunning()).toBe(true);
+    expect(sendNativeMessage).toHaveBeenCalledTimes(1);
+    expect(sendNativeMessage).toHaveBeenCalledWith({ action: 'update' }, NATIVE_UPDATER_HOST);
+
+    // Clicking Update now again while running does not launch a second native host
+    const dup = updater.startUpdate(ctx);
+    expect(dup.mode).toBe('updating');
+    expect(sendNativeMessage).toHaveBeenCalledTimes(1);
+
+    resolveHost({
+      reply: { ok: true, version: '0.1.34', commit: '1122334', files: 16, removed: 0 },
+      runtimeError: null,
+    });
+    const finalState = await updater.waitForCurrentUpdate();
+    expect(finalState?.mode).toBe('reloading');
+    expect(finalState?.progressText).toBe('Updated to v0.1.34, reloading');
+    expect(states.map((s) => s.mode)).toEqual(['updating', 'reloading']);
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]?.ms).toBe(400);
+    expect(reload).not.toHaveBeenCalled();
+
+    // Firing the timer calls runtime.reload() even if the popup was closed
+    scheduled[0]!.cb();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows retry after BackgroundNativeUpdater error/not-installed and ignores listener throws (#144)', async () => {
+    const sendNativeMessage = vi
+      .fn<() => Promise<NativeMessageTransportResult>>()
+      .mockResolvedValueOnce({
+        runtimeError: 'Specified native messaging host not found.',
+      })
+      .mockResolvedValueOnce({
+        reply: { ok: false, error: 'sha256 mismatch' },
+        runtimeError: null,
+      });
+    const reload = vi.fn(() => true);
+    const updater = new BackgroundNativeUpdater({
+      sendNativeMessage,
+      reloadExtension: reload,
+      onStateChange: () => {
+        throw new Error('popup closed');
+      },
+    });
+
+    const ctx = { serverUrl: 'http://barkhausstr64:8000' };
+    updater.startUpdate(ctx);
+    const firstEnd = await updater.waitForCurrentUpdate();
+    expect(firstEnd?.mode).toBe('not-installed');
+    expect(updater.isRunning()).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+
+    // Retry works cleanly
+    updater.startUpdate(ctx);
+    const secondEnd = await updater.waitForCurrentUpdate();
+    expect(secondEnd?.mode).toBe('error');
+    expect(secondEnd?.errorMessage).toBe('sha256 mismatch');
+    expect(updater.isRunning()).toBe(false);
+    expect(sendNativeMessage).toHaveBeenCalledTimes(2);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('wires Update now through background worker, popup progress/setup, and Options Check updater (#141, #144)', () => {
     const popupHtml = readFileSync(resolve(__dirname, '../entrypoints/popup/index.html'), 'utf-8');
     const popupMain = readFileSync(resolve(__dirname, '../entrypoints/popup/main.ts'), 'utf-8');
+    const backgroundTs = readFileSync(resolve(__dirname, '../entrypoints/background.ts'), 'utf-8');
     const optionsHtml = readFileSync(
       resolve(__dirname, '../entrypoints/options/index.html'),
       'utf-8',
@@ -296,9 +391,18 @@ describe('native updater helpers (#141)', () => {
     expect(popupHtml).toContain('id="update-now-btn"');
     expect(popupHtml).toContain('id="update-setup-box"');
     expect(popupHtml).toContain('id="popup-version"');
-    expect(popupMain).toContain("sendNativeUpdaterMessage({ action: 'update' })");
-    expect(popupMain).toContain('interpretUpdateResponse');
+    // Popup delegates update execution to the background worker (#144)
+    expect(popupMain).not.toContain("sendNativeUpdaterMessage({ action: 'update' })");
+    expect(popupMain).toContain('api.startNativeUpdate()');
+    expect(popupMain).toContain('api.getNativeUpdateState()');
+    expect(popupMain).toContain('isNativeUpdateStateChangedMessage');
     expect(popupMain).toContain('formatPopupFooterVersion');
+
+    // Background owns BackgroundNativeUpdater and runtime messages
+    expect(backgroundTs).toContain('new BackgroundNativeUpdater');
+    expect(backgroundTs).toContain('isStartNativeUpdateMessage');
+    expect(backgroundTs).toContain('isGetNativeUpdateStateMessage');
+    expect(backgroundTs).toContain('SENSEI_NATIVE_UPDATE_STATE_CHANGED');
 
     expect(optionsHtml).toContain('id="check-updater-btn"');
     expect(optionsHtml).toContain('id="updater-status"');
