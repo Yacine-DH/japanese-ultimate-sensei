@@ -9,6 +9,17 @@ from app.dictionary import Dictionary, build
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_settings(monkeypatch):
+    """Tests never see the real server/.env or SENSEI_* variables of the shell (#127)."""
+    import os
+
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    for name in list(os.environ):
+        if name.startswith("SENSEI_"):
+            monkeypatch.delenv(name)
+
+
 @pytest.fixture(scope="session")
 def dict_path(tmp_path_factory) -> Path:
     out = tmp_path_factory.mktemp("dict") / "jmdict.sqlite"
