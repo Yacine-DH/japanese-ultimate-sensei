@@ -2,6 +2,7 @@ import type {
   ApiCallResponse,
   EpisodeOut,
   LineOut,
+  SyncPoint,
   WordStatus,
 } from '../api/client';
 import { updateWordStatusInLines } from './highlight';
@@ -165,9 +166,23 @@ export class EpisodeTranscriptCache {
   }
 
   async updateEpisodeOffset(episodeId: number, subOffsetMs: number): Promise<void> {
+    await this.updateEpisodeSync(episodeId, subOffsetMs);
+  }
+
+  async updateEpisodeSync(
+    episodeId: number,
+    subOffsetMs: number,
+    syncPoints?: SyncPoint[],
+  ): Promise<void> {
+    const patchEpisode = (ep: EpisodeOut): EpisodeOut => ({
+      ...ep,
+      sub_offset_ms: subOffsetMs,
+      ...(syncPoints !== undefined ? { sync_points: syncPoints } : {}),
+    });
+
     const cached = this.episodes.get(episodeId);
     if (cached) {
-      await this.setEpisode({ ...cached, sub_offset_ms: subOffsetMs });
+      await this.setEpisode(patchEpisode(cached));
       return;
     }
     if (this.sessionStorage) {
@@ -176,7 +191,7 @@ export class EpisodeTranscriptCache {
         const stored = await this.sessionStorage.get(key);
         const ep = stored?.[key] as EpisodeOut | undefined;
         if (ep && typeof ep.id === 'number') {
-          await this.setEpisode({ ...ep, sub_offset_ms: subOffsetMs });
+          await this.setEpisode(patchEpisode(ep));
         }
       } catch {
         // Ignore session storage errors

@@ -54,6 +54,7 @@ describe('Jimaku popup search helpers (#60)', () => {
         source: 'jimaku',
         source_filename: 'frieren03.srt',
         sub_offset_ms: 0,
+        sync_points: [],
         line_count: 300,
         created_at: '2026-11-21T00:00:00Z',
       },

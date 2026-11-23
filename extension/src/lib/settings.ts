@@ -18,6 +18,7 @@ export interface ExtensionSettings {
   pauseOnHover: boolean;
   requireShiftForHover: boolean;
   autoPauseEachLine: boolean;
+  backgroundAutoSync: boolean;
   ankiConnectEnabled: boolean;
   ankiConnectUrl: string;
   ankiDeckName: string;
@@ -45,6 +46,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   pauseOnHover: DEFAULT_HOVER_CONFIG.pauseOnHover,
   requireShiftForHover: DEFAULT_HOVER_CONFIG.requireShiftForHover,
   autoPauseEachLine: false,
+  backgroundAutoSync: true,
   ankiConnectEnabled: false,
   ankiConnectUrl: DEFAULT_ANKI_CONNECT_URL,
   ankiDeckName: DEFAULT_ANKI_DECK_NAME,
@@ -112,6 +114,7 @@ export function sanitizeSettings(partial?: Partial<ExtensionSettings> | null): E
     pauseOnHover: Boolean(merged.pauseOnHover),
     requireShiftForHover: Boolean(merged.requireShiftForHover),
     autoPauseEachLine: Boolean(merged.autoPauseEachLine),
+    backgroundAutoSync: Boolean(merged.backgroundAutoSync),
     ankiConnectEnabled: Boolean(merged.ankiConnectEnabled),
     ankiConnectUrl: isServerUrlConfigured(ankiUrl) ? ankiUrl : DEFAULT_ANKI_CONNECT_URL,
     ankiDeckName: ankiDeck || DEFAULT_ANKI_DECK_NAME,

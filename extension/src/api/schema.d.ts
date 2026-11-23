@@ -1094,7 +1094,7 @@ export interface components {
             video_start_ms: number;
             /**
              * Apply
-             * @description Set sub_offset_ms when the result is confident
+             * @description Store the result when it is confident
              * @default true
              */
             apply: boolean;
@@ -1265,8 +1265,22 @@ export interface components {
             source: string;
             /** Source Filename */
             source_filename: string | null;
-            /** Sub Offset Ms */
+            /**
+             * Sub Offset Ms
+             * @description Offset before the first sync point (or everywhere)
+             */
             sub_offset_ms: number;
+            /**
+             * Sync Points
+             * @description Piecewise offsets (#137): from each at_ms (video time) on, offset_ms applies until the next point. Sorted. Empty = sub_offset_ms everywhere
+             * @default []
+             */
+            sync_points: components["schemas"]["SyncPoint"][];
+            /**
+             * Synced At
+             * @description Last confident auto-sync
+             */
+            synced_at?: string | null;
             /** Line Count */
             line_count: number;
             /**
@@ -1298,8 +1312,22 @@ export interface components {
             source: string;
             /** Source Filename */
             source_filename: string | null;
-            /** Sub Offset Ms */
+            /**
+             * Sub Offset Ms
+             * @description Offset before the first sync point (or everywhere)
+             */
             sub_offset_ms: number;
+            /**
+             * Sync Points
+             * @description Piecewise offsets (#137): from each at_ms (video time) on, offset_ms applies until the next point. Sorted. Empty = sub_offset_ms everywhere
+             * @default []
+             */
+            sync_points: components["schemas"]["SyncPoint"][];
+            /**
+             * Synced At
+             * @description Last confident auto-sync
+             */
+            synced_at?: string | null;
             /** Line Count */
             line_count: number;
             /**
@@ -1312,6 +1340,11 @@ export interface components {
         EpisodePatch: {
             /** Sub Offset Ms */
             sub_offset_ms?: number | null;
+            /**
+             * Sync Points
+             * @description Replace all sync points ([] removes them)
+             */
+            sync_points?: components["schemas"]["SyncPoint"][] | null;
             /** Title */
             title?: string | null;
             /** Number */
@@ -1494,7 +1527,7 @@ export interface components {
             episode: number | null;
             /**
              * Multi Episode
-             * @description Several episodes in one file (e.g. 01-04): can't import
+             * @description Several episodes in one file (e.g. 01-04): can't import. A .zip whose range covers the requested episode is not multi_episode (the episode is unpacked)
              */
             multi_episode: boolean;
             /**
@@ -1782,16 +1815,44 @@ export interface components {
         SyncOut: {
             /**
              * Offset Ms
-             * @description Best sub_offset_ms found (a guess when not confident)
+             * @description Best offset found for the sample (a guess when not confident)
              */
             offset_ms: number;
-            /** Previous Offset Ms */
+            /**
+             * Previous Offset Ms
+             * @description Offset that was in effect at the sample
+             */
             previous_offset_ms: number;
             /**
              * Applied
-             * @description True when the episode's sub_offset_ms was set to offset_ms
+             * @description True when the result was stored (see action)
              */
             applied: boolean;
+            /**
+             * Action
+             * @description base: first sync, set sub_offset_ms · refined: corrected the stretch the sample is in (≤ 1.5 s change) · point: a cut, new sync point at at_ms · none: not stored
+             * @default none
+             * @enum {string}
+             */
+            action: "base" | "refined" | "point" | "none";
+            /**
+             * At Ms
+             * @description Video time of the sample start
+             * @default 0
+             */
+            at_ms: number;
+            /**
+             * Sub Offset Ms
+             * @description The episode's sub_offset_ms after this
+             * @default 0
+             */
+            sub_offset_ms: number;
+            /**
+             * Sync Points
+             * @description The episode's points after this
+             * @default []
+             */
+            sync_points: components["schemas"]["SyncPoint"][];
             /**
              * Confident
              * @description confidence >= 4.5 and >= runner_up + 1
@@ -1826,6 +1887,16 @@ export interface components {
              * @description 'ok', or why the result isn't confident
              */
             detail: string;
+        };
+        /** SyncPoint */
+        SyncPoint: {
+            /**
+             * At Ms
+             * @description Video time from which offset_ms applies
+             */
+            at_ms: number;
+            /** Offset Ms */
+            offset_ms: number;
         };
         /** TokenOut */
         TokenOut: {

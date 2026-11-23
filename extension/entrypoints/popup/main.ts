@@ -2,6 +2,8 @@ import {
   api,
   type AutoImportOut,
   type EpisodeOut,
+  type EpisodeSyncUpdatedMessage,
+  isEpisodeSyncUpdatedMessage,
   isNativeUpdateStateChangedMessage,
   isTabStateChangedMessage,
   type JimakuEntry,
@@ -18,6 +20,7 @@ import {
   decideAutoAttach,
   resolvePageEpisodeInfo,
 } from '../../src/lib/auto-attach';
+import { formatSyncSummary } from '../../src/lib/auto-sync';
 import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
 import {
   describeJimakuFileWarning,
@@ -133,6 +136,9 @@ const translationProgressBarFill = document.getElementById(
 ) as HTMLDivElement;
 const autoSyncWrap = document.getElementById('auto-sync-wrap') as HTMLDivElement;
 const autoSyncBtn = document.getElementById('auto-sync-btn') as HTMLButtonElement;
+const syncSummaryText = document.getElementById('sync-summary-text') as HTMLSpanElement;
+const resetSyncBtn = document.getElementById('reset-sync-btn') as HTMLButtonElement;
+const syncPointsListEl = document.getElementById('sync-points-list') as HTMLDivElement;
 const autoSyncStatus = document.getElementById('auto-sync-status') as HTMLDivElement;
 const primeEpisodeBtn = document.getElementById('prime-episode-btn') as HTMLButtonElement;
 const missedEpisodeBtn = document.getElementById('missed-episode-btn') as HTMLButtonElement;
@@ -453,10 +459,33 @@ function syncTranslationProgressForAttachedEpisode(): void {
   void pollTranslationProgress(attachedEpisodeId, seq);
 }
 
+function renderSyncSummary(): void {
+  const attachedEp =
+    attachedEpisodeId !== null
+      ? allEpisodes.find((e) => e.id === attachedEpisodeId) ?? null
+      : null;
+  const summary = formatSyncSummary(attachedEp);
+  syncSummaryText.textContent = summary.headline;
+  resetSyncBtn.disabled = !summary.canReset;
+  syncPointsListEl.innerHTML = '';
+  if (summary.pointLabels.length > 0) {
+    for (const label of summary.pointLabels) {
+      const pill = document.createElement('span');
+      pill.className = 'sync-point-pill';
+      pill.textContent = label;
+      syncPointsListEl.appendChild(pill);
+    }
+    syncPointsListEl.style.display = 'flex';
+  } else {
+    syncPointsListEl.style.display = 'none';
+  }
+}
+
 function updatePrimerButton(): void {
   const url =
     attachedEpisodeId !== null ? buildPrepUrl(currentServerUrl, attachedEpisodeId) : null;
   autoSyncWrap.style.display = attachedEpisodeId !== null ? 'block' : 'none';
+  renderSyncSummary();
   if (attachedEpisodeId === null) {
     autoSyncStatus.style.display = 'none';
     autoSyncStatus.textContent = '';
@@ -711,6 +740,7 @@ async function refreshPopup(): Promise<void> {
   if (episodesRes.ok && episodesRes.data) {
     allEpisodes = episodesRes.data;
     renderEpisodeOptions();
+    renderSyncSummary();
 
     if (attachedEpisodeId !== null) {
       suggestedEpisode = null;
@@ -905,6 +935,41 @@ primeEpisodeBtn.addEventListener('click', () => {
   const url = buildPrepUrl(currentServerUrl, attachedEpisodeId);
   if (url) {
     void browser.tabs.create({ url });
+  }
+});
+
+resetSyncBtn.addEventListener('click', async () => {
+  if (attachedEpisodeId === null) return;
+  const targetEpisodeId = attachedEpisodeId;
+  resetSyncBtn.disabled = true;
+  autoSyncStatus.style.display = 'block';
+  autoSyncStatus.textContent = 'Resetting sync…';
+  try {
+    const res = await api.patchEpisode(targetEpisodeId, {
+      sub_offset_ms: 0,
+      sync_points: [],
+    });
+    if (res.ok && res.data) {
+      upsertEpisode(res.data);
+      renderSyncSummary();
+      if (activeTabId !== null) {
+        void browser.tabs
+          .sendMessage(activeTabId, {
+            type: 'SENSEI_EPISODE_SYNC_UPDATED',
+            episodeId: res.data.id,
+            subOffsetMs: res.data.sub_offset_ms,
+            syncPoints: res.data.sync_points ?? [],
+          } satisfies EpisodeSyncUpdatedMessage)
+          .catch(() => {});
+      }
+      autoSyncStatus.textContent = 'Sync reset to 0.0 s.';
+    } else {
+      autoSyncStatus.textContent = `Reset failed: ${res.error ?? 'Unknown error'}`;
+      renderSyncSummary();
+    }
+  } catch {
+    autoSyncStatus.textContent = 'Reset failed.';
+    renderSyncSummary();
   }
 });
 
@@ -1221,6 +1286,20 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
     applyBackgroundUpdateState(msg.state);
     return;
   }
+  if (isEpisodeSyncUpdatedMessage(msg)) {
+    const existing = allEpisodes.find((e) => e.id === msg.episodeId);
+    if (existing) {
+      upsertEpisode({
+        ...existing,
+        sub_offset_ms: msg.subOffsetMs,
+        sync_points: msg.syncPoints,
+      });
+      if (attachedEpisodeId === msg.episodeId) {
+        renderSyncSummary();
+      }
+    }
+    return;
+  }
   if (isTabStateChangedMessage(msg) && msg.state.tabId === activeTabId) {
     if (msg.state.episodeId !== attachedEpisodeId) {
       attachedEpisodeId = msg.state.episodeId;
@@ -1235,6 +1314,7 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
             if (res.ok && res.data) {
               allEpisodes = res.data;
               renderEpisodeOptions();
+              renderSyncSummary();
             }
           });
         }

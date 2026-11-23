@@ -263,6 +263,39 @@
       .translation-progress-fill.muted {
         background: #64748b;
       }
+      .sync-info-box {
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-top: 6px;
+      }
+      .sync-info-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .sync-info-text {
+        font-size: 0.74rem;
+        color: #cbd5e1;
+        font-weight: 600;
+      }
+      .sync-points-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 5px;
+      }
+      .sync-point-pill {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.67rem;
+        color: #7dd3fc;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
       .setup-card {
         display: none;
         background: rgba(56, 189, 248, 0.08);
@@ -630,6 +663,13 @@
         </button>
         <div class="muted" style="font-size: 0.71rem; margin-top: 4px">
           Sync during dialogue, not during the opening song.
+        </div>
+        <div id="sync-info-box" class="sync-info-box">
+          <div class="sync-info-row">
+            <span id="sync-summary-text" class="sync-info-text">Default timing (0.0 s)</span>
+            <button id="reset-sync-btn" type="button" class="small" disabled>Reset sync</button>
+          </div>
+          <div id="sync-points-list" class="sync-points-list" style="display: none"></div>
         </div>
         <div id="auto-sync-status" class="upload-status muted" style="display: none"></div>
       </div>

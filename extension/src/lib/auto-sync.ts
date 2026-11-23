@@ -1,15 +1,26 @@
-import type { ApiCallResponse, SyncOut } from '../api/client';
+import type { ApiCallResponse, EpisodeOut, SyncOut, SyncPoint } from '../api/client';
 import {
   AUDIO_MIME_CANDIDATES,
   getVideoCaptureStream,
   pickRecorderMimeType,
   type VideoWithCaptureStream,
 } from './capture';
+import { normalizeSyncPoints } from './timing';
 
 export const AUTO_SYNC_DURATION_MS = 45_000;
 export const AUTO_SYNC_MAX_BUFFERING_MS = 1_000;
 export const AUTO_SYNC_MAX_DRIFT_MS = 250;
 export const AUTO_SYNC_MIN_SEARCH_MS = 10_000;
+
+export const BACKGROUND_SYNC_INTERVAL_MS = 180_000;
+export const BACKGROUND_SYNC_SEEK_THRESHOLD_MS = 30_000;
+export const BACKGROUND_SYNC_SEEK_SETTLE_MS = 1_500;
+export const BACKGROUND_SYNC_SEEK_BURST_MS = 2_500;
+export const BACKGROUND_SYNC_TOAST_MIN_DELTA_MS = 100;
+export const BACKGROUND_SYNC_MAX_TICK_STEP_MS = 10_000;
+
+export type AutoSyncRunMode = 'manual' | 'background';
+export type BackgroundSyncTriggerReason = 'periodic' | 'seek';
 
 export const AUTO_SYNC_ABORT_MESSAGE = 'Keep it playing at 1× while syncing';
 export const AUTO_SYNC_DIALOGUE_HINT = 'Try during dialogue, not during the opening song.';
@@ -110,6 +121,117 @@ export function formatOffsetSeconds(offsetMs: number): string {
   return `${sign}${tenths.toFixed(1)} s`;
 }
 
+export function formatSyncTimestamp(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return '0:00';
+  }
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function findOwningSyncPointAt(
+  atMs: number,
+  syncPoints: readonly SyncPoint[] | undefined,
+): SyncPoint | null {
+  const normalized = normalizeSyncPoints(syncPoints);
+  let owner: SyncPoint | null = null;
+  for (const pt of normalized) {
+    if (pt.at_ms <= atMs) {
+      owner = pt;
+    } else {
+      break;
+    }
+  }
+  return owner;
+}
+
+/**
+ * Quiet toast for a background re-sync result (#138).
+ * Returns null when not applied or when a refinement barely changed the active offset.
+ */
+export function formatBackgroundSyncToast(
+  result: Pick<
+    SyncOut,
+    'applied' | 'action' | 'offset_ms' | 'previous_offset_ms' | 'at_ms' | 'sync_points'
+  >,
+): string | null {
+  if (!result.applied) {
+    return null;
+  }
+  const deltaMs = Math.abs(result.offset_ms - result.previous_offset_ms);
+  if (result.action !== 'point' && deltaMs < BACKGROUND_SYNC_TOAST_MIN_DELTA_MS) {
+    return null;
+  }
+  const offsetText = formatOffsetSeconds(result.offset_ms);
+  if (result.action === 'point') {
+    const owner = findOwningSyncPointAt(result.at_ms, result.sync_points);
+    const ts = formatSyncTimestamp(owner?.at_ms ?? result.at_ms);
+    return `Re-synced ${offsetText} from ${ts}`;
+  }
+  if (result.action === 'refined') {
+    const owner = findOwningSyncPointAt(result.at_ms, result.sync_points);
+    if (owner) {
+      return `Re-synced ${offsetText} from ${formatSyncTimestamp(owner.at_ms)}`;
+    }
+  }
+  return `Re-synced ${offsetText}`;
+}
+
+export interface SyncSummaryPresentation {
+  headline: string;
+  pointCount: number;
+  pointLabels: string[];
+  canReset: boolean;
+}
+
+export function formatSyncSummary(
+  episode: Pick<EpisodeOut, 'sub_offset_ms' | 'sync_points'> | null | undefined,
+): SyncSummaryPresentation {
+  if (!episode) {
+    return {
+      headline: 'Default timing (0.0 s)',
+      pointCount: 0,
+      pointLabels: [],
+      canReset: false,
+    };
+  }
+
+  const baseMs = Number.isFinite(episode.sub_offset_ms) ? Math.round(episode.sub_offset_ms) : 0;
+  const points = normalizeSyncPoints(episode.sync_points);
+  const canReset = baseMs !== 0 || points.length > 0;
+
+  if (points.length === 0) {
+    return {
+      headline: baseMs !== 0 ? `Offset ${formatOffsetSeconds(baseMs)}` : 'Default timing (0.0 s)',
+      pointCount: 0,
+      pointLabels: [],
+      canReset,
+    };
+  }
+
+  const pointWord = points.length === 1 ? 'sync point' : 'sync points';
+  const pointLabels: string[] = [];
+  if (baseMs !== 0) {
+    pointLabels.push(`0:00 → ${formatOffsetSeconds(baseMs)}`);
+  }
+  for (const pt of points) {
+    pointLabels.push(`${formatSyncTimestamp(pt.at_ms)} → ${formatOffsetSeconds(pt.offset_ms)}`);
+  }
+
+  return {
+    headline: `${points.length} ${pointWord}`,
+    pointCount: points.length,
+    pointLabels,
+    canReset,
+  };
+}
+
 export function formatSyncProgressText(snapshot: Pick<AutoSyncSnapshot, 'phase' | 'remainingSeconds'>): string {
   if (snapshot.phase === 'recording') {
     return `Syncing… ${Math.max(0, snapshot.remainingSeconds)} s`;
@@ -165,10 +287,16 @@ export function buildSyncOutcomePresentation(
   const meta = formatSyncConfidenceMeta(data);
 
   if (data.applied) {
+    const owner =
+      data.action === 'point' ? findOwningSyncPointAt(data.at_ms, data.sync_points) : null;
+    const title =
+      data.action === 'point'
+        ? `Re-synced ${formattedOffset} from ${formatSyncTimestamp(owner?.at_ms ?? data.at_ms)}`
+        : `Synced: subtitles shifted by ${formattedOffset}`;
     return {
       kind: 'applied',
       offsetMs: data.offset_ms,
-      title: `Synced: subtitles shifted by ${formattedOffset}`,
+      title,
       meta,
     };
   }
@@ -741,4 +869,227 @@ export function startSyncAudioRecording(params: {
       abortRecording(reason, customMessage);
     },
   };
+}
+
+export interface BackgroundAutoSyncSchedulerOptions {
+  enabled?: boolean;
+  intervalMs?: number;
+  seekThresholdMs?: number;
+  seekSettleMs?: number;
+  seekBurstMs?: number;
+}
+
+export interface BackgroundSyncTickInput {
+  nowMs: number;
+  videoMs: number;
+  episodeId: number | null;
+  overlayEnabled: boolean;
+  isPlaying: boolean;
+  isSeeking: boolean;
+  playbackRate: number;
+  isBuffering: boolean;
+  isCapturing: boolean;
+  isSyncActive: boolean;
+  autoPauseEachLine: boolean;
+}
+
+/**
+ * Decides when to quietly kick off a 45 s background re-sync sample (#138):
+ * - Periodically after ~3 minutes of normal 1× playback with subtitles attached.
+ * - Right after any seek (or rapid scrub burst) of more than 30 s, once playback settles.
+ */
+export class BackgroundAutoSyncScheduler {
+  readonly intervalMs: number;
+  readonly seekThresholdMs: number;
+  readonly seekSettleMs: number;
+  readonly seekBurstMs: number;
+
+  private enabled: boolean;
+  private episodeId: number | null = null;
+  private unavailableForVideo = false;
+  private playingMsSinceLastSync = 0;
+  private lastTickWallMs: number | null = null;
+  private lastSteadyVideoMs: number | null = null;
+  private seekOriginVideoMs: number | null = null;
+  private lastSeekWallMs: number | null = null;
+  private pendingSeekSyncAtMs: number | null = null;
+
+  constructor(options: BackgroundAutoSyncSchedulerOptions = {}) {
+    this.enabled = options.enabled ?? true;
+    this.intervalMs = Math.max(1_000, Math.round(options.intervalMs ?? BACKGROUND_SYNC_INTERVAL_MS));
+    this.seekThresholdMs = Math.max(
+      1_000,
+      Math.round(options.seekThresholdMs ?? BACKGROUND_SYNC_SEEK_THRESHOLD_MS),
+    );
+    this.seekSettleMs = Math.max(
+      0,
+      Math.round(options.seekSettleMs ?? BACKGROUND_SYNC_SEEK_SETTLE_MS),
+    );
+    this.seekBurstMs = Math.max(0, Math.round(options.seekBurstMs ?? BACKGROUND_SYNC_SEEK_BURST_MS));
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.pendingSeekSyncAtMs = null;
+      this.seekOriginVideoMs = null;
+    }
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  markUnavailableForVideo(): void {
+    this.unavailableForVideo = true;
+    this.pendingSeekSyncAtMs = null;
+    this.seekOriginVideoMs = null;
+  }
+
+  resetForVideo(): void {
+    this.unavailableForVideo = false;
+    this.playingMsSinceLastSync = 0;
+    this.lastTickWallMs = null;
+    this.lastSteadyVideoMs = null;
+    this.seekOriginVideoMs = null;
+    this.lastSeekWallMs = null;
+    this.pendingSeekSyncAtMs = null;
+  }
+
+  resetForEpisode(episodeId: number | null): void {
+    this.episodeId = episodeId;
+    this.playingMsSinceLastSync = 0;
+    this.lastTickWallMs = null;
+    this.lastSteadyVideoMs = null;
+    this.seekOriginVideoMs = null;
+    this.lastSeekWallMs = null;
+    this.pendingSeekSyncAtMs = null;
+  }
+
+  markSyncStarted(nowMs: number): void {
+    this.playingMsSinceLastSync = 0;
+    this.pendingSeekSyncAtMs = null;
+    this.seekOriginVideoMs = null;
+    this.lastSeekWallMs = null;
+    this.lastTickWallMs = nowMs;
+  }
+
+  markSyncFinished(nowMs: number): void {
+    this.playingMsSinceLastSync = 0;
+    this.lastTickWallMs = nowMs;
+  }
+
+  onSeeked(newVideoMs: number, nowMs: number, options?: { isCapturing?: boolean }): boolean {
+    if (!Number.isFinite(newVideoMs) || newVideoMs < 0) {
+      return false;
+    }
+    if (options?.isCapturing) {
+      this.lastSteadyVideoMs = newVideoMs;
+      return false;
+    }
+    if (!this.enabled || this.unavailableForVideo || this.episodeId === null) {
+      this.lastSteadyVideoMs = newVideoMs;
+      return false;
+    }
+
+    const inBurst =
+      this.seekOriginVideoMs !== null &&
+      this.lastSeekWallMs !== null &&
+      nowMs - this.lastSeekWallMs <= this.seekBurstMs;
+
+    const originMs = inBurst ? this.seekOriginVideoMs : this.lastSteadyVideoMs;
+    this.lastSeekWallMs = nowMs;
+    this.lastSteadyVideoMs = newVideoMs;
+
+    if (originMs === null) {
+      return false;
+    }
+    if (!inBurst) {
+      this.seekOriginVideoMs = originMs;
+    }
+
+    const jumpMs = Math.abs(newVideoMs - originMs);
+    if (jumpMs > this.seekThresholdMs) {
+      this.pendingSeekSyncAtMs = nowMs + this.seekSettleMs;
+      return true;
+    }
+    return false;
+  }
+
+  tick(input: BackgroundSyncTickInput): BackgroundSyncTriggerReason | null {
+    if (input.episodeId !== this.episodeId) {
+      this.resetForEpisode(input.episodeId);
+    }
+
+    if (!input.isSeeking && !input.isCapturing && Number.isFinite(input.videoMs) && input.videoMs >= 0) {
+      this.lastSteadyVideoMs = input.videoMs;
+    }
+
+    if (
+      this.seekOriginVideoMs !== null &&
+      this.pendingSeekSyncAtMs === null &&
+      this.lastSeekWallMs !== null &&
+      input.nowMs - this.lastSeekWallMs > this.seekBurstMs
+    ) {
+      this.seekOriginVideoMs = null;
+    }
+
+    const canRun =
+      this.enabled &&
+      !this.unavailableForVideo &&
+      input.overlayEnabled &&
+      input.episodeId !== null &&
+      !input.isCapturing &&
+      !input.isSyncActive &&
+      !input.autoPauseEachLine;
+
+    const playbackEligible =
+      canRun &&
+      input.isPlaying &&
+      !input.isSeeking &&
+      !input.isBuffering &&
+      isNormalPlaybackRate(input.playbackRate);
+
+    if (!playbackEligible) {
+      this.lastTickWallMs = input.nowMs;
+      return null;
+    }
+
+    if (this.pendingSeekSyncAtMs !== null) {
+      if (input.nowMs >= this.pendingSeekSyncAtMs) {
+        this.pendingSeekSyncAtMs = null;
+        this.seekOriginVideoMs = null;
+        this.lastSeekWallMs = null;
+        this.playingMsSinceLastSync = 0;
+        this.lastTickWallMs = input.nowMs;
+        return 'seek';
+      }
+      this.lastTickWallMs = input.nowMs;
+      return null;
+    }
+
+    if (this.lastTickWallMs !== null) {
+      const rawDelta = Math.max(0, input.nowMs - this.lastTickWallMs);
+      this.playingMsSinceLastSync += Math.min(rawDelta, BACKGROUND_SYNC_MAX_TICK_STEP_MS);
+    }
+    this.lastTickWallMs = input.nowMs;
+
+    if (this.playingMsSinceLastSync >= this.intervalMs) {
+      this.playingMsSinceLastSync = 0;
+      this.pendingSeekSyncAtMs = null;
+      this.seekOriginVideoMs = null;
+      this.lastSeekWallMs = null;
+      return 'periodic';
+    }
+
+    return null;
+  }
+
+  getPlayingMsSinceLastSync(): number {
+    return this.playingMsSinceLastSync;
+  }
+
+  hasPendingSeekSync(): boolean {
+    return this.pendingSeekSyncAtMs !== null;
+  }
 }

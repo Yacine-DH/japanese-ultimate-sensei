@@ -4,6 +4,7 @@ import {
   buildApiHeaders,
   executeApiCall,
   isApiCallMessage,
+  isEpisodeSyncUpdatedMessage,
   verifyServerConnection,
 } from '../src/api/client';
 import { DEFAULT_HOTKEYS } from '../src/lib/hotkeys';
@@ -50,6 +51,7 @@ describe('settings utilities', () => {
       pauseOnHover: true,
       requireShiftForHover: false,
       autoPauseEachLine: false,
+      backgroundAutoSync: true,
       ankiConnectEnabled: false,
       ankiConnectUrl: 'http://localhost:8765',
       ankiDeckName: 'Sensei',
@@ -59,14 +61,26 @@ describe('settings utilities', () => {
       overlayPositions: { 'site.to': { x: 0.5, y: 0.72 } },
       hotkeys: DEFAULT_HOTKEYS,
     });
+
+    expect(sanitizeSettings({ backgroundAutoSync: false }).backgroundAutoSync).toBe(false);
+    expect(sanitizeSettings(null).backgroundAutoSync).toBe(true);
   });
 });
 
 describe('API background proxy', () => {
-  it('identifies valid API call messages', () => {
+  it('identifies valid API call and sync update messages', () => {
     expect(isApiCallMessage({ type: 'SENSEI_API_CALL', path: '/health' })).toBe(true);
     expect(isApiCallMessage({ type: 'OTHER' })).toBe(false);
     expect(isApiCallMessage(null)).toBe(false);
+    expect(
+      isEpisodeSyncUpdatedMessage({
+        type: 'SENSEI_EPISODE_SYNC_UPDATED',
+        episodeId: 4,
+        subOffsetMs: 1200,
+        syncPoints: [{ at_ms: 600_000, offset_ms: 2300 }],
+      }),
+    ).toBe(true);
+    expect(isEpisodeSyncUpdatedMessage({ type: 'SENSEI_EPISODE_SYNC_UPDATED' })).toBe(false);
   });
 
   it('returns clear error when server URL is unconfigured without calling fetch (#7)', async () => {

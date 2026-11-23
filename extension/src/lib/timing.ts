@@ -1,6 +1,109 @@
-import type { LineOut } from '../api/client';
+import type { EpisodePatch, LineOut, SyncPoint } from '../api/client';
 
 export const OFFSET_STEP_MS = 100;
+
+/**
+ * Normalize piecewise sync points to match the server contract (#137):
+ * integer ms, `at_ms > 0`, deduplicated by `at_ms` (last wins), sorted ascending.
+ */
+export function normalizeSyncPoints(
+  points: readonly SyncPoint[] | null | undefined,
+): SyncPoint[] {
+  if (!points || points.length === 0) {
+    return [];
+  }
+  const byAt = new Map<number, number>();
+  for (const pt of points) {
+    if (!pt || !Number.isFinite(pt.at_ms) || !Number.isFinite(pt.offset_ms)) {
+      continue;
+    }
+    const atMs = Math.round(pt.at_ms);
+    if (atMs <= 0) {
+      continue;
+    }
+    byAt.set(atMs, Math.round(pt.offset_ms));
+  }
+  return Array.from(byAt.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([at_ms, offset_ms]) => ({ at_ms, offset_ms }));
+}
+
+/**
+ * Resolve the subtitle offset in effect at `videoMs` (#137, #138):
+ * `offset_ms` of the last sync point with `at_ms <= videoMs`, else `baseOffsetMs`.
+ */
+export function resolveOffsetAt(
+  videoMs: number,
+  baseOffsetMs: number,
+  syncPoints: readonly SyncPoint[] = [],
+): number {
+  let offset = baseOffsetMs;
+  let bestAtMs = -1;
+  for (const pt of syncPoints) {
+    if (pt.at_ms > 0 && pt.at_ms <= videoMs && pt.at_ms >= bestAtMs) {
+      bestAtMs = pt.at_ms;
+      offset = pt.offset_ms;
+    }
+  }
+  return offset;
+}
+
+export interface StretchOffsetUpdate {
+  subOffsetMs: number;
+  syncPoints: SyncPoint[];
+  target: 'base' | 'point';
+  pointAtMs: number | null;
+  offsetMs: number;
+  patch: Pick<EpisodePatch, 'sub_offset_ms' | 'sync_points'>;
+}
+
+/**
+ * Apply a manual offset change to the stretch currently in effect at `videoMs` (#138):
+ * before the first sync point (or with no points) updates `sub_offset_ms`;
+ * otherwise updates only the active sync point without changing earlier/later stretches.
+ */
+export function applyOffsetToActiveStretch(
+  videoMs: number,
+  baseOffsetMs: number,
+  syncPoints: readonly SyncPoint[],
+  nextOffsetMs: number,
+): StretchOffsetUpdate {
+  const normalized = normalizeSyncPoints(syncPoints);
+  const roundedOffset = Math.round(nextOffsetMs);
+
+  let ownerIdx = -1;
+  for (let i = 0; i < normalized.length; i++) {
+    if (normalized[i]!.at_ms <= videoMs) {
+      ownerIdx = i;
+    } else {
+      break;
+    }
+  }
+
+  if (ownerIdx < 0) {
+    return {
+      subOffsetMs: roundedOffset,
+      syncPoints: normalized,
+      target: 'base',
+      pointAtMs: null,
+      offsetMs: roundedOffset,
+      patch: { sub_offset_ms: roundedOffset },
+    };
+  }
+
+  const owner = normalized[ownerIdx]!;
+  const updatedPoints = normalized.map((pt, idx) =>
+    idx === ownerIdx ? { at_ms: pt.at_ms, offset_ms: roundedOffset } : pt,
+  );
+  return {
+    subOffsetMs: Math.round(baseOffsetMs),
+    syncPoints: updatedPoints,
+    target: 'point',
+    pointAtMs: owner.at_ms,
+    offsetMs: roundedOffset,
+    patch: { sync_points: updatedPoints },
+  };
+}
 
 export function isLineActive(
   line: Pick<LineOut, 'start_ms' | 'end_ms'>,
@@ -101,14 +204,26 @@ export function computeSyncOffsetMs(
   return Math.round(videoMs) - line.start_ms;
 }
 
+export interface Debouncer {
+  (fn: () => void): void;
+  cancel(): void;
+}
+
 /** Debounce helper for persisting offset changes (one PATCH after a burst of key presses). */
-export function createDebouncer(delayMs: number): (fn: () => void) => void {
+export function createDebouncer(delayMs: number): Debouncer {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  return (fn) => {
+  const schedule = ((fn: () => void) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
       fn();
     }, delayMs);
+  }) as Debouncer;
+  schedule.cancel = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
   };
+  return schedule;
 }

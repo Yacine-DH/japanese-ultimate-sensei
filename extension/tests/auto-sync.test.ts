@@ -11,12 +11,19 @@ import {
   AUTO_SYNC_DURATION_MS,
   AUTO_SYNC_MAX_DRIFT_MS,
   AutoSyncStateMachine,
+  BACKGROUND_SYNC_INTERVAL_MS,
+  BACKGROUND_SYNC_SEEK_SETTLE_MS,
+  BACKGROUND_SYNC_SEEK_THRESHOLD_MS,
+  BackgroundAutoSyncScheduler,
   buildSyncOutcomePresentation,
   checkSyncPlaybackDrift,
+  formatBackgroundSyncToast,
   formatManualApplyToast,
   formatOffsetSeconds,
   formatSyncConfidenceMeta,
   formatSyncProgressText,
+  formatSyncSummary,
+  formatSyncTimestamp,
   startSyncAudioRecording,
 } from '../src/lib/auto-sync';
 import { EpisodeTranscriptCache } from '../src/lib/line-cache';
@@ -25,6 +32,10 @@ const SAMPLE_SYNC_APPLIED: SyncOut = {
   offset_ms: 3140,
   previous_offset_ms: 0,
   applied: true,
+  action: 'base',
+  at_ms: 12_345,
+  sub_offset_ms: 3140,
+  sync_points: [],
   confident: true,
   confidence: 7.8,
   runner_up: 3.1,
@@ -35,10 +46,32 @@ const SAMPLE_SYNC_APPLIED: SyncOut = {
   detail: 'ok',
 };
 
+const SAMPLE_SYNC_POINT: SyncOut = {
+  offset_ms: 2300,
+  previous_offset_ms: 0,
+  applied: true,
+  action: 'point',
+  at_ms: 642_000,
+  sub_offset_ms: 0,
+  sync_points: [{ at_ms: 642_000, offset_ms: 2300 }],
+  confident: true,
+  confidence: 8.2,
+  runner_up: 2.9,
+  correlation: 0.29,
+  speech_ms: 26000,
+  sample_ms: 45000,
+  lines_in_window: 24,
+  detail: 'ok',
+};
+
 const SAMPLE_SYNC_UNCONFIDENT: SyncOut = {
   offset_ms: 3140,
   previous_offset_ms: 0,
   applied: false,
+  action: 'none',
+  at_ms: 12_345,
+  sub_offset_ms: 0,
+  sync_points: [],
   confident: false,
   confidence: 3.9,
   runner_up: 3.4,
@@ -115,6 +148,225 @@ describe('auto-sync formatting & outcome presentation (#99)', () => {
 
     expect(formatManualApplyToast(-2400)).toBe('Synced: subtitles shifted by -2.4 s');
     expect(formatSyncConfidenceMeta(SAMPLE_SYNC_APPLIED)).toBe('conf 7.8 · runner-up 3.1');
+
+    // Sync point creation presentation (#138)
+    const pointPres = buildSyncOutcomePresentation({
+      ok: true,
+      status: 200,
+      data: SAMPLE_SYNC_POINT,
+    });
+    expect(pointPres).toEqual({
+      kind: 'applied',
+      offsetMs: 2300,
+      title: 'Re-synced +2.3 s from 10:42',
+      meta: 'conf 8.2 · runner-up 2.9',
+    });
+  });
+
+  it('formats timestamps, quiet background sync toasts, and popup sync summaries (#138)', () => {
+    expect(formatSyncTimestamp(0)).toBe('0:00');
+    expect(formatSyncTimestamp(642_000)).toBe('10:42');
+    expect(formatSyncTimestamp(3_665_000)).toBe('1:01:05');
+
+    // Point created -> quiet toast with timestamp
+    expect(formatBackgroundSyncToast(SAMPLE_SYNC_POINT)).toBe('Re-synced +2.3 s from 10:42');
+
+    // Base sync with noticeable shift -> quiet toast without "from ..."
+    expect(formatBackgroundSyncToast(SAMPLE_SYNC_APPLIED)).toBe('Re-synced +3.1 s');
+
+    // Refined sync inside a point with noticeable shift -> references owning point timestamp
+    expect(
+      formatBackgroundSyncToast({
+        ...SAMPLE_SYNC_POINT,
+        action: 'refined',
+        at_ms: 700_000,
+        previous_offset_ms: 2000,
+        offset_ms: 2300,
+      }),
+    ).toBe('Re-synced +2.3 s from 10:42');
+
+    // Tiny refinement (< 100 ms) or unapplied -> silent (null)
+    expect(
+      formatBackgroundSyncToast({
+        ...SAMPLE_SYNC_APPLIED,
+        action: 'refined',
+        previous_offset_ms: 3100,
+        offset_ms: 3140,
+      }),
+    ).toBeNull();
+    expect(formatBackgroundSyncToast(SAMPLE_SYNC_UNCONFIDENT)).toBeNull();
+
+    // Popup sync summary formatting
+    expect(formatSyncSummary(null)).toEqual({
+      headline: 'Default timing (0.0 s)',
+      pointCount: 0,
+      pointLabels: [],
+      canReset: false,
+    });
+    expect(formatSyncSummary({ sub_offset_ms: 0, sync_points: [] })).toEqual({
+      headline: 'Default timing (0.0 s)',
+      pointCount: 0,
+      pointLabels: [],
+      canReset: false,
+    });
+    expect(formatSyncSummary({ sub_offset_ms: 1500, sync_points: [] })).toEqual({
+      headline: 'Offset +1.5 s',
+      pointCount: 0,
+      pointLabels: [],
+      canReset: true,
+    });
+    expect(
+      formatSyncSummary({
+        sub_offset_ms: 1200,
+        sync_points: [
+          { at_ms: 642_000, offset_ms: 2300 },
+          { at_ms: 1_095_000, offset_ms: -800 },
+        ],
+      }),
+    ).toEqual({
+      headline: '2 sync points',
+      pointCount: 2,
+      pointLabels: ['0:00 → +1.2 s', '10:42 → +2.3 s', '18:15 → -0.8 s'],
+      canReset: true,
+    });
+    expect(
+      formatSyncSummary({
+        sub_offset_ms: 0,
+        sync_points: [{ at_ms: 642_000, offset_ms: 2300 }],
+      }),
+    ).toEqual({
+      headline: '1 sync point',
+      pointCount: 1,
+      pointLabels: ['10:42 → +2.3 s'],
+      canReset: true,
+    });
+  });
+});
+
+describe('BackgroundAutoSyncScheduler (#138)', () => {
+  const baseTick = {
+    episodeId: 7,
+    overlayEnabled: true,
+    isPlaying: true,
+    isSeeking: false,
+    playbackRate: 1,
+    isBuffering: false,
+    isCapturing: false,
+    isSyncActive: false,
+    autoPauseEachLine: false,
+  };
+
+  it('triggers periodic background sync every ~3 minutes of active 1× playback only', () => {
+    expect(BACKGROUND_SYNC_INTERVAL_MS).toBe(180_000);
+    const sched = new BackgroundAutoSyncScheduler();
+
+    // First tick establishes baseline
+    expect(sched.tick({ ...baseTick, nowMs: 1_000, videoMs: 1_000 })).toBeNull();
+
+    // 100 s of playing (in 5 s steps) -> not yet
+    let now = 1_000;
+    for (let i = 0; i < 20; i++) {
+      now += 5_000;
+      expect(sched.tick({ ...baseTick, nowMs: now, videoMs: now })).toBeNull();
+    }
+    expect(sched.getPlayingMsSinceLastSync()).toBe(100_000);
+
+    // Pause for 10 minutes -> must NOT count toward playback interval
+    now += 600_000;
+    expect(sched.tick({ ...baseTick, isPlaying: false, nowMs: now, videoMs: 101_000 })).toBeNull();
+    expect(sched.getPlayingMsSinceLastSync()).toBe(100_000);
+
+    // 2× speed playback -> must NOT accumulate or trigger
+    now += 5_000;
+    expect(
+      sched.tick({ ...baseTick, playbackRate: 2, nowMs: now, videoMs: 111_000 }),
+    ).toBeNull();
+    expect(sched.getPlayingMsSinceLastSync()).toBe(100_000);
+
+    // Resume at 1× for 75 s -> still not yet (175 s total)
+    for (let i = 0; i < 15; i++) {
+      now += 5_000;
+      expect(sched.tick({ ...baseTick, nowMs: now, videoMs: 111_000 + (i + 1) * 5_000 })).toBeNull();
+    }
+    expect(sched.getPlayingMsSinceLastSync()).toBe(175_000);
+
+    // Final 5 s -> hits 180 s and triggers periodic sync!
+    now += 5_000;
+    expect(sched.tick({ ...baseTick, nowMs: now, videoMs: 191_000 })).toBe('periodic');
+    expect(sched.getPlayingMsSinceLastSync()).toBe(0);
+  });
+
+  it('triggers right after any seek > 30 s (single jump or rapid burst) once settled', () => {
+    expect(BACKGROUND_SYNC_SEEK_THRESHOLD_MS).toBe(30_000);
+    const sched = new BackgroundAutoSyncScheduler();
+
+    // Establish initial steady video position at 20 s
+    sched.tick({ ...baseTick, nowMs: 10_000, videoMs: 20_000 });
+
+    // Small 15 s seek -> does NOT schedule sync
+    expect(sched.onSeeked(35_000, 11_000)).toBe(false);
+    expect(sched.hasPendingSeekSync()).toBe(false);
+
+    // Rapid second seek within burst window (+20 s -> 35 s total from 20 s) -> schedules!
+    expect(sched.onSeeked(55_000, 11_800)).toBe(true);
+    expect(sched.hasPendingSeekSync()).toBe(true);
+
+    // Before settle delay -> null
+    expect(
+      sched.tick({ ...baseTick, nowMs: 11_800 + BACKGROUND_SYNC_SEEK_SETTLE_MS - 100, videoMs: 56_000 }),
+    ).toBeNull();
+
+    // After settle delay -> triggers 'seek'
+    expect(
+      sched.tick({ ...baseTick, nowMs: 11_800 + BACKGROUND_SYNC_SEEK_SETTLE_MS, videoMs: 56_500 }),
+    ).toBe('seek');
+    expect(sched.hasPendingSeekSync()).toBe(false);
+
+    // Large seek while paused -> waits until playback resumes, then triggers immediately
+    expect(sched.onSeeked(642_000, 20_000)).toBe(true);
+    expect(
+      sched.tick({ ...baseTick, isPlaying: false, nowMs: 25_000, videoMs: 642_000 }),
+    ).toBeNull();
+    expect(
+      sched.tick({ ...baseTick, isPlaying: true, nowMs: 26_000, videoMs: 642_500 }),
+    ).toBe('seek');
+  });
+
+  it('respects Options toggle, scene capture, study auto-pause, unavailable audio, and episode changes', () => {
+    const sched = new BackgroundAutoSyncScheduler({ intervalMs: 10_000, seekSettleMs: 0 });
+    sched.tick({ ...baseTick, nowMs: 1_000, videoMs: 10_000 });
+
+    // Scene capture rewind/seek must never trigger background seek sync
+    expect(sched.onSeeked(100_000, 2_000, { isCapturing: true })).toBe(false);
+    expect(sched.hasPendingSeekSync()).toBe(false);
+
+    // Disabling via Options cancels pending seeks and suppresses periodic triggers
+    expect(sched.onSeeked(160_000, 3_000)).toBe(true);
+    sched.setEnabled(false);
+    expect(sched.hasPendingSeekSync()).toBe(false);
+    expect(sched.tick({ ...baseTick, nowMs: 4_000, videoMs: 161_000 })).toBeNull();
+
+    // Re-enabling works; study auto-pause suppresses triggers while active
+    sched.setEnabled(true);
+    sched.tick({ ...baseTick, nowMs: 5_000, videoMs: 162_000 });
+    expect(sched.onSeeked(220_000, 6_000)).toBe(true);
+    expect(
+      sched.tick({ ...baseTick, autoPauseEachLine: true, nowMs: 7_000, videoMs: 221_000 }),
+    ).toBeNull();
+    expect(
+      sched.tick({ ...baseTick, autoPauseEachLine: false, nowMs: 8_000, videoMs: 222_000 }),
+    ).toBe('seek');
+
+    // Unavailable video (e.g. DRM) disables background retries until video changes
+    sched.markUnavailableForVideo();
+    expect(sched.onSeeked(300_000, 9_000)).toBe(false);
+    sched.resetForVideo();
+    sched.tick({ ...baseTick, nowMs: 10_000, videoMs: 10_000 });
+    expect(sched.onSeeked(100_000, 11_000)).toBe(true);
+
+    // Switching episodes clears pending seek sync from old episode
+    expect(sched.tick({ ...baseTick, episodeId: 99, nowMs: 12_000, videoMs: 0 })).toBeNull();
+    expect(sched.hasPendingSeekSync()).toBe(false);
   });
 });
 
@@ -594,7 +846,7 @@ describe('sync API proxy & episode offset cache (#99)', () => {
     expect(res.error).toBe('Could not decode audio sample');
   });
 
-  it('updates cached episode sub_offset_ms without wiping cached lines', async () => {
+  it('updates cached episode sub_offset_ms and sync_points without wiping cached lines', async () => {
     const store = new Map<string, unknown>();
     const cache = new EpisodeTranscriptCache({
       get: async (k) => (store.has(k) ? { [k]: store.get(k) } : {}),
@@ -612,6 +864,7 @@ describe('sync API proxy & episode offset cache (#99)', () => {
       source: 'jimaku',
       source_filename: 'frieren_01.srt',
       sub_offset_ms: 0,
+      sync_points: [],
       line_count: 100,
       created_at: '2026-11-22T00:00:00Z',
     });
@@ -622,5 +875,13 @@ describe('sync API proxy & episode offset cache (#99)', () => {
     });
     expect(epRes.ok).toBe(true);
     expect(epRes.data?.sub_offset_ms).toBe(3140);
+
+    await cache.updateEpisodeSync(9, 1200, [{ at_ms: 642_000, offset_ms: 2300 }]);
+    const epRes2 = await cache.getEpisode(9, async () => {
+      throw new Error('should hit cache');
+    });
+    expect(epRes2.ok).toBe(true);
+    expect(epRes2.data?.sub_offset_ms).toBe(1200);
+    expect(epRes2.data?.sync_points).toEqual([{ at_ms: 642_000, offset_ms: 2300 }]);
   });
 });
