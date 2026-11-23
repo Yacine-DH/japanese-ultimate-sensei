@@ -22,9 +22,11 @@ from app.nlp.tokenizer import line_romaji
 
 MODEL_ID = 1_781_130_277  # never change: Anki identifies the note type by it
 MODEL_NAME = "Sensei Japanese"
+# New fields go at the END (Anki merges a note type with appended fields; reordering would not).
 FIELDS = [
     "Word", "Reading", "MeaningEN", "MeaningDE", "Sentence", "SentenceRomaji",
     "Screenshot", "Audio", "Clip", "Source", "SenseiId",
+    "SentenceEN", "SentenceDE",  # the line's LLM translation (#130)
 ]  # fmt: skip
 FRONT = """<div class="shot">{{Screenshot}}</div>
 <div class="word">{{Word}}</div>
@@ -35,6 +37,8 @@ BACK = """<div class="shot">{{Screenshot}}</div>
 <hr id="answer">
 <div class="sentence">{{furigana:Sentence}}</div>
 <div class="romaji">{{SentenceRomaji}}</div>
+{{#SentenceEN}}<div class="translation">{{SentenceEN}}</div>{{/SentenceEN}}
+{{#SentenceDE}}<div class="translation de">{{SentenceDE}}</div>{{/SentenceDE}}
 <div class="meaning">{{MeaningEN}}</div>
 <div class="meaning de">{{MeaningDE}}</div>
 <div class="audio">{{Audio}}</div>
@@ -48,7 +52,10 @@ CSS = """.card { font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans
 .reading { font-size: 1.2em; opacity: .8; }
 .sentence { font-size: 1.3em; margin: .6em 0; } .sentence b { color: #ef4444; }
 .romaji, .source { font-size: .8em; opacity: .6; }
-.meaning { margin: .3em 0; } .meaning.de { opacity: .8; font-size: .9em; }"""
+.meaning { margin: .3em 0; } .meaning.de { opacity: .8; font-size: .9em; }
+.translation { font-size: .95em; font-style: italic; margin: .2em 0; }
+.translation.de { opacity: .8; font-size: .85em; }
+.meaning:first-of-type { margin-top: .6em; }"""
 
 
 def model() -> genanki.Model:
@@ -162,6 +169,8 @@ def note_fields(
         else "",
         "Source": " · ".join(source),
         "SenseiId": str(card.id),
+        "SentenceEN": escape(line.translation_en or "") if line else "",
+        "SentenceDE": escape(line.translation_de or "") if line else "",
     }
 
 

@@ -373,6 +373,14 @@ AnkiConnect sequence on the laptop: `modelNames` → if "Sensei Japanese" is mis
 `createModel` with `GET /anki/model`; `createDeck {deck}`; `storeMediaFile {filename, url}`
 for each `media`; `addNote {note}`. A duplicate error from `addNote` means the card is already in Anki.
 
+Fields (in order): `Word Reading MeaningEN MeaningDE Sentence SentenceRomaji Screenshot Audio Clip
+Source SenseiId SentenceEN SentenceDE`. `SentenceEN/DE` (#130) = the line's translation, empty
+when the line has none yet. **Upgrading an existing note type** (created before #130): if
+`modelFieldNames {modelName}` lacks fields from `inOrderFields`, call `modelFieldAdd {modelName,
+fieldName, index}` for each, then `updateModelTemplates` and `updateModelStyling` with the
+templates and CSS from `GET /anki/model`. AnkiConnect ignores unknown note fields, so old note
+types keep working until then, just without the translation.
+
 ### `GET /anki/model` → AnkiConnect `createModel` params
 `{"modelName":"Sensei Japanese","inOrderFields":[…],"css":"…","isCloze":false,"cardTemplates":[{"Name":"Recognition","Front":"…","Back":"…"}]}`
 

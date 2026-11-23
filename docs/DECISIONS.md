@@ -2,6 +2,13 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-23: Anki note type grows by appending fields, same model id (Claude, #130)
+- `SentenceEN` / `SentenceDE` were added at the **end** of the "Sensei Japanese" fields and
+  `MODEL_ID` stays the same. A new id would make Anki treat it as a different note type and
+  duplicate every re-exported note. With appended fields, Anki's .apkg import ("merge note
+  types") and AnkiConnect `modelFieldAdd` upgrade an existing note type in place. Rule from now
+  on: never reorder or rename fields, only append.
+
 ### 2026-11-22: One-click extension updates + GitHub releases (Claude, #140)
 - **Native messaging host as the updater.** Edge won't let an unpacked extension rewrite itself, and
   off-store packed installs need enterprise policy (domain-joined Windows). A per-user native

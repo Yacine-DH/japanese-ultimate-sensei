@@ -95,3 +95,29 @@ def test_ankiconnect_payload(client, samples):  # noqa: F811
     assert model["modelName"] == "Sensei Japanese" and model["inOrderFields"] == FIELDS
     assert "{{furigana:Sentence}}" in model["cardTemplates"][0]["Back"]
     assert client.get("/cards/999/anki-note").status_code == 404
+
+
+def test_sentence_translation_on_the_note(client, samples, tmp_path):  # noqa: F811
+    """#130: the line's EN/DE translation rides along (escaped), empty when missing."""
+    from sqlmodel import Session
+
+    from app.models import SubtitleLine
+
+    card, _ = make_card(client, samples)
+    note = client.get(f"/cards/{card['id']}/anki-note").json()["note"]
+    assert note["fields"]["SentenceEN"] == note["fields"]["SentenceDE"] == ""
+
+    with Session(client.app.state.engine) as session:
+        line = session.get(SubtitleLine, card["line_id"])
+        line.translation_en, line.translation_de = "I <want> to eat.", "Ich will essen."
+        session.add(line)
+        session.commit()
+    note = client.get(f"/cards/{card['id']}/anki-note").json()["note"]
+    assert note["fields"]["SentenceEN"] == "I &lt;want&gt; to eat."
+    assert note["fields"]["SentenceDE"] == "Ich will essen."
+    _, values, _ = read_apkg(client.get("/export/anki.apkg").content, tmp_path)[0][0]
+    f = dict(zip(FIELDS, values, strict=True))
+    assert f["SentenceEN"] == "I &lt;want&gt; to eat." and f["SentenceDE"] == "Ich will essen."
+    assert FIELDS[-2:] == ["SentenceEN", "SentenceDE"]  # appended: old note types merge
+    back = client.get("/anki/model").json()["cardTemplates"][0]["Back"]
+    assert "{{#SentenceEN}}" in back and "{{SentenceDE}}" in back
