@@ -52,10 +52,19 @@ around the current offset). Playback must run at 1× without seeking or pausing 
 Pick a part with dialogue (not the opening song).
 ```json
 {"offset_ms":3140,"previous_offset_ms":0,"applied":true,"confident":true,"confidence":7.8,"runner_up":3.1,
- "correlation":0.23,"speech_ms":24310,"sample_ms":60000,"lines_in_window":21,"detail":"ok"}
+ "correlation":0.23,"speech_ms":24310,"sample_ms":60000,"lines_in_window":21,"detail":"ok",
+ "method":"vad","anchors":0}
 ```
 Not confident → `applied:false`, `offset_ms` is the best guess, `detail` says why (too little
 speech, too few lines nearby, no clear match). 422 = unreadable audio. ~1 s per minute of audio.
+
+**Recognized speech (#147).** When the server has the ASR model (`python -m app.asr_setup`,
+needs `sherpa-onnx`), the sample's speech is first transcribed on the CPU (ReazonSpeech k2) and
+matched to the subtitle lines as kana; each line heard clearly is an anchor, and ≥ 3 anchors
+agreeing within 1.5 s give the offset (fine-tuned to 10 ms on voice activity). Then
+`method:"asr"`, `anchors` = lines recognized, `confidence` = lines that agree, `runner_up` =
+lines agreeing on another offset. Otherwise the voice activity match above runs and
+`method:"vad"`. Clients need no change.
 
 **Sync points (#137).** The stream and the subtitle file often differ by a cut (eyecatch, recap,
 a different lead-in), so one offset can't fit the whole episode. The search runs around the

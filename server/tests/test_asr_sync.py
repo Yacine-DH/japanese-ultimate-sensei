@@ -141,3 +141,121 @@ def test_offsets_outside_the_search_window_are_ignored():
     video_start = lines[6][0] + 95_000 - 500
     segs = recognized(lines, 95_000, video_start, 45_000)
     assert find_anchors(lines, segs, video_start, -30_000, 30_000) == []
+
+
+# ---- endpoint: the ASR path is used when a recognizer is loaded ---------------------------
+
+
+def _srt_with_text(lines):
+    def ts(ms):
+        return f"{ms // 3600000:02}:{ms // 60000 % 60:02}:{ms // 1000 % 60:02},{ms % 1000:03}"
+
+    return "\n".join(f"{i + 1}\n{ts(s)} --> {ts(e)}\n{t}\n" for i, (s, e, t) in enumerate(lines))
+
+
+def _post_episode(client, lines):
+    return client.post(
+        "/episodes",
+        data={"anime_title": "ASR Anime", "episode_number": "1"},
+        files={"subtitle": ("ep.srt", _srt_with_text(lines).encode(), "text/plain")},
+    ).json()
+
+
+def test_sync_endpoint_uses_recognized_speech(client, monkeypatch):
+    from app import asr_sync
+    from tests.test_sync import _voice_wav
+
+    lines = episode()
+    ep = _post_episode(client, lines)
+    true_offset = 14_200
+    start = lines[6][0] + true_offset - 500
+    wav = _voice_wav([(s, e) for s, e, _ in lines], true_offset, start, 45)
+    # The recognizer "hears" the lines that are on screen during the sample.
+    client.app.state.asr = lambda pcm: ("", None)
+    monkeypatch.setattr(
+        asr_sync,
+        "recognize_chunks",
+        lambda pcm, vad, rec: recognized(lines, true_offset, start, 45_000),
+    )
+    body = client.post(
+        f"/episodes/{ep['id']}/sync", data={"video_start_ms": start}, files={"file": ("s.wav", wav)}
+    ).json()
+    assert body["method"] == "asr" and body["anchors"] >= MIN_ANCHORS, body
+    assert body["confident"] and body["applied"] and body["action"] == "base"
+    assert abs(body["offset_ms"] - true_offset) <= 150, body  # refined on voice activity
+
+
+def test_sync_endpoint_falls_back_to_voice_activity(client, monkeypatch):
+    from app import asr_sync
+    from tests.test_sync import _voice_wav
+
+    lines = episode()
+    ep = _post_episode(client, lines)
+    start = lines[6][0] + 3200 - 500
+    wav = _voice_wav([(s, e) for s, e, _ in lines], 3200, start, 45)
+
+    def broken(pcm, vad, rec):
+        raise RuntimeError("model crashed")
+
+    client.app.state.asr = lambda pcm: ("", None)
+    monkeypatch.setattr(asr_sync, "recognize_chunks", broken)
+    body = client.post(
+        f"/episodes/{ep['id']}/sync",
+        data={"video_start_ms": start, "apply": "false"},
+        files={"file": ("s.wav", wav)},
+    ).json()
+    assert body["method"] == "vad" and body["anchors"] == 0, body
+    assert abs(body["offset_ms"] - 3200) <= 150
+
+    monkeypatch.setattr(asr_sync, "recognize_chunks", lambda pcm, vad, rec: [])  # heard nothing
+    body = client.post(
+        f"/episodes/{ep['id']}/sync",
+        data={"video_start_ms": start, "apply": "false"},
+        files={"file": ("s.wav", wav)},
+    ).json()
+    assert body["method"] == "vad" and abs(body["offset_ms"] - 3200) <= 150, body
+
+
+def test_no_model_means_no_recognizer(tmp_path):
+    from app.asr_sync import load_recognizer
+
+    assert load_recognizer(tmp_path / "missing") is None
+
+
+def test_asr_setup_keeps_only_the_int8_model(tmp_path, monkeypatch):
+    import contextlib
+    import io
+    import tarfile
+
+    from app import asr_setup
+    from app.asr_sync import MODEL_NAME
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for name in ("encoder-epoch-99-avg-1.int8.onnx", "encoder-epoch-99-avg-1.onnx",
+                     "decoder-epoch-99-avg-1.onnx", "joiner-epoch-99-avg-1.int8.onnx",
+                     "tokens.txt", "README.md", "../evil.int8.onnx"):  # fmt: skip
+            data = name.encode()
+            info = tarfile.TarInfo(name if name.startswith("..") else f"{MODEL_NAME}/{name}")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+
+    class Resp:
+        def raise_for_status(self):
+            return self
+
+        def iter_bytes(self, _n):
+            yield buf.getvalue()
+
+    monkeypatch.setattr(asr_setup.httpx, "stream", lambda *a, **k: contextlib.nullcontext(Resp()))
+    dest = asr_setup.install(tmp_path / "models")
+    assert dest == tmp_path / "models" / MODEL_NAME
+    assert sorted(f.name for f in dest.iterdir()) == [
+        "decoder-epoch-99-avg-1.onnx",  # no int8 decoder in the archive: the fp32 one is kept
+        "encoder-epoch-99-avg-1.int8.onnx",
+        "joiner-epoch-99-avg-1.int8.onnx",
+        "tokens.txt",
+    ]
+    assert not (tmp_path / "evil.int8.onnx").exists()
+    assert [p.name for p in (tmp_path / "models").iterdir()] == [MODEL_NAME]  # temp dir gone
+    assert asr_setup.install(tmp_path / "models") == dest  # second run: nothing to do

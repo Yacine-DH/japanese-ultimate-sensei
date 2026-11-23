@@ -4703,6 +4703,22 @@
             "type": "string",
             "title": "Detail",
             "description": "'ok', or why the result isn't confident"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "asr",
+              "vad"
+            ],
+            "title": "Method",
+            "description": "asr: lines recognized in the speech agreed on the offset (confidence = number of agreeing lines, runner_up = lines agreeing on another offset) · vad: voice activity correlation (no ASR model, or too few lines recognized)",
+            "default": "vad"
+          },
+          "anchors": {
+            "type": "integer",
+            "title": "Anchors",
+            "description": "Subtitle lines recognized in the sample",
+            "default": 0
           }
         },
         "type": "object",

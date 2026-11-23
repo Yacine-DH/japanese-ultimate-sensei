@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     stt_base_url: str = ""
     stt_model: str = ""
     stt_timeout_s: float = 3600
+    # Auto-sync by speech recognition (#147): CPU threads for the ReazonSpeech model in
+    # <data_dir>/models/ (python -m app.asr_setup). Missing model → voice activity only.
+    asr_threads: int = 2
     # Escape hatch for local development / tests only: run with auth disabled.
     allow_no_auth: bool = False
     data_dir: Path = REPO_ROOT / "data"
@@ -46,6 +49,10 @@ class Settings(BaseSettings):
     @property
     def dictionary_path(self) -> Path:
         return self.data_dir / "jmdict.sqlite"
+
+    @property
+    def models_dir(self) -> Path:
+        return self.data_dir / "models"
 
     @property
     def media_dir(self) -> Path:

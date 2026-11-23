@@ -141,6 +141,13 @@ class SyncOut(BaseModel):
     sample_ms: int
     lines_in_window: int
     detail: str = Field(description="'ok', or why the result isn't confident")
+    method: Literal["asr", "vad"] = Field(
+        default="vad",
+        description="asr: lines recognized in the speech agreed on the offset (confidence = "
+        "number of agreeing lines, runner_up = lines agreeing on another offset) · vad: voice "
+        "activity correlation (no ASR model, or too few lines recognized)",
+    )
+    anchors: int = Field(default=0, description="Subtitle lines recognized in the sample")
 
 
 class WordOut(BaseModel):

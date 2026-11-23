@@ -256,6 +256,32 @@ def find_offset(
     )  # fmt: skip
 
 
+def refine_offset(
+    signal: list[float],
+    lines: list[tuple[int, int]],
+    video_start_ms: int,
+    around_ms: int,
+    radius_ms: int = 500,
+) -> tuple[int, float]:
+    """(offset, correlation) of the best 10 ms alignment of speech with lines within
+    around_ms ± radius_ms: the fine step of find_offset, for an offset already known roughly
+    (e.g. from recognized speech, #147)."""
+    sample_ms = len(signal) * VAD_FRAME_MS
+    lo, hi = around_ms - radius_ms, around_ms + radius_ms
+    window = [
+        (s, e) for s, e in lines if e + hi > video_start_ms and s + lo < video_start_ms + sample_ms
+    ]
+    if not window or not signal:
+        return around_ms, 0.0
+    fine = _search([float(x) for x in signal], window, video_start_ms, lo, hi, VAD_FRAME_MS)
+    top = max(sc for _, sc, _ in fine)
+    if top <= 0:
+        return around_ms, top
+    plateau = [o for o, sc, _ in fine if sc >= top - PLATEAU_TOLERANCE]
+    best = round((min(plateau) + max(plateau)) / 2 / VAD_FRAME_MS) * VAD_FRAME_MS
+    return best, round(top, 3)
+
+
 def sync_file(path: Path, lines: list[tuple[int, int]], video_start_ms: int, search_ms: int,
               around_ms: int) -> SyncResult:  # fmt: skip
     signal, speech_ms = features(decode_pcm(path))

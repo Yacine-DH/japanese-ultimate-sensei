@@ -16,12 +16,28 @@ Pipeline (the recognizer is pluggable so this module stays pure and testable):
    (median). Fewer than MIN_ANCHORS agreeing → None, and the caller falls back to VAD.
 """
 
+import array
+import logging
 import statistics
+import sys
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
+from pathlib import Path
 
 from app.nlp.kana import kata_to_hira
+
+log = logging.getLogger(__name__)
+
+# ReazonSpeech k2 v2 (Zipformer, ~0.16B params, trained on ~35k h of Japanese TV), int8 ONNX for
+# sherpa-onnx. `python -m app.asr_setup` downloads it into <data_dir>/models/.
+MODEL_NAME = "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01"
+MODEL_URL = (
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" + MODEL_NAME + ".tar.bz2"
+)
+
+Recognize = Callable[[bytes], tuple[str, list[int] | None]]
 
 SAMPLE_RATE = 16_000
 FRAME_MS = 10
@@ -239,3 +255,74 @@ def asr_offset(anchors: Sequence[Anchor]) -> AsrResult:
         else f"only {len(best)} of {len(anchors)} recognized lines agree (need {MIN_ANCHORS})"
     )
     return AsrResult(offset, confident, list(anchors), len(best), runner_up, detail)
+
+
+# ---- the recognizer (sherpa-onnx, optional) ------------------------------------------------
+
+
+def _model_file(model_dir: Path, prefix: str) -> Path | None:
+    """encoder/decoder/joiner: prefer the int8 file."""
+    files = sorted(model_dir.glob(f"{prefix}*.onnx"))
+    return next((f for f in files if ".int8." in f.name), files[0] if files else None)
+
+
+def load_recognizer(model_dir: Path, threads: int = 2) -> Recognize | None:
+    """A `Recognize` backed by sherpa-onnx, or None when the library or the model is missing
+    (auto-sync then uses voice activity only)."""
+    try:
+        import sherpa_onnx
+    except ImportError:
+        log.info("sherpa-onnx is not installed: auto-sync uses voice activity only")
+        return None
+    parts = {p: _model_file(model_dir, p) for p in ("encoder", "decoder", "joiner")}
+    tokens = model_dir / "tokens.txt"
+    if not all(parts.values()) or not tokens.exists():
+        log.info("ASR model not found in %s: auto-sync uses voice activity only", model_dir)
+        return None
+    rec = sherpa_onnx.OfflineRecognizer.from_transducer(
+        encoder=str(parts["encoder"]),
+        decoder=str(parts["decoder"]),
+        joiner=str(parts["joiner"]),
+        tokens=str(tokens),
+        num_threads=threads,
+        sample_rate=SAMPLE_RATE,
+        feature_dim=80,
+        decoding_method="greedy_search",
+    )
+    lock = threading.Lock()  # one decode at a time: the server has 4 slow cores
+
+    def recognize(pcm: bytes) -> tuple[str, list[int] | None]:
+        samples = array.array("h")
+        samples.frombytes(pcm[: len(pcm) // 2 * 2])
+        if sys.byteorder == "big":
+            samples.byteswap()
+        with lock:
+            stream = rec.create_stream()
+            stream.accept_waveform(SAMPLE_RATE, [x / 32768 for x in samples])
+            rec.decode_stream(stream)
+            res = stream.result
+        text = res.text or ""
+        # one timestamp (s) per token; a token can be several characters
+        char_ms: list[int] = []
+        for tok, ts in zip(res.tokens or [], res.timestamps or [], strict=False):
+            char_ms += [round(ts * 1000)] * len(tok)
+        return text, char_ms if len(char_ms) == len(text) else None
+
+    return recognize
+
+
+# ---- the whole ASR path --------------------------------------------------------------------
+
+
+def sync_pcm(
+    pcm: bytes,
+    vad: Sequence[bool],
+    lines: Sequence[tuple[int, int, str]],
+    video_start_ms: int,
+    lo_ms: int,
+    hi_ms: int,
+    recognize: Recognize,
+) -> AsrResult:
+    """Recognize the sample's speech chunks and turn the lines heard into an offset."""
+    segments = recognize_chunks(pcm, vad, recognize)
+    return asr_offset(find_anchors(lines, segments, video_start_ms, lo_ms, hi_ms))
