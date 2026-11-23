@@ -304,3 +304,23 @@ def test_other_episode_number_is_a_new_episode(client):
     a = upload(client).json()
     r = upload(client, episode_number="2")
     assert r.status_code == 201 and r.json()["id"] != a["id"] and r.json()["replaced"] is False
+
+
+def test_reprocess_extracts_and_keeps_given_readings(client):
+    """Old episodes stored 岩鷲(ガンジュ) in the text: reprocess turns it into furigana, and a
+    second reprocess keeps it although the text no longer has the parentheses."""
+    from sqlmodel import Session, select
+
+    from app.models import SubtitleLine
+
+    ep = upload(client).json()
+    with Session(client.app.state.engine) as session:
+        line = session.exec(select(SubtitleLine).where(SubtitleLine.episode_id == ep["id"])).first()
+        line.text = "岩鷲(ガンジュ)が来た"
+        session.add(line)
+        session.commit()
+    for _ in range(2):
+        assert client.post(f"/episodes/{ep['id']}/reprocess").status_code == 200
+        first = client.get(f"/episodes/{ep['id']}/lines").json()[0]
+        assert first["text"] == "岩鷲が来た"
+        assert first["tokens"][0]["furigana"] == [{"text": "岩鷲", "ruby": "ガンジュ"}]

@@ -30,6 +30,7 @@ class Token:
     is_content: bool = False  # learnable vocabulary (not particles, numbers or names)
     is_proper_noun: bool = False  # character/place names: never "unknown", not counted
     word_id: int | None = None  # filled in by ingest
+    given_reading: bool = False  # reading taken from the subtitle file: 尸魂界(ソウル・ソサエティ)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -57,11 +58,15 @@ def lemma_reading(lemma: str) -> str:
     return "".join(_reading_of(m) for m in tok.tokenize(lemma, mode))
 
 
-def tokenize(text: str) -> list[Token]:
+def tokenize(text: str, readings: list[tuple[int, int, str]] | tuple = ()) -> list[Token]:
+    """`readings`: official readings from the subtitle file as (start, end, kana) character
+    spans of `text` (see subtitles.extract_readings); they replace Sudachi's guess."""
     tok, mode = _sudachi()
     out: list[Token] = []
     for m in tok.tokenize(text, mode):
         surface = m.surface()
+        if not surface:
+            continue  # Sudachi splits "…" into "…" + two empty tokens
         pos = list(m.part_of_speech())
         reading = _reading_of(m)
         lemma = m.dictionary_form() or surface
@@ -92,7 +97,60 @@ def tokenize(text: str) -> list[Token]:
             )
         )
     _fix_readings(out)
+    for start, end, reading in sorted(readings, reverse=True):  # right to left: indexes stay
+        _apply_given_reading(out, start, end, reading)
     _fix_trailing_sokuon(out)
+    return out
+
+
+def _apply_given_reading(tokens: list[Token], start: int, end: int, given: str) -> None:
+    """Merge the tokens spanning text[start:end] into one word read `given`. Skipped when the
+    span doesn't fall on token boundaries (then Sudachi's reading stays)."""
+    pos, first, last = 0, None, None
+    for i, t in enumerate(tokens):
+        if pos == start:
+            first = i
+        pos += len(t.surface)
+        if pos == end:
+            last = i
+            break
+        if pos > end:
+            return
+    if first is None or last is None or first > last:
+        return
+    parts = tokens[first : last + 1]
+    surface = "".join(t.surface for t in parts)
+    reading = kata_to_hira(given.replace("・", "").replace("･", ""))
+    katakana = any("\u30a1" <= c <= "\u30fa" for c in given)
+    # A katakana reading over kanji/Latin (東国→オスタニア, ＷＩＳＥ→ワイズ) is a name or a term of
+    # the show; a hiragana one is the word's real reading (蒼月草→そうげつそう).
+    proper = katakana or any(t.is_proper_noun for t in parts)
+    single = parts[0] if len(parts) == 1 else None
+    merged = Token(
+        surface=surface,
+        lemma=surface,
+        reading=reading,
+        lemma_reading=reading,
+        normalized=surface,
+        pos=single.pos if single else "名詞",
+        pos_detail=(single.pos_detail if single and not proper else ["固有名詞"]) or ["普通名詞"],
+        furigana=[{"text": surface, "ruby": given}],
+        romaji=to_romaji(reading),
+        is_content=not proper and has_japanese(surface),
+        is_proper_noun=proper,
+        given_reading=True,
+    )
+    tokens[first : last + 1] = [merged]
+
+
+def given_readings(tokens: list[dict]) -> list[tuple[int, int, str]]:
+    """The given readings back from stored tokens (reprocess keeps them)."""
+    out, pos = [], 0
+    for t in tokens:
+        surface = t.get("surface", "")
+        if t.get("given_reading") and t.get("furigana"):
+            out.append((pos, pos + len(surface), t["furigana"][0].get("ruby") or t["reading"]))
+        pos += len(surface)
     return out
 
 

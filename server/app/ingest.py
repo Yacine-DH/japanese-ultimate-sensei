@@ -10,8 +10,15 @@ from app.dictionary import Dictionary
 from app.models import Card, Episode, LineNote, SubtitleLine, UserWord, Word, WordStatus
 from app.nlp.frequency import zipf
 from app.nlp.kana import has_japanese, has_kanji
-from app.nlp.tokenizer import COLLOQUIAL, Token, is_proper_noun, lemma_reading, tokenize
-from app.subtitles import ParsedLine, strip_annotations
+from app.nlp.tokenizer import (
+    COLLOQUIAL,
+    Token,
+    given_readings,
+    is_proper_noun,
+    lemma_reading,
+    tokenize,
+)
+from app.subtitles import ParsedLine, clean_line
 
 UNDERSTOOD = {WordStatus.known, WordStatus.ignored}
 
@@ -65,8 +72,8 @@ class WordResolver:
         return None
 
 
-def tokens_json(text: str, resolver: WordResolver) -> str:
-    tokens = tokenize(text)
+def tokens_json(text: str, resolver: WordResolver, readings=()) -> str:
+    tokens = tokenize(text, readings)
     for tok in tokens:
         if tok.is_content or tok.is_proper_noun:  # names get a word so they can be looked up
             tok.word_id = resolver.resolve(tok).id
@@ -86,7 +93,7 @@ def ingest_lines(
                 start_ms=line.start_ms,
                 end_ms=line.end_ms,
                 text=line.text,
-                tokens_json=tokens_json(line.text, resolver),
+                tokens_json=tokens_json(line.text, resolver, line.readings),
             )
         )
         n += 1
@@ -158,15 +165,17 @@ def reprocess_episode(session: Session, episode_id: int, dictionary: Dictionary 
     )
     kept = 0
     for line in lines:
-        clean = strip_annotations(line.text)
+        clean, readings = clean_line(line.text)
         if not has_japanese(clean) and line.id not in used:
             for note in session.exec(select(LineNote).where(LineNote.line_id == line.id)):
                 session.delete(note)
             session.delete(line)
             continue
-        if has_japanese(clean):
-            line.text = clean
-        line.tokens_json = tokens_json(line.text, resolver)
+        if has_japanese(clean) and clean != line.text:
+            line.text = clean  # e.g. 岩鷲(ガンジュ) stored by an older version → reading
+        else:
+            readings = given_readings(json.loads(line.tokens_json))  # text as before: keep them
+        line.tokens_json = tokens_json(line.text, resolver, readings)
         session.add(line)
         kept += 1
     return kept
