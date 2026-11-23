@@ -74,7 +74,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **S-16** (#129) Auto-translate on import + resume pending translations after restart
 - [ ] **S-17** (#130) Sentence translation EN/DE on Anki cards (export + AnkiConnect)
 - [ ] **S-18** (#131) Verify STT end to end with a real whisper-server. deps: O-6
-- [ ] **W-10** (#132) Review page: sentence translation on the answer side
+- [x] **W-10** (#132) Review page: sentence translation on the answer side (antigravity, 2026-11-23: pure `formatReviewSentenceTranslation` respecting EN/DE gloss language with fallback and null omission, shown below the furigana sentence in `ReviewPage.tsx` after reveal, unit tests)
 - [ ] **W-11** (#133) Web app 先生 favicon + installable PWA for phone reviews
 - [ ] **W-12/E-15** (#134) "Prep this episode": 10 most useful words before watching
 - [ ] **E-16** (#135) Popup: translation progress for the attached episode. deps: S-16

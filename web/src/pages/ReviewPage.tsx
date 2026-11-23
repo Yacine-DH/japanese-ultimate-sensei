@@ -9,6 +9,7 @@ import {
 } from '../api/client';
 import {
   formatIntervalFromIso,
+  formatReviewSentenceTranslation,
   groupCardMedia,
   RATING_BUTTONS,
   resolveMediaUrl,
@@ -33,10 +34,14 @@ function ReviewSentence({
   card,
   showFurigana,
   showRomaji,
+  showTranslation,
+  glossLang,
 }: {
   card: ReviewCard;
   showFurigana: boolean;
   showRomaji: boolean;
+  showTranslation: boolean;
+  glossLang: GlossLanguage;
 }) {
   if (!card.line) {
     if (!card.card.sentence) return null;
@@ -47,8 +52,12 @@ function ReviewSentence({
     );
   }
 
+  const translation = showTranslation
+    ? formatReviewSentenceTranslation(card.line, glossLang)
+    : null;
+
   return (
-    <div className="space-y-1.5 text-center">
+    <div className="space-y-2 text-center">
       <div className="text-lg sm:text-2xl leading-loose tracking-wide text-slate-200">
         {card.line.tokens.map((tok: TokenOut, idx: number) => {
           const isTarget =
@@ -80,6 +89,24 @@ function ReviewSentence({
       {showRomaji && (
         <div className="text-xs sm:text-sm text-slate-400 font-mono">
           {getTranscriptLineRomaji(card.line)}
+        </div>
+      )}
+      {translation && (
+        <div className="pt-1 space-y-1">
+          <div className="text-sm sm:text-base text-slate-200">
+            <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-semibold text-slate-400 align-middle">
+              {translation.primary.lang}
+            </span>
+            <span>{translation.primary.text}</span>
+          </div>
+          {translation.secondary && (
+            <div className="text-xs sm:text-sm text-slate-400">
+              <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded bg-slate-800/70 text-[10px] font-semibold text-slate-500 align-middle">
+                {translation.secondary.lang}
+              </span>
+              <span>{translation.secondary.text}</span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -435,6 +462,8 @@ export function ReviewPage() {
             card={currentCard}
             showFurigana={revealed}
             showRomaji={revealed && showRomaji}
+            showTranslation={revealed}
+            glossLang={glossLang}
           />
 
           {/* Revealed Meanings */}

@@ -1,5 +1,5 @@
-import type { MediaOut } from '../api/client';
-import { resolveApiBaseUrl } from './settings';
+import type { LineOut, MediaOut } from '../api/client';
+import { type GlossLanguage, resolveApiBaseUrl } from './settings';
 
 export type ReviewRating = 1 | 2 | 3 | 4;
 
@@ -95,6 +95,49 @@ export function groupCardMedia(media: readonly MediaOut[]): GroupedCardMedia {
     else if (m.kind === 'clip' && !clip) clip = m;
   }
   return { screenshot, audio, clip };
+}
+
+export interface ReviewTranslationEntry {
+  lang: 'EN' | 'DE';
+  text: string;
+}
+
+export interface ReviewSentenceTranslation {
+  primary: ReviewTranslationEntry;
+  secondary: ReviewTranslationEntry | null;
+}
+
+/**
+ * Formats a review card's sentence translation for the answer side according to
+ * the user's gloss language setting (`eng` or `ger`).
+ * Returns `null` when the line is missing or has no non-empty translations.
+ */
+export function formatReviewSentenceTranslation(
+  line: Pick<LineOut, 'translation_en' | 'translation_de'> | null | undefined,
+  glossLang: GlossLanguage,
+): ReviewSentenceTranslation | null {
+  if (!line) return null;
+  const en = line.translation_en?.trim() ?? '';
+  const de = line.translation_de?.trim() ?? '';
+  if (!en && !de) return null;
+
+  if (glossLang === 'ger') {
+    if (de) {
+      return {
+        primary: { lang: 'DE', text: de },
+        secondary: en && en !== de ? { lang: 'EN', text: en } : null,
+      };
+    }
+    return { primary: { lang: 'EN', text: en }, secondary: null };
+  }
+
+  if (en) {
+    return {
+      primary: { lang: 'EN', text: en },
+      secondary: de && de !== en ? { lang: 'DE', text: de } : null,
+    };
+  }
+  return { primary: { lang: 'DE', text: de }, secondary: null };
 }
 
 export type ReviewHotkeyResult =
