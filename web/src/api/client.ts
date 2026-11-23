@@ -380,6 +380,8 @@ export const apiClient = {
       json: payload,
     }),
 
+  getCard: (cardId: number) => apiRequest<ReviewCard>(`/cards/${cardId}`),
+
   deleteCard: (cardId: number) => apiRequest<void>(`/cards/${cardId}`, { method: 'DELETE' }),
 
   uploadMedia: (params: {

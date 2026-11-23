@@ -127,6 +127,22 @@ export function buildPrimingUrl(serverUrl: string, episodeId: number): string | 
   return `${base}/episodes/${episodeId}?prime=1`;
 }
 
+export function buildPrepUrl(serverUrl: string, episodeId: number): string | null {
+  const base = serverUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/.+/.test(base)) {
+    return null;
+  }
+  return `${base}/episodes/${episodeId}?prep=1`;
+}
+
+export function buildMissedUrl(serverUrl: string, episodeId: number): string | null {
+  const base = serverUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/.+/.test(base)) {
+    return null;
+  }
+  return `${base}/episodes/${episodeId}?missed=1`;
+}
+
 export function filterEpisodes(
   episodes: readonly EpisodeOut[],
   query: string,

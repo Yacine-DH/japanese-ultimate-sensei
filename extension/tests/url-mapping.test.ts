@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { EpisodeOut } from '../src/api/client';
 import {
+  buildMissedUrl,
+  buildPrepUrl,
   buildPrimingUrl,
   extractUrlEpisodeInfo,
   filterEpisodes,
@@ -94,10 +98,24 @@ describe('page URL → episode mapping and E-4 picker logic (#2, #20)', () => {
     expect(filterEpisodes(episodes, 'ep 2').map((e) => e.id)).toEqual([2]);
   });
 
-  it('builds the web pre-watch priming URL for an attached episode (#35)', () => {
+  it('builds the web prep, priming, and missed URLs and wires popup Prep button (#35, #134)', () => {
     expect(buildPrimingUrl('http://homeserver:8000/', 42)).toBe(
       'http://homeserver:8000/episodes/42?prime=1',
     );
     expect(buildPrimingUrl('', 42)).toBeNull();
+
+    expect(buildPrepUrl('http://homeserver:8000/', 42)).toBe(
+      'http://homeserver:8000/episodes/42?prep=1',
+    );
+    expect(buildPrepUrl('', 42)).toBeNull();
+
+    expect(buildMissedUrl('http://homeserver:8000/', 42)).toBe(
+      'http://homeserver:8000/episodes/42?missed=1',
+    );
+
+    const popupHtml = readFileSync(resolve(__dirname, '../entrypoints/popup/index.html'), 'utf-8');
+    const popupMain = readFileSync(resolve(__dirname, '../entrypoints/popup/main.ts'), 'utf-8');
+    expect(popupHtml).toContain('Prep this episode: 10 words');
+    expect(popupMain).toContain('buildPrepUrl');
   });
 });
