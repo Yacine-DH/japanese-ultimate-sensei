@@ -38,12 +38,23 @@ _SOUND_TAILS = (
     # seen in the 10-episode check (2026-11-23): （あくび） （すすり泣き） （看護師のせき払い）
     # （玉犬の遠ぼえ） （せき込み）
     "あくび", "泣き", "払い", "ぼえ", "吠え", "込み", "舌打ち", "うめき", "叫び", "鼻歌",
+    "歌う", "笑う", "泣く", "叫ぶ",
 )  # fmt: skip
 
 
+_HIRAGANA_RE = re.compile(r"[ぁ-ゖ]")
+# A cue after the dialogue: ハッ！ (気合)  カモーン！ (クラクション)  (One Piece TV subs)
+_TRAILING_CUE_RE = re.compile(r"\s+[（(]([^（）()ぁ-ゖ。、！？!?…\s]{1,12})[）)]$")
+
+
 def is_sound_cue(part: str) -> bool:
+    """A whole line in （…） naming a sound. Without hiragana it is never speech or a thought:
+    （鼓動） (咆哮) (クラクション); with it, the ending decides: （小声で歌う） （足音）."""
     m = _PAREN_LINE_RE.match(part.strip())
-    return bool(m) and m.group(1).endswith(_SOUND_TAILS)
+    if not m:
+        return False
+    inner = m.group(1)
+    return not _HIRAGANA_RE.search(inner) or inner.endswith(_SOUND_TAILS)
 
 
 def strip_annotations(part: str, keep_readings: bool = False) -> str:
@@ -55,6 +66,7 @@ def strip_annotations(part: str, keep_readings: bool = False) -> str:
     if not keep_readings:
         part = _INLINE_READING_RE.sub("", part).strip()
     part = _CUE_RE.sub("", part).strip()  # ［拍手］ 〔笑い声〕: always cues
+    part = _TRAILING_CUE_RE.sub("", part).strip()
     if not part or is_sound_cue(_GIVEN_READING_RE.sub(r"\1", part)):
         return ""
     cleaned = _DASH_SPEAKER_RE.sub("", _SPEAKER_RE.sub("", part)).strip()

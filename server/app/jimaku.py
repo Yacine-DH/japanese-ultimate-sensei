@@ -42,6 +42,11 @@ _EP_PATTERNS = [
 ]
 _BRACKET_EP = re.compile(r"\[(\d{1,4})(?:v\d)?\]")  # "[Group] Show [01][Web]"
 _RANGE = re.compile(r"(?:^|[ _\-\]])(\d{1,4})\s*[-~]\s*(\d{1,4})(?=[ _.\[(]|$)")
+_BRACKET_RANGE = re.compile(r"[\[(]\s*(\d{1,4})\s*[-~]\s*(\d{1,4})\s*[\])]")  # [0900-1134] (1-1152)
+# Most free streaming sites re-host Crunchyroll encodes; Netflix [cc] rips were ≈ 1 s later
+# than Crunchyroll/SubsPlease/Erai files in 3 of 6 shows checked (2026-11-23): small tie-break.
+CR_TAGS = re.compile(r"(?<![a-z0-9])(cr|crunchyroll|subsplease|erai|erai-raws)(?![a-z0-9])", re.I)
+_WRONG_EP = re.compile(r"wrong[ ._-]*ep", re.I)  # uploader's warning: numbering is off
 
 
 class JimakuError(Exception):
@@ -94,7 +99,17 @@ def describe(f: dict, episode: int | None = None) -> FileInfo:
     name = f["name"]
     fmt = file_format(name)
     stem = re.sub(r"\[[^\]]*\]", " ", name)
-    multi = bool(_RANGE.search(re.sub(r"\([^)]*\)", " ", stem)))
+    ranges = [
+        (int(a), int(b))
+        for a, b in _RANGE.findall(re.sub(r"\([^)]*\)", " ", stem)) + _BRACKET_RANGE.findall(name)
+        if int(a) < int(b)
+    ]
+    multi = bool(ranges)
+    # A zip of many episodes is fine when it covers this one: extract_subtitle picks it out.
+    in_zip = fmt == "zip" and episode is not None and any(a <= episode <= b for a, b in ranges)
+    if in_zip:
+        multi = False
+    wrong = bool(_WRONG_EP.search(name))
     info = FileInfo(
         name=name,
         url=f["url"],
@@ -102,7 +117,7 @@ def describe(f: dict, episode: int | None = None) -> FileInfo:
         last_modified=f.get("last_modified", ""),
         format=fmt,
         supported=fmt in {"srt", "ass", "ssa", "vtt", "zip"},
-        episode=None if multi else guess_episode(name),
+        episode=episode if in_zip else None if multi else guess_episode(name),
         multi_episode=multi,
         web_source=bool(WEB_TAGS.search(name)),
         dual_language=bool(DUAL_TAGS.search(name)),
@@ -111,11 +126,14 @@ def describe(f: dict, episode: int | None = None) -> FileInfo:
         (10 if info.supported else -100)
         + (5 if not multi else -20)
         + (3 if info.web_source else 0)
+        + (1 if CR_TAGS.search(name) else 0)
         - (4 if BD_TAGS.search(name) else 0)
         - (15 if info.dual_language else 0)
         - (1 if SDH_TAGS.search(name) else 0)  # needs SDH stripping; plain subs are cleaner
         + (2 if fmt == "srt" else 1 if fmt == "ass" else 0)  # srt: no styling noise
-        + (4 if episode is not None and info.episode == episode else 0)
+        + (4 if episode is not None and info.episode == episode and not in_zip else 0)
+        - (3 if in_zip else 0)  # a bigger download, and its inner numbering isn't checked
+        - (40 if wrong else 0)
     )
     return info
 

@@ -118,3 +118,18 @@ def test_dash_speaker_labels():
 
     assert clean_line("-（モモ）ふっ！ -（彼氏）わぷっ！") == ("ふっ！ わぷっ！", [])
     assert clean_line("-（男子生徒たち）ハハッ おらっ -（モモ）ん？")[0] == "ハハッ おらっ ん？"
+
+
+def test_cues_without_hiragana_and_trailing_cues():
+    """Rerun of the 10-episode check: Dandadan and One Piece TV cues."""
+    from app.subtitles import strip_annotations
+
+    for cue in ("（鼓動）", "(咆哮)", "（大声で歌う）", "（小声で歌う）", "(クラクション)"):
+        assert strip_annotations(cue) == "", cue
+    assert strip_annotations("ハッ！ (気合)") == "ハッ！"
+    assert (
+        strip_annotations("カモーン！ ブラキオタンク！ (クラクション)")
+        == "カモーン！ ブラキオタンク！"
+    )
+    assert strip_annotations("（まさか…）") == "（まさか…）"  # a thought stays
+    assert strip_annotations("（行かなきゃ）") == "（行かなきゃ）"

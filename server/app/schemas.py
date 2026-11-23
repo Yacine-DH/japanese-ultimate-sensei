@@ -297,7 +297,8 @@ class JimakuFile(BaseModel):
     supported: bool = Field(description="Importable (text subtitles, or a zip of them)")
     episode: int | None = Field(description="Episode number guessed from the file name")
     multi_episode: bool = Field(
-        description="Several episodes in one file (e.g. 01-04): can't import"
+        description="Several episodes in one file (e.g. 01-04): can't import. A .zip whose "
+        "range covers the requested episode is not multi_episode (the episode is unpacked)"
     )
     web_source: bool = Field(description="Web release: timing likely matches streaming sites")
     dual_language: bool = Field(
