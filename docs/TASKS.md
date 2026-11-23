@@ -81,7 +81,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **E-16** (#135) Popup: translation progress for the attached episode. deps: S-16
 - [ ] **S-19** (#137) Piecewise sync points (subtitles survive cuts)
 - [ ] **E-17** (#138) Background re-sync + sync points in the extension. deps: S-19
-- [ ] **S-20** (#139) Netflix [cc] subtitles: 漢字(よみ) as furigana, speaker labels / sound effects apart
+- [x] **S-20** (#139) Netflix [cc] subtitles: 漢字(よみ) as furigana, speaker labels / sound effects apart (claude, 2026-11-23: given readings → merged token + ruby, kept on reprocess; nested + dash speaker labels; more sound cues dropped; no empty tokens)
 - [ ] **S-22** (#147) Auto-sync by recognizing Japanese speech (ReazonSpeech k2 on the server CPU), VAD as fallback. deps: S-19
 - [x] **S-21** (#140) One-click updater (native messaging host) + GitHub releases (claude, 2026-11-22: `scripts/install-updater.ps1`, `scripts/sensei-updater/`, `scripts/release.sh`, version 0.1.N)
 - [x] **E-18** (#141) Popup **Update now** via the updater + version from `SENSEI_EXT_VERSION`. deps: S-21 (antigravity, 2026-11-22: Chrome-only `nativeMessaging` permission, `SENSEI_EXT_VERSION` manifest version with `0.1.0` fallback + popup footer version, pure `native-updater.ts` state machine for `Update now` / progress / auto-reload / one-time setup / fallback error, Options `Check updater` button via `{action: 'status'}`, unit tests)
