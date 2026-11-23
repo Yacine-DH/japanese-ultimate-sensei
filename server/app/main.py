@@ -208,7 +208,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             select(func.count()).select_from(SubtitleLine).where(SubtitleLine.episode_id == ep.id)
         ).one()
         return {
-            **ep.model_dump(),
+            **ep.model_dump(exclude={"sync_points_json"}),
+            "sync_points": json.loads(ep.sync_points_json or "[]"),
             "anime_title": anime.title if anime else None,
             "line_count": count,
         }
@@ -310,6 +311,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             sentences = drop_lines(session, ep.id)
             ep.title = title or ep.title
             ep.source, ep.source_filename, ep.sub_offset_ms = source, filename, 0
+            ep.sync_points_json, ep.synced_at = "[]", None
         else:
             ep = Episode(
                 anime_id=anime.id,
@@ -423,7 +425,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     def patch_episode(episode_id: int, body: EpisodePatch, session: Session = Depends(get_session)):
         ep = get_episode(session, episode_id)
-        for k, v in body.model_dump(exclude_unset=True).items():
+        changes = body.model_dump(exclude_unset=True)
+        if "sync_points" in changes:
+            points = sync_lib.normalize_points(changes.pop("sync_points") or [])
+            ep.sync_points_json = json.dumps(points)
+        for k, v in changes.items():
             setattr(ep, k, v)
         session.add(ep)
         session.commit()
@@ -437,7 +443,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         episode_id: int,
         file: UploadFile = File(description="Audio (or video) recorded from the stream, 30–90 s"),
         video_start_ms: int = Form(description="Video time when the recording started"),
-        apply: bool = Form(True, description="Set sub_offset_ms when the result is confident"),
+        apply: bool = Form(True, description="Store the result when it is confident"),
         search_ms: int = Form(
             120_000, ge=10_000, le=600_000, description="Search ± this around the current offset"
         ),
@@ -462,21 +468,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             ).all()
         ]
+        points = json.loads(ep.sync_points_json or "[]")
+        previous = sync_lib.offset_at(video_start_ms, ep.sub_offset_ms, points)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "sample"
             path.write_bytes(raw)
             try:
-                r = sync_lib.sync_file(path, lines, video_start_ms, search_ms, ep.sub_offset_ms)
+                r = sync_lib.sync_file(path, lines, video_start_ms, search_ms, previous)
             except sync_lib.SyncError as e:
                 raise HTTPException(422, str(e)) from e
-        previous = ep.sub_offset_ms
-        applied = apply and r.confident
-        if applied:
-            ep.sub_offset_ms = r.offset_ms
+        action = "none"
+        if apply and r.confident:
+            ep.sub_offset_ms, points, action = sync_lib.apply_sync(
+                ep.sub_offset_ms, points, video_start_ms, r.offset_ms, first=ep.synced_at is None
+            )
+            ep.sync_points_json = json.dumps(points)
+            ep.synced_at = datetime.now(UTC)
             session.add(ep)
             session.commit()
-        log.info("sync episode %s: %s (applied=%s)", episode_id, r, applied)
-        return SyncOut(previous_offset_ms=previous, applied=applied, **asdict(r))
+        log.warning(  # warning: shows in the journal without debug logging
+            "sync episode %s at %d ms: offset %d → %d, confidence %.2f (runner-up %.2f), "
+            "speech %d ms, lines %d, %s → %s",
+            episode_id, video_start_ms, previous, r.offset_ms, r.confidence, r.runner_up,
+            r.speech_ms, r.lines_in_window, r.detail, action,
+        )  # fmt: skip
+        return SyncOut(
+            previous_offset_ms=previous, applied=action != "none", action=action,
+            at_ms=video_start_ms, sub_offset_ms=ep.sub_offset_ms, sync_points=points,
+            **asdict(r),
+        )  # fmt: skip
 
     @app.delete("/episodes/{episode_id}", status_code=204, dependencies=auth, tags=["episodes"])
     def delete_episode(episode_id: int, session: Session = Depends(get_session)):

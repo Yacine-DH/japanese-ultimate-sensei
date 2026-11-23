@@ -2,6 +2,17 @@
 
 Newest first. One entry per decision that would surprise someone later.
 
+### 2026-11-23: Piecewise subtitle offsets (sync points) (Claude, #137)
+- Extends "one offset per episode": an episode has `sub_offset_ms` plus optional
+  **sync points** `{at_ms (video time), offset_ms}`, each valid until the next. The 10-episode
+  check showed why: the same episode from different sources differs by constant offsets
+  (Netflix ≈ +1 s vs SubsPlease/Amazon in 3 of 6 shows, Dandadan Amazon +4.1 s, Bleach TV
+  +100 s), and a stream that has an eyecatch or recap the file lacks shifts by a few seconds
+  from that point on.
+- Auto-sync decides: the first confident result sets the base; later ones within 1.5 s
+  refine the stretch they fall in; more than 1.5 s off inserts a point at the sample start.
+  Clients that ignore `sync_points` keep working with `sub_offset_ms` (old behaviour).
+
 ### 2026-11-23: Anki note type grows by appending fields, same model id (Claude, #130)
 - `SentenceEN` / `SentenceDE` were added at the **end** of the "Sensei Japanese" fields and
   `MODEL_ID` stays the same. A new id would make Anki treat it as a different note type and

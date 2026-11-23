@@ -75,6 +75,11 @@ class Understanding(BaseModel):
     unique_pct: float = Field(description="% of distinct content words you understand")
 
 
+class SyncPoint(BaseModel):
+    at_ms: int = Field(gt=0, description="Video time from which offset_ms applies")
+    offset_ms: int
+
+
 class EpisodeOut(BaseModel):
     id: int
     anime_id: int | None
@@ -83,7 +88,13 @@ class EpisodeOut(BaseModel):
     title: str | None
     source: str
     source_filename: str | None
-    sub_offset_ms: int
+    sub_offset_ms: int = Field(description="Offset before the first sync point (or everywhere)")
+    sync_points: list[SyncPoint] = Field(
+        default=[],
+        description="Piecewise offsets (#137): from each at_ms (video time) on, offset_ms "
+        "applies until the next point. Sorted. Empty = sub_offset_ms everywhere",
+    )
+    synced_at: datetime | None = Field(default=None, description="Last confident auto-sync")
     line_count: int
     created_at: datetime
 
@@ -99,14 +110,27 @@ class EpisodeCreated(EpisodeOut):
 
 class EpisodePatch(BaseModel):
     sub_offset_ms: int | None = None
+    sync_points: list[SyncPoint] | None = Field(
+        default=None, description="Replace all sync points ([] removes them)"
+    )
     title: str | None = None
     number: float | None = None
 
 
 class SyncOut(BaseModel):
-    offset_ms: int = Field(description="Best sub_offset_ms found (a guess when not confident)")
-    previous_offset_ms: int
-    applied: bool = Field(description="True when the episode's sub_offset_ms was set to offset_ms")
+    offset_ms: int = Field(
+        description="Best offset found for the sample (a guess when not confident)"
+    )
+    previous_offset_ms: int = Field(description="Offset that was in effect at the sample")
+    applied: bool = Field(description="True when the result was stored (see action)")
+    action: Literal["base", "refined", "point", "none"] = Field(
+        default="none",
+        description="base: first sync, set sub_offset_ms · refined: corrected the stretch the "
+        "sample is in (≤ 1.5 s change) · point: a cut, new sync point at at_ms · none: not stored",
+    )
+    at_ms: int = Field(default=0, description="Video time of the sample start")
+    sub_offset_ms: int = Field(default=0, description="The episode's sub_offset_ms after this")
+    sync_points: list[SyncPoint] = Field(default=[], description="The episode's points after this")
     confident: bool = Field(description="confidence >= 4.5 and >= runner_up + 1")
     confidence: float = Field(
         description="How far the best offset stands out (std devs above all others; noise ≈ 2-4)"
