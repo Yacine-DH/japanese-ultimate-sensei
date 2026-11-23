@@ -6,9 +6,11 @@ import {
   isTabStateChangedMessage,
   type JimakuEntry,
   type JimakuFile,
+  type LLMStatus,
   type OpenMissedPanelMessage,
   type StartAutoSyncMessage,
   type StartAutoSyncResponse,
+  type TranslationJob,
   verifyServerConnection,
 } from '../../src/api/client';
 import {
@@ -27,6 +29,7 @@ import {
   suggestNextEpisodeNumber,
 } from '../../src/lib/jimaku';
 import { getKeyboardLayoutMap } from '../../src/lib/keyboard-layout';
+import { formatTranslationProgress } from '../../src/lib/llm';
 import {
   canUseNativeUpdater,
   createInitialPopupUpdateState,
@@ -59,6 +62,7 @@ import {
 import {
   buildMissedUrl,
   buildPrepUrl,
+  buildSettingsUrl,
   filterEpisodes,
   resolveEpisodeForUrl,
 } from '../../src/lib/url-mapping';
@@ -112,6 +116,21 @@ const suggestText = document.getElementById('suggest-text') as HTMLSpanElement;
 const applySuggestBtn = document.getElementById('apply-suggest-btn') as HTMLButtonElement;
 const episodeSearch = document.getElementById('episode-search') as HTMLInputElement;
 const episodeSelect = document.getElementById('episode-select') as HTMLSelectElement;
+const translationProgressWrap = document.getElementById(
+  'translation-progress-wrap',
+) as HTMLDivElement;
+const translationProgressText = document.getElementById(
+  'translation-progress-text',
+) as HTMLSpanElement;
+const translationSettingsLink = document.getElementById(
+  'translation-settings-link',
+) as HTMLButtonElement;
+const translationProgressBarTrack = document.getElementById(
+  'translation-progress-bar-track',
+) as HTMLDivElement;
+const translationProgressBarFill = document.getElementById(
+  'translation-progress-bar-fill',
+) as HTMLDivElement;
 const autoSyncWrap = document.getElementById('auto-sync-wrap') as HTMLDivElement;
 const autoSyncBtn = document.getElementById('auto-sync-btn') as HTMLButtonElement;
 const autoSyncStatus = document.getElementById('auto-sync-status') as HTMLDivElement;
@@ -157,6 +176,12 @@ let jimakuFiles: JimakuFile[] = [];
 let jimakuSelectedFileName = '';
 let guessedEpFromTab: number | null = null;
 let updateCheckSeq = 0;
+let currentLlmStatus: LLMStatus | null = null;
+let currentTranslationJob: TranslationJob | null = null;
+let translationPollTimer: ReturnType<typeof setTimeout> | null = null;
+let translationPollSeq = 0;
+
+const TRANSLATION_POLL_INTERVAL_MS = 3000;
 
 popupVersionEl.textContent = formatPopupFooterVersion(getExtensionVersion(), getBuildCommit());
 
@@ -346,6 +371,88 @@ function upsertEpisode(ep: EpisodeOut): void {
   }
 }
 
+function stopTranslationPoll(): void {
+  if (translationPollTimer !== null) {
+    clearTimeout(translationPollTimer);
+    translationPollTimer = null;
+  }
+}
+
+function hideTranslationProgress(): void {
+  stopTranslationPoll();
+  currentTranslationJob = null;
+  translationProgressWrap.style.display = 'none';
+  translationProgressText.textContent = '';
+  translationProgressText.className = 'translation-progress-text';
+  translationProgressWrap.title = '';
+  translationSettingsLink.style.display = 'none';
+  translationProgressBarTrack.style.display = 'none';
+  translationProgressBarFill.style.width = '0%';
+}
+
+function renderTranslationProgress(): boolean {
+  if (attachedEpisodeId === null || !currentTranslationJob) {
+    translationProgressWrap.style.display = 'none';
+    return false;
+  }
+  const pres = formatTranslationProgress(currentTranslationJob, currentLlmStatus);
+  if (!pres) {
+    translationProgressWrap.style.display = 'none';
+    return false;
+  }
+  translationProgressText.textContent = pres.text;
+  translationProgressText.className = `translation-progress-text ${pres.tone}`;
+  translationProgressWrap.title = pres.detail ?? '';
+  translationSettingsLink.style.display = pres.showSettingsLink ? '' : 'none';
+  if (pres.showProgressBar) {
+    translationProgressBarTrack.style.display = 'block';
+    translationProgressBarFill.style.width = `${pres.progressPct}%`;
+    translationProgressBarFill.className =
+      pres.tone === 'warn'
+        ? 'translation-progress-fill warn'
+        : pres.tone === 'muted'
+          ? 'translation-progress-fill muted'
+          : 'translation-progress-fill';
+  } else {
+    translationProgressBarTrack.style.display = 'none';
+  }
+  translationProgressWrap.style.display = 'block';
+  return pres.shouldPoll;
+}
+
+async function pollTranslationProgress(episodeId: number, seq: number): Promise<void> {
+  const res = await api.getTranslationJob(episodeId);
+  if (seq !== translationPollSeq || attachedEpisodeId !== episodeId) {
+    return;
+  }
+  if (!res.ok || !res.data) {
+    hideTranslationProgress();
+    return;
+  }
+  currentTranslationJob = res.data;
+  const shouldPoll = renderTranslationProgress();
+  if (shouldPoll && seq === translationPollSeq && attachedEpisodeId === episodeId) {
+    stopTranslationPoll();
+    translationPollTimer = setTimeout(() => {
+      void pollTranslationProgress(episodeId, seq);
+    }, TRANSLATION_POLL_INTERVAL_MS);
+  }
+}
+
+function syncTranslationProgressForAttachedEpisode(): void {
+  const seq = ++translationPollSeq;
+  stopTranslationPoll();
+  if (attachedEpisodeId === null || !isServerUrlConfigured(currentServerUrl)) {
+    hideTranslationProgress();
+    return;
+  }
+  if (currentTranslationJob && currentTranslationJob.episode_id !== attachedEpisodeId) {
+    currentTranslationJob = null;
+    translationProgressWrap.style.display = 'none';
+  }
+  void pollTranslationProgress(attachedEpisodeId, seq);
+}
+
 function updatePrimerButton(): void {
   const url =
     attachedEpisodeId !== null ? buildPrepUrl(currentServerUrl, attachedEpisodeId) : null;
@@ -353,6 +460,7 @@ function updatePrimerButton(): void {
   if (attachedEpisodeId === null) {
     autoSyncStatus.style.display = 'none';
     autoSyncStatus.textContent = '';
+    hideTranslationProgress();
   }
   primeEpisodeBtn.style.display = url ? 'block' : 'none';
   missedEpisodeBtn.style.display = url ? 'block' : 'none';
@@ -403,6 +511,7 @@ async function applyTabSelection(
   });
   renderEpisodeOptions();
   updatePrimerButton();
+  syncTranslationProgressForAttachedEpisode();
 }
 
 async function runPopupAutoSuggestion(
@@ -454,6 +563,7 @@ async function runPopupAutoAttach(
     jimakuDetails.open = false;
     renderEpisodeOptions();
     updatePrimerButton();
+    syncTranslationProgressForAttachedEpisode();
     return;
   }
   if (res.status === 'error') {
@@ -543,6 +653,8 @@ async function refreshPopup(): Promise<void> {
     healthBadge.className = 'badge offline';
     dictText.textContent = '-';
     llmText.textContent = '-';
+    currentLlmStatus = null;
+    hideTranslationProgress();
     hideUpdateBanner();
     setupCard.classList.add('visible');
     return;
@@ -556,11 +668,14 @@ async function refreshPopup(): Promise<void> {
     dictText.textContent = h.dictionary ? 'Ready' : 'Not built';
     setupCard.classList.remove('visible');
     void checkForExtensionUpdate();
+    syncTranslationProgressForAttachedEpisode();
   } else {
     healthBadge.textContent = 'Offline';
     healthBadge.className = 'badge offline';
     dictText.textContent = healthRes.error ?? 'Unreachable';
     llmText.textContent = '-';
+    currentLlmStatus = null;
+    hideTranslationProgress();
     hideUpdateBanner();
     setupCard.classList.add('visible');
     setupStatus.textContent = healthRes.error ?? 'Could not reach server';
@@ -570,6 +685,7 @@ async function refreshPopup(): Promise<void> {
 
   void api.getLlmStatus().then((llmRes) => {
     if (llmRes.ok && llmRes.data) {
+      currentLlmStatus = llmRes.data;
       if (!llmRes.data.configured) {
         llmText.textContent = 'Not configured';
         llmText.title = 'Set up a model on the server';
@@ -581,7 +697,13 @@ async function refreshPopup(): Promise<void> {
         llmText.title = llmRes.data.detail;
       }
     } else {
+      currentLlmStatus = null;
       llmText.textContent = '-';
+    }
+    if (currentTranslationJob) {
+      if (!renderTranslationProgress()) {
+        stopTranslationPoll();
+      }
     }
   });
 
@@ -1007,6 +1129,15 @@ openOptionsBtn.addEventListener('click', () => {
   void browser.runtime.openOptionsPage();
 });
 
+translationSettingsLink.addEventListener('click', () => {
+  const settingsUrl = buildSettingsUrl(currentServerUrl);
+  if (settingsUrl) {
+    void browser.tabs.create({ url: settingsUrl });
+  } else {
+    void browser.runtime.openOptionsPage();
+  }
+});
+
 updateNowBtn.addEventListener('click', async () => {
   if (isUpdatingExtension) return;
   const ctx = {
@@ -1110,8 +1241,14 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
       }
       renderEpisodeOptions();
       updatePrimerButton();
+      syncTranslationProgressForAttachedEpisode();
     }
   }
+});
+
+window.addEventListener('pagehide', () => {
+  stopTranslationPoll();
+  stopUpdatePoll();
 });
 
 void refreshPopup();

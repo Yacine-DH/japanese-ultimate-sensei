@@ -6,6 +6,7 @@ import {
   buildMissedUrl,
   buildPrepUrl,
   buildPrimingUrl,
+  buildSettingsUrl,
   extractUrlEpisodeInfo,
   filterEpisodes,
   normalizePageUrlPattern,
@@ -112,6 +113,11 @@ describe('page URL → episode mapping and E-4 picker logic (#2, #20)', () => {
     expect(buildMissedUrl('http://homeserver:8000/', 42)).toBe(
       'http://homeserver:8000/episodes/42?missed=1',
     );
+
+    expect(buildSettingsUrl('http://homeserver:8000/')).toBe(
+      'http://homeserver:8000/settings',
+    );
+    expect(buildSettingsUrl('')).toBeNull();
 
     const popupHtml = readFileSync(resolve(__dirname, '../entrypoints/popup/index.html'), 'utf-8');
     const popupMain = readFileSync(resolve(__dirname, '../entrypoints/popup/main.ts'), 'utf-8');

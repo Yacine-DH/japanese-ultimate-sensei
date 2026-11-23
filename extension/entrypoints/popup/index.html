@@ -212,6 +212,57 @@
         margin-top: 6px;
         font-size: 0.75rem;
       }
+      .translation-progress {
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 6px 8px;
+        margin-bottom: 6px;
+      }
+      .translation-progress-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .translation-progress-text {
+        font-size: 0.74rem;
+        line-height: 1.3;
+        color: #cbd5e1;
+      }
+      .translation-progress-text.ok {
+        color: #86efac;
+        font-weight: 600;
+      }
+      .translation-progress-text.active {
+        color: #7dd3fc;
+        font-weight: 600;
+      }
+      .translation-progress-text.warn {
+        color: #fcd34d;
+      }
+      .translation-progress-text.muted {
+        color: #94a3b8;
+      }
+      .translation-progress-track {
+        height: 4px;
+        border-radius: 999px;
+        background: #1e293b;
+        overflow: hidden;
+        margin-top: 5px;
+      }
+      .translation-progress-fill {
+        height: 100%;
+        width: 0%;
+        background: #38bdf8;
+        transition: width 0.25s ease;
+      }
+      .translation-progress-fill.warn {
+        background: #f59e0b;
+      }
+      .translation-progress-fill.muted {
+        background: #64748b;
+      }
       .setup-card {
         display: none;
         background: rgba(56, 189, 248, 0.08);
@@ -551,6 +602,27 @@
       <select id="episode-select">
         <option value="">None (detached)</option>
       </select>
+
+      <div id="translation-progress-wrap" class="translation-progress" style="display: none">
+        <div class="translation-progress-row">
+          <span id="translation-progress-text" class="translation-progress-text"></span>
+          <button
+            id="translation-settings-link"
+            type="button"
+            class="link-btn"
+            style="display: none; flex-shrink: 0"
+          >
+            Settings
+          </button>
+        </div>
+        <div
+          id="translation-progress-bar-track"
+          class="translation-progress-track"
+          style="display: none"
+        >
+          <div id="translation-progress-bar-fill" class="translation-progress-fill"></div>
+        </div>
+      </div>
 
       <div id="auto-sync-wrap" style="display: none; margin-top: 6px; margin-bottom: 4px">
         <button id="auto-sync-btn" type="button" class="primary">
