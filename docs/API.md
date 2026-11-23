@@ -22,12 +22,18 @@ Fields: `subtitle` (file: .srt/.ass/.ssa/.vtt, UTF-8/Shift-JIS/EUC-JP/UTF-16, �
 `anime_title` (str, required; anime is created if new), `episode_number` (float, optional),
 `title` (optional). 422 if unparsable or no Japanese lines.
 
+**Re-import (#128):** if the anime already has an episode with that `episode_number`, its
+subtitles are **replaced in place** → **200** with `"replaced": true`: same episode id (page
+mappings stay valid), `sub_offset_ms` reset to 0, old lines, notes and translations dropped
+(a running translation is cancelled). Cards are relinked to a new line with the same text, else
+they keep their sentence with `line_id: null`. Without `episode_number` it is always a new episode.
+
 ### `GET /episodes` → `EpisodeOut[]` (newest first) · `GET /episodes/{id}` → `EpisodeOut`
 ```json
 {"id":1,"anime_id":1,"anime_title":"Frieren","number":1.0,"title":null,"source":"upload",
  "source_filename":"frieren_01.ja.ass","sub_offset_ms":0,"line_count":312,"created_at":"..."}
 ```
-`EpisodeCreated` = `EpisodeOut` + `"understanding": Understanding`.
+`EpisodeCreated` = `EpisodeOut` + `"understanding": Understanding` + `"replaced": bool`.
 
 ### `PATCH /episodes/{id}` body `{"sub_offset_ms"?: int, "title"?: str, "number"?: float}` → `EpisodeOut`
 Display rule for clients: line is active when
@@ -222,7 +228,8 @@ Omit `episode` to list every file of the entry.
 Downloads the file (only files listed for that entry), unpacks `.zip` (picks the file for
 `episode_number`), and imports it like `POST /episodes`. Defaults: `episode_number` guessed from
 the file name, `anime_title` = English title (else romaji). The anime is matched by AniList id,
-so episodes from Jimaku and manual uploads with the same title end up together.
+so episodes from Jimaku and manual uploads with the same title end up together. An existing
+episode number is replaced in place (200, `replaced: true`, see `POST /episodes`).
 422: unsupported format / ambiguous zip / no Japanese lines.
 
 ### `POST /episodes/auto` body `{"query"?:"Frieren: Beyond Journey's End","episode_number":4,"anime_id"?:1}` → `AutoImportOut`

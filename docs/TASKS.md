@@ -70,7 +70,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 
 ## Audit 2026-11-22 (Claude)
 - [x] **S-14** (#127) Server tests must not read the real `server/.env` (bug) (claude, 2026-11-23: autouse fixture turns off the env file and clears `SENSEI_*`)
-- [ ] **S-15** (#128) Re-importing the same anime + episode replaces subtitles in place instead of duplicating (bug)
+- [x] **S-15** (#128) Re-importing the same anime + episode replaces subtitles in place instead of duplicating (bug) (claude, 2026-11-23: 200 + `replaced`, offset reset, cards relinked by sentence, translation cancelled)
 - [ ] **S-16** (#129) Auto-translate on import + resume pending translations after restart
 - [ ] **S-17** (#130) Sentence translation EN/DE on Anki cards (export + AnkiConnect)
 - [ ] **S-18** (#131) Verify STT end to end with a real whisper-server. deps: O-6

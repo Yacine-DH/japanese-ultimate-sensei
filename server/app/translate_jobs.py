@@ -40,10 +40,16 @@ class Translator:
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
 
+    def cancel(self, episode_id: int) -> None:
+        """Stop a queued or running job (its lines are being replaced or deleted)."""
+        with self._lock:
+            if job := self.jobs.get(episode_id):
+                job._cancel = True
+
     def enqueue(self, episode_id: int) -> JobState:
         with self._lock:
             job = self.jobs.get(episode_id)
-            if job and (job.queued or job.running):
+            if job and (job.queued or job.running) and not job._cancel:
                 return job
             job = self.jobs[episode_id] = JobState(episode_id=episode_id)
         if self.synchronous:
@@ -62,7 +68,7 @@ class Translator:
             except queue.Empty:
                 return  # idle: let the thread end; enqueue starts a new one
             job = self.jobs.get(episode_id)
-            if job:
+            if job and not job._cancel:
                 self._run(job)
 
     def _run(self, job: JobState) -> None:
@@ -79,6 +85,8 @@ class Translator:
                 todo = [i for i, line in enumerate(lines) if not line.translation_en]
                 names = name_candidates([json.loads(line.tokens_json) for line in lines])
                 for start in range(0, len(todo), BATCH):
+                    if job._cancel:
+                        return
                     idxs = todo[start : start + BATCH]
                     batch = [lines[i] for i in idxs]
                     first = idxs[0]
