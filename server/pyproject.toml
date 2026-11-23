@@ -20,6 +20,7 @@ dependencies = [
   "zstandard>=0.25.0",
   "wordfreq[mecab]>=3.1.1",
   "webrtcvad-wheels>=2.0.14.post1",
+  "sherpa-onnx>=2.0.3",
 ]
 
 [dependency-groups]

@@ -1,4 +1,6 @@
+import os
 import random
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +12,10 @@ from app.asr_sync import (
     speech_chunks,
     to_kana,
 )
+
+_ASR_MODEL = os.environ.get(
+    "SENSEI_TEST_ASR_MODEL", ""
+)  # read at import, before conftest clears it
 
 # Made-up dialogue (any content works; lines need ≥ 5 kana to anchor).
 TEXTS = [
@@ -259,3 +265,22 @@ def test_asr_setup_keeps_only_the_int8_model(tmp_path, monkeypatch):
     assert not (tmp_path / "evil.int8.onnx").exists()
     assert [p.name for p in (tmp_path / "models").iterdir()] == [MODEL_NAME]  # temp dir gone
     assert asr_setup.install(tmp_path / "models") == dest  # second run: nothing to do
+
+
+def test_real_model_recognizes_japanese():
+    """Runs only with SENSEI_TEST_ASR_MODEL=<model dir> (from `python -m app.asr_setup`, plus
+    the archive's test_wavs/): the conftest clears SENSEI_* so read it before that."""
+    import wave
+
+    model = _ASR_MODEL
+    if not model or not (Path(model) / "test_wavs" / "3.wav").exists():
+        pytest.skip("set SENSEI_TEST_ASR_MODEL to a model folder with test_wavs/")
+    from app.asr_sync import load_recognizer
+
+    rec = load_recognizer(Path(model))
+    assert rec is not None
+    with wave.open(str(Path(model) / "test_wavs" / "3.wav")) as w:
+        pcm = w.readframes(w.getnframes())
+    text, char_ms = rec(pcm)
+    assert to_kana(text)[0] == to_kana("ヤンバルクイナとの出会いは十八歳の時だった")[0]
+    assert char_ms is not None and len(char_ms) == len(text) and char_ms == sorted(char_ms)

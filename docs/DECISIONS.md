@@ -12,12 +12,18 @@ Newest first. One entry per decision that would surprise someone later.
   order, ≥ 5 kana, unique in the window) become anchors. The biggest group agreeing within
   1.5 s (≥ 3 lines, ≥ half of all anchors) gives the median offset, refined to 10 ms with the
   VAD correlation within ±0.5 s. Fewer anchors → the old VAD path, unchanged.
-- **Model: ReazonSpeech k2 v2** (`sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01`, int8 ONNX)
-  through **`sherpa-onnx`** on the CPU, so it works without the Precision. Downloaded by
+- **Model: ReazonSpeech k2 v2** (`sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01`, int8 ONNX,
+  155 MB, **Apache-2.0**) through **`sherpa-onnx`** (new dependency, Apache-2.0, wheels for
+  Linux/Windows) on the CPU, so it works without the Precision. Downloaded by
   `python -m app.asr_setup` into `data/models/` (only plain files, int8 only). Optional:
   without the library or the model, `load_recognizer` returns None and auto-sync is VAD-only.
-- **Pending:** add `sherpa-onnx` to the lockfile, check the model license, measure on the
-  i5-7200U (target < 15 s and < 1 GB for 45 s) and confirm on a real episode.
+- **Measured on barkhaus (i5-7200U, 2 threads):** model load 2.5 s (once, on the first sync),
+  recognition of a 45 s sample 2.4 s, peak RSS 506 MB. Real-speech check: the model's five
+  Japanese test recordings in a 45 s sample with a music bed and noise, true offset 14 200 ms:
+  4 lines recognized, all agreeing → 14 488 ms, refined to 14 280 ms; VAD alone on the same
+  sample: "no clear match" (confidence 3.9). Optional test: `SENSEI_TEST_ASR_MODEL=<model dir
+  with test_wavs/> uv run pytest tests/test_asr_sync.py`.
+- **Still to watch:** a real episode with the server model installed (SAO S1E19 is a good case).
 ### 2026-11-23: Piecewise subtitle offsets (sync points) (Claude, #137)
 - Extends "one offset per episode": an episode has `sub_offset_ms` plus optional
   **sync points** `{at_ms (video time), offset_ms}`, each valid until the next. The 10-episode
