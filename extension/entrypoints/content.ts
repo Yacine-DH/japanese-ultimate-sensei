@@ -2064,7 +2064,9 @@ export default defineContentScript({
         showToast(
           llmStatusChecked && !llmStatus?.configured
             ? 'No translation available — set up a model on the server'
-            : 'No translation for this line yet (translate episode in web app)',
+            : llmStatusChecked && llmStatus?.configured && !llmStatus.reachable
+              ? 'No translation yet — laptop offline, translations will continue later'
+              : 'No translation for this line yet — translating in background',
           2400,
         );
         return;

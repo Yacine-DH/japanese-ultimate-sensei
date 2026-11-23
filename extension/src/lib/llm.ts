@@ -1,13 +1,179 @@
-import type { LineOut } from '../api/client';
+import type { LineOut, LLMStatus, TranslationJob } from '../api/client';
 import { findLineToReplay } from './replay';
 import type { GlossLanguage, TranslationDisplayMode } from './settings';
 import { findActiveLines } from './timing';
 
 export type LlmLang = 'en' | 'de';
 
+export type TranslationProgressStatus =
+  | 'ready'
+  | 'translating'
+  | 'queued'
+  | 'offline'
+  | 'unconfigured'
+  | 'error'
+  | 'partial'
+  | 'not_started';
+
+export type TranslationProgressTone = 'ok' | 'active' | 'warn' | 'muted';
+
+export interface TranslationProgressPresentation {
+  status: TranslationProgressStatus;
+  text: string;
+  tone: TranslationProgressTone;
+  progressPct: number;
+  showProgressBar: boolean;
+  showSettingsLink: boolean;
+  shouldPoll: boolean;
+  detail: string | null;
+}
+
 export interface OverlayTranslation {
   text: string;
   lang: LlmLang;
+}
+
+export function isTranslationUnreachable(
+  job: Pick<TranslationJob, 'error' | 'retry_at'>,
+  llmStatus: Pick<LLMStatus, 'configured' | 'reachable'> | null = null,
+): boolean {
+  if (job.retry_at) {
+    return true;
+  }
+  if (typeof job.error === 'string' && /unreachable/i.test(job.error)) {
+    return true;
+  }
+  if (llmStatus && llmStatus.configured && !llmStatus.reachable) {
+    return true;
+  }
+  return false;
+}
+
+export function formatTranslationProgress(
+  job: TranslationJob,
+  llmStatus: Pick<LLMStatus, 'configured' | 'reachable' | 'detail'> | null = null,
+): TranslationProgressPresentation | null {
+  if (job.total_lines <= 0) {
+    return null;
+  }
+
+  const total = job.total_lines;
+  const translated = Math.max(0, Math.min(job.translated_lines, total));
+  const progressPct = Math.round((translated / total) * 100);
+
+  if (translated >= total && !job.running) {
+    return {
+      status: 'ready',
+      text: 'Translations ready',
+      tone: 'ok',
+      progressPct: 100,
+      showProgressBar: false,
+      showSettingsLink: false,
+      shouldPoll: false,
+      detail: null,
+    };
+  }
+
+  if (isTranslationUnreachable(job, llmStatus)) {
+    const detailParts: string[] = [];
+    if (translated > 0) {
+      detailParts.push(`${translated}/${total} translated so far`);
+    }
+    const reason = job.error?.trim() || llmStatus?.detail?.trim() || '';
+    if (reason) {
+      detailParts.push(reason);
+    }
+    return {
+      status: 'offline',
+      text: 'Laptop offline, translations will continue later',
+      tone: 'warn',
+      progressPct,
+      showProgressBar: translated > 0,
+      showSettingsLink: true,
+      shouldPoll: Boolean(job.queued || job.running),
+      detail: detailParts.length > 0 ? detailParts.join(' · ') : null,
+    };
+  }
+
+  if (job.running) {
+    return {
+      status: 'translating',
+      text: `Translating ${translated}/${total}`,
+      tone: 'active',
+      progressPct,
+      showProgressBar: true,
+      showSettingsLink: false,
+      shouldPoll: true,
+      detail: null,
+    };
+  }
+
+  if (job.queued) {
+    return {
+      status: 'queued',
+      text: `Translating ${translated}/${total} (queued)`,
+      tone: 'active',
+      progressPct,
+      showProgressBar: true,
+      showSettingsLink: false,
+      shouldPoll: true,
+      detail: null,
+    };
+  }
+
+  if (llmStatus !== null && !llmStatus.configured) {
+    return {
+      status: 'unconfigured',
+      text:
+        translated > 0
+          ? `Translated ${translated}/${total} (LLM not configured)`
+          : 'Translations unavailable (LLM not configured)',
+      tone: 'muted',
+      progressPct,
+      showProgressBar: false,
+      showSettingsLink: true,
+      shouldPoll: false,
+      detail: llmStatus.detail?.trim() || 'Set up a model on the server',
+    };
+  }
+
+  if (job.error) {
+    return {
+      status: 'error',
+      text: `Translation paused (${translated}/${total})`,
+      tone: 'warn',
+      progressPct,
+      showProgressBar: translated > 0,
+      showSettingsLink: true,
+      shouldPoll: false,
+      detail: job.error,
+    };
+  }
+
+  if (translated > 0) {
+    const skipped = job.failed_lines > 0 ? ` (${job.failed_lines} skipped)` : '';
+    return {
+      status: 'partial',
+      text: `Translated ${translated}/${total}${skipped}`,
+      tone: 'muted',
+      progressPct,
+      showProgressBar: true,
+      showSettingsLink: false,
+      shouldPoll: false,
+      detail: null,
+    };
+  }
+
+  return {
+    status: 'not_started',
+    text: `Not translated yet (0/${total})`,
+    tone: 'muted',
+    progressPct: 0,
+    showProgressBar: false,
+    showSettingsLink: false,
+    shouldPoll: false,
+    detail: null,
+  };
 }
 
 export type InlineNode =

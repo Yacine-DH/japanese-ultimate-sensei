@@ -49,6 +49,7 @@ function makeAutoImportOut(overrides: Partial<AutoImportOut> = {}): AutoImportOu
         token_pct: 40,
         unique_pct: 35,
       },
+      replaced: false,
     },
     ...overrides,
   };
