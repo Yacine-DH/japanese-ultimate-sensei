@@ -168,3 +168,62 @@ def test_sync_endpoint(client):
     assert small.status_code == 422
     assert client.post("/episodes/999/sync", data={"video_start_ms": 0},
                        files={"file": ("s.wav", wav)}).status_code == 404  # fmt: skip
+
+
+def test_sync_points_helpers():
+    """#137: one offset per stretch of the episode."""
+    from app.sync import apply_sync, normalize_points, offset_at, video_to_sub_ms
+
+    pts = normalize_points([{"at_ms": 600_000, "offset_ms": 4000}, {"at_ms": 0, "offset_ms": 9},
+                            {"at_ms": 300_000, "offset_ms": 2500}])  # fmt: skip
+    assert pts == [{"at_ms": 300_000, "offset_ms": 2500}, {"at_ms": 600_000, "offset_ms": 4000}]
+    assert [offset_at(v, 1000, pts) for v in (0, 299_999, 300_000, 650_000)] == [
+        1000,
+        1000,
+        2500,
+        4000,
+    ]
+    assert video_to_sub_ms(310_000, 1000, pts) == 307_500
+
+    assert apply_sync(0, [], 200_000, 3200, first=True) == (3200, [], "base")
+    # drift ≤ 1.5 s: correct the stretch the sample is in
+    assert apply_sync(3200, [], 500_000, 3900, first=False) == (3900, [], "refined")
+    assert apply_sync(1000, pts, 400_000, 2000, first=False)[1][0]["offset_ms"] == 2000
+    # > 1.5 s: a cut → a new point from the sample start, the earlier stretch keeps its offset
+    base, new, action = apply_sync(3200, [], 700_000, 9200, first=False)
+    assert (base, new, action) == (3200, [{"at_ms": 700_000, "offset_ms": 9200}], "point")
+    # a second cut result close to that point moves it instead of adding another
+    _, new, _ = apply_sync(3200, new, 690_000, 12_000, first=False)
+    assert new == [{"at_ms": 690_000, "offset_ms": 12_000}]
+
+
+@pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg not installed")
+def test_sync_endpoint_inserts_a_point_after_a_cut(client):
+    lines = [(s, e) for s, e in episode_lines(seed=7, n=90) if s > 20_000]
+    ep = client.post(
+        "/episodes",
+        data={"anime_title": "Cut Anime", "episode_number": "1"},
+        files={"subtitle": ("ep.srt", _srt(lines).encode(), "text/plain")},
+    ).json()
+    early = lines[3][0] - 1000
+    r = client.post(f"/episodes/{ep['id']}/sync", data={"video_start_ms": early},
+                    files={"file": ("a.wav", _voice_wav(lines, 3200, early, 30))}).json()  # fmt: skip
+    assert r["action"] == "base" and abs(r["sub_offset_ms"] - 3200) <= 100, r
+
+    late = lines[60][0] + 9200 - 1000  # video time; the stream has 6 s more before this part
+    r = client.post(f"/episodes/{ep['id']}/sync", data={"video_start_ms": late},
+                    files={"file": ("b.wav", _voice_wav(lines, 9200, late, 30))}).json()  # fmt: skip
+    assert r["action"] == "point" and abs(r["previous_offset_ms"] - 3200) <= 100, r
+    (point,) = r["sync_points"]
+    assert point["at_ms"] == late and abs(point["offset_ms"] - 9200) <= 100
+    got = client.get(f"/episodes/{ep['id']}").json()
+    assert got["sync_points"] == r["sync_points"] and got["synced_at"]
+
+    patched = client.patch(f"/episodes/{ep['id']}", json={"sync_points": []}).json()
+    assert patched["sync_points"] == [] and abs(patched["sub_offset_ms"] - 3200) <= 100
+    assert (
+        client.patch(
+            f"/episodes/{ep['id']}", json={"sync_points": [{"at_ms": 0, "offset_ms": 1}]}
+        ).status_code
+        == 422
+    )

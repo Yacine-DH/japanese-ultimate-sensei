@@ -79,7 +79,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **W-11** (#133) Web app 先生 favicon + installable PWA for phone reviews (antigravity, 2026-11-23: reproducible `web/scripts/generate-icons.sh`, committed multi-res `favicon.ico` + PNG favicons + 180 px `apple-touch-icon.png` + 192/512/maskable PWA icons, `manifest.webmanifest`, `index.html` PWA meta/links, 390 px mobile-responsive header & ReviewPage polish, unit tests)
 - [x] **W-12/E-15** (#134) "Prep this episode": 10 most useful words before watching (antigravity, 2026-11-23: upgraded Prep view on `EpisodeDetailPage` to use `GET /episodes/{id}/missed?limit=10` with readings, EN/DE meanings, furigana example sentences, optional existing-card line audio playback, "Learn" `POST /cards` + "I know it" `POST /words/{id}/status`, and linked from extension popup "Prep this episode: 10 words" via `?prep=1`, unit tests)
 - [ ] **E-16** (#135) Popup: translation progress for the attached episode. deps: S-16
-- [ ] **S-19** (#137) Piecewise sync points (subtitles survive cuts)
+- [x] **S-19** (#137) Piecewise sync points (subtitles survive cuts) (claude, 2026-11-23: `sync_points` + `synced_at`, migration 0005, base/refined/point, PATCH, results logged)
 - [ ] **E-17** (#138) Background re-sync + sync points in the extension. deps: S-19
 - [x] **S-20** (#139) Netflix [cc] subtitles: 漢字(よみ) as furigana, speaker labels / sound effects apart (claude, 2026-11-23: given readings → merged token + ruby, kept on reprocess; nested + dash speaker labels; more sound cues dropped; no empty tokens)
 - [ ] **S-22** (#147) Auto-sync by recognizing Japanese speech (ReazonSpeech k2 on the server CPU), VAD as fallback. deps: S-19

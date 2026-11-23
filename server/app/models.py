@@ -47,6 +47,10 @@ class Episode(SQLModel, table=True):
     source_filename: str | None = None
     # Shift applied by clients: display line when video_time_ms == start_ms + sub_offset_ms.
     sub_offset_ms: int = 0
+    # Piecewise sync (#137): [{"at_ms", "offset_ms"}] sorted by at_ms (video time, > 0); each
+    # offset applies from at_ms to the next point. sub_offset_ms covers the time before.
+    sync_points_json: str = "[]"
+    synced_at: datetime | None = None  # last confident auto-sync
     created_at: datetime = Field(default_factory=utcnow)
 
 

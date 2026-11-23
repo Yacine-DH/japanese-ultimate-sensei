@@ -31,13 +31,17 @@ they keep their sentence with `line_id: null`. Without `episode_number` it is al
 ### `GET /episodes` → `EpisodeOut[]` (newest first) · `GET /episodes/{id}` → `EpisodeOut`
 ```json
 {"id":1,"anime_id":1,"anime_title":"Frieren","number":1.0,"title":null,"source":"upload",
- "source_filename":"frieren_01.ja.ass","sub_offset_ms":0,"line_count":312,"created_at":"..."}
+ "source_filename":"frieren_01.ja.ass","sub_offset_ms":0,"sync_points":[],"synced_at":null,
+ "line_count":312,"created_at":"..."}
 ```
 `EpisodeCreated` = `EpisodeOut` + `"understanding": Understanding` + `"replaced": bool`.
 
-### `PATCH /episodes/{id}` body `{"sub_offset_ms"?: int, "title"?: str, "number"?: float}` → `EpisodeOut`
+### `PATCH /episodes/{id}` body `{"sub_offset_ms"?: int, "sync_points"?: [{"at_ms": int > 0, "offset_ms": int}], "title"?: str, "number"?: float}` → `EpisodeOut`
 Display rule for clients: line is active when
-`line.start_ms + sub_offset_ms <= video_ms < line.end_ms + sub_offset_ms`.
+`line.start_ms + offset <= video_ms < line.end_ms + offset`, where `offset` = `sub_offset_ms`
+unless `sync_points` apply (see `POST /episodes/{id}/sync`). `sync_points` replaces the list
+(sorted and de-duplicated by the server; `[]` removes them). Offset hotkeys should change the
+offset of the stretch being watched: `sub_offset_ms` before the first point, else that point.
 
 ### `POST /episodes/{id}/sync` (multipart) → `SyncOut`
 Automatic subtitle offset from the episode's audio. Form: `file` (audio or video recorded from
@@ -52,6 +56,19 @@ Pick a part with dialogue (not the opening song).
 ```
 Not confident → `applied:false`, `offset_ms` is the best guess, `detail` says why (too little
 speech, too few lines nearby, no clear match). 422 = unreadable audio. ~1 s per minute of audio.
+
+**Sync points (#137).** The stream and the subtitle file often differ by a cut (eyecatch, recap,
+a different lead-in), so one offset can't fit the whole episode. The search runs around the
+offset **in effect at `video_start_ms`**, and a confident result is stored as `action`:
+- `base`: first confident sync of the episode → sets `sub_offset_ms` (as before).
+- `refined`: within 1.5 s of the offset in effect there → corrects that stretch (drift).
+- `point`: more than 1.5 s off → a cut: a new point `{at_ms: video_start_ms, offset_ms}`
+  (a point within 20 s is moved instead). Earlier stretches keep their offset.
+`SyncOut` also has `action`, `at_ms`, and the episode's `sub_offset_ms` + `sync_points` after
+the call. Every result is logged in the server journal.
+
+**Display rule with points:** offset at video time `v` = `offset_ms` of the last point with
+`at_ms <= v`, else `sub_offset_ms`; line is active when `start_ms + offset <= v < end_ms + offset`.
 
 ### `DELETE /episodes/{id}` → 204
 

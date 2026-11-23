@@ -260,3 +260,58 @@ def sync_file(path: Path, lines: list[tuple[int, int]], video_start_ms: int, sea
               around_ms: int) -> SyncResult:  # fmt: skip
     signal, speech_ms = features(decode_pcm(path))
     return find_offset(signal, lines, video_start_ms, search_ms, around_ms, speech_ms)
+
+
+# ---- sync points (#137): one offset per stretch of the episode ------------------------------
+
+CUT_MS = 1500  # a new offset this far from the current one means a cut/eyecatch, not drift
+MERGE_POINT_MS = 20_000  # a new point this close to an existing one replaces it
+
+
+def normalize_points(points: list[dict]) -> list[dict]:
+    """Sorted by at_ms, one per at_ms, at_ms > 0, ints."""
+    by_at = {int(p["at_ms"]): int(p["offset_ms"]) for p in points if int(p["at_ms"]) > 0}
+    return [{"at_ms": a, "offset_ms": by_at[a]} for a in sorted(by_at)]
+
+
+def offset_at(video_ms: int, base_ms: int, points: list[dict]) -> int:
+    """sub_offset_ms in effect at a video time."""
+    offset = base_ms
+    for p in points:
+        if p["at_ms"] > video_ms:
+            break
+        offset = p["offset_ms"]
+    return offset
+
+
+def video_to_sub_ms(video_ms: int, base_ms: int, points: list[dict]) -> int:
+    """Subtitle time shown at a video time: the line is on screen while
+    start_ms <= video_ms - offset < end_ms."""
+    return video_ms - offset_at(video_ms, base_ms, points)
+
+
+def apply_sync(
+    base_ms: int, points: list[dict], at_ms: int, new_ms: int, first: bool
+) -> tuple[int, list[dict], str]:
+    """Fold a confident sync result measured at video time `at_ms` into (base, points).
+
+    Returns (base, points, action): "base" = first sync of the episode sets the global offset;
+    "refined" = close to the offset in effect there (drift, ≤ CUT_MS) → that stretch is
+    corrected; "point" = more than CUT_MS off → a cut: a new point from `at_ms` on.
+    """
+    points = normalize_points(points)
+    if first and not points:
+        return new_ms, [], "base"
+    current = offset_at(at_ms, base_ms, points)
+    owner = next((p for p in reversed(points) if p["at_ms"] <= at_ms), None)
+    if abs(new_ms - current) <= CUT_MS:
+        if owner is None:
+            return new_ms, points, "refined"
+        owner["offset_ms"] = new_ms
+        return base_ms, points, "refined"
+    near = next((p for p in points if abs(p["at_ms"] - at_ms) <= MERGE_POINT_MS), None)
+    if near is not None:
+        near["at_ms"], near["offset_ms"] = min(near["at_ms"], at_ms), new_ms
+    else:
+        points.append({"at_ms": max(1, at_ms), "offset_ms": new_ms})
+    return base_ms, normalize_points(points), "point"

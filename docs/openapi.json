@@ -2828,7 +2828,7 @@
           "apply": {
             "type": "boolean",
             "title": "Apply",
-            "description": "Set sub_offset_ms when the result is confident",
+            "description": "Store the result when it is confident",
             "default": true
           },
           "search_ms": {
@@ -3261,7 +3261,30 @@
           },
           "sub_offset_ms": {
             "type": "integer",
-            "title": "Sub Offset Ms"
+            "title": "Sub Offset Ms",
+            "description": "Offset before the first sync point (or everywhere)"
+          },
+          "sync_points": {
+            "items": {
+              "$ref": "#/components/schemas/SyncPoint"
+            },
+            "type": "array",
+            "title": "Sync Points",
+            "description": "Piecewise offsets (#137): from each at_ms (video time) on, offset_ms applies until the next point. Sorted. Empty = sub_offset_ms everywhere",
+            "default": []
+          },
+          "synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synced At",
+            "description": "Last confident auto-sync"
           },
           "line_count": {
             "type": "integer",
@@ -3365,7 +3388,30 @@
           },
           "sub_offset_ms": {
             "type": "integer",
-            "title": "Sub Offset Ms"
+            "title": "Sub Offset Ms",
+            "description": "Offset before the first sync point (or everywhere)"
+          },
+          "sync_points": {
+            "items": {
+              "$ref": "#/components/schemas/SyncPoint"
+            },
+            "type": "array",
+            "title": "Sync Points",
+            "description": "Piecewise offsets (#137): from each at_ms (video time) on, offset_ms applies until the next point. Sorted. Empty = sub_offset_ms everywhere",
+            "default": []
+          },
+          "synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synced At",
+            "description": "Last confident auto-sync"
           },
           "line_count": {
             "type": "integer",
@@ -3404,6 +3450,21 @@
               }
             ],
             "title": "Sub Offset Ms"
+          },
+          "sync_points": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SyncPoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Points",
+            "description": "Replace all sync points ([] removes them)"
           },
           "title": {
             "anyOf": [
@@ -4560,16 +4621,50 @@
           "offset_ms": {
             "type": "integer",
             "title": "Offset Ms",
-            "description": "Best sub_offset_ms found (a guess when not confident)"
+            "description": "Best offset found for the sample (a guess when not confident)"
           },
           "previous_offset_ms": {
             "type": "integer",
-            "title": "Previous Offset Ms"
+            "title": "Previous Offset Ms",
+            "description": "Offset that was in effect at the sample"
           },
           "applied": {
             "type": "boolean",
             "title": "Applied",
-            "description": "True when the episode's sub_offset_ms was set to offset_ms"
+            "description": "True when the result was stored (see action)"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "base",
+              "refined",
+              "point",
+              "none"
+            ],
+            "title": "Action",
+            "description": "base: first sync, set sub_offset_ms · refined: corrected the stretch the sample is in (≤ 1.5 s change) · point: a cut, new sync point at at_ms · none: not stored",
+            "default": "none"
+          },
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Video time of the sample start",
+            "default": 0
+          },
+          "sub_offset_ms": {
+            "type": "integer",
+            "title": "Sub Offset Ms",
+            "description": "The episode's sub_offset_ms after this",
+            "default": 0
+          },
+          "sync_points": {
+            "items": {
+              "$ref": "#/components/schemas/SyncPoint"
+            },
+            "type": "array",
+            "title": "Sync Points",
+            "description": "The episode's points after this",
+            "default": []
           },
           "confident": {
             "type": "boolean",
@@ -4625,6 +4720,26 @@
           "detail"
         ],
         "title": "SyncOut"
+      },
+      "SyncPoint": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "At Ms",
+            "description": "Video time from which offset_ms applies"
+          },
+          "offset_ms": {
+            "type": "integer",
+            "title": "Offset Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "offset_ms"
+        ],
+        "title": "SyncPoint"
       },
       "TokenOut": {
         "properties": {
