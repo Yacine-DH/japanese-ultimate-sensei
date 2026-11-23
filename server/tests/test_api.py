@@ -272,3 +272,35 @@ def test_reprocess_cleans_old_line_text(client):
     assert len(after) == len(lines) - 1
     with Session(engine) as s:
         assert not s.exec(select(LineNote).where(LineNote.line_id == ids[0])).all()
+
+
+def test_reimport_same_episode_replaces_in_place(client):
+    """#128: same anime + number → same id, new lines, offset reset, cards relinked."""
+    first = upload(client).json()
+    ep_id = first["id"]
+    client.patch(f"/episodes/{ep_id}", json={"sub_offset_ms": 1500})
+    line = client.get(f"/episodes/{ep_id}/lines").json()[0]
+    tok = next(t for t in line["tokens"] if t["word_id"])
+    card = client.post("/cards", json={"word_id": tok["word_id"], "line_id": line["id"]}).json()
+
+    r = upload(client)  # same file again: cards find their sentence again
+    assert r.status_code == 200, r.text
+    again = r.json()
+    assert again["id"] == ep_id and again["replaced"] is True
+    assert again["sub_offset_ms"] == 0 and again["line_count"] == 2
+    assert len(client.get("/episodes").json()) == 1
+    new_line_ids = {ln["id"] for ln in client.get(f"/episodes/{ep_id}/lines").json()}
+    relinked = client.get(f"/cards/{card['id']}").json()["card"]
+    assert relinked["line_id"] in new_line_ids
+
+    r = upload(client, name="sample.srt")  # different file: card keeps its sentence, no line
+    assert r.status_code == 200 and r.json()["line_count"] == 2
+    assert r.json()["source_filename"] == "sample.srt"
+    detached = client.get(f"/cards/{card['id']}").json()["card"]
+    assert detached["line_id"] is None and detached["sentence"] == card["sentence"]
+
+
+def test_other_episode_number_is_a_new_episode(client):
+    a = upload(client).json()
+    r = upload(client, episode_number="2")
+    assert r.status_code == 201 and r.json()["id"] != a["id"] and r.json()["replaced"] is False

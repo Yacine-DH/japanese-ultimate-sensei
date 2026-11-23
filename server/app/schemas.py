@@ -90,6 +90,11 @@ class EpisodeOut(BaseModel):
 
 class EpisodeCreated(EpisodeOut):
     understanding: Understanding
+    replaced: bool = Field(
+        default=False,
+        description="True: the anime + episode number existed; its subtitles were replaced in "
+        "place (same id, sub_offset_ms reset to 0, cards relinked by sentence). Status 200, not 201",
+    )
 
 
 class EpisodePatch(BaseModel):

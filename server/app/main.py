@@ -276,21 +276,70 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         anime.jimaku_entry_id = anime.jimaku_entry_id or jimaku_entry_id
         session.add(anime)
         session.flush()
-        ep = Episode(
-            anime_id=anime.id,
-            number=number,
-            title=title,
-            source=source,
-            source_filename=filename,
+        ep = (
+            session.exec(
+                select(Episode).where(Episode.anime_id == anime.id, Episode.number == number)
+            ).first()
+            if number is not None
+            else None
         )
+        replaced = ep is not None
+        if ep is not None:
+            # Same anime + number: new subtitles for the same episode (#128). The id stays, so
+            # the extension's page mappings keep working; the old timing no longer applies.
+            app.state.translator.cancel(ep.id)
+            sentences = drop_lines(session, ep.id)
+            ep.title = title or ep.title
+            ep.source, ep.source_filename, ep.sub_offset_ms = source, filename, 0
+        else:
+            ep = Episode(
+                anime_id=anime.id,
+                number=number,
+                title=title,
+                source=source,
+                source_filename=filename,
+            )
+            sentences = {}
         session.add(ep)
         session.flush()
         ingest_lines(session, ep, lines, app.state.dictionary)
         session.flush()
+        if sentences:
+            relink_cards(session, ep.id, sentences)
         act.snapshot(session, uid, anime.id)  # first point of the "% understood" trend
         session.commit()
         session.refresh(ep)
-        return {**episode_out(session, ep), "understanding": understanding(session, uid, ep.id)}
+        return {
+            **episode_out(session, ep),
+            "understanding": understanding(session, uid, ep.id),
+            "replaced": replaced,
+        }
+
+    def drop_lines(session: Session, episode_id: int) -> dict[int, str]:
+        """Delete an episode's lines and their notes. Cards keep their sentence and lose the
+        line link; returns {card id: sentence} of the cards that were detached."""
+        line_ids = select(SubtitleLine.id).where(SubtitleLine.episode_id == episode_id)
+        detached = {}
+        for card in session.exec(select(Card).where(Card.line_id.in_(line_ids))).all():  # type: ignore[union-attr]
+            card.line_id = None
+            session.add(card)
+            detached[card.id] = card.sentence
+        session.exec(delete(LineNote).where(LineNote.line_id.in_(line_ids)))  # type: ignore[attr-defined]
+        session.exec(delete(SubtitleLine).where(SubtitleLine.episode_id == episode_id))
+        return detached
+
+    def relink_cards(session: Session, episode_id: int, sentences: dict[int, str]) -> None:
+        """After new subtitles replace old ones, link cards back to a line with the same text."""
+        by_text: dict[str, int] = {}
+        for line_id, text in session.exec(
+            select(SubtitleLine.id, SubtitleLine.text).where(SubtitleLine.episode_id == episode_id)
+        ).all():
+            by_text.setdefault(text.strip(), line_id)
+        for card_id, sentence in sentences.items():
+            if (line_id := by_text.get(sentence.strip())) is not None:
+                card = session.get(Card, card_id)
+                card.line_id = line_id
+                session.add(card)
 
     def get_episode(session: Session, episode_id: int) -> Episode:
         ep = session.get(Episode, episode_id)
@@ -320,6 +369,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tags=["episodes"],
     )
     async def create_episode(
+        response: Response,
         subtitle: UploadFile = File(description="Japanese .srt/.ass/.ssa/.vtt file"),
         anime_title: str = Form(),
         episode_number: float | None = Form(None),
@@ -329,9 +379,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         raw = await subtitle.read(MAX_SUBTITLE_BYTES + 1)
         if len(raw) > MAX_SUBTITLE_BYTES:
             raise HTTPException(413, "subtitle file too large")
-        return import_episode(
+        created = import_episode(
             session, raw, subtitle.filename, anime_title, episode_number, title, source="upload"
         )
+        if created["replaced"]:
+            response.status_code = 200
+        return created
 
     @app.get("/episodes", response_model=list[EpisodeOut], dependencies=auth, tags=["episodes"])
     def list_episodes(session: Session = Depends(get_session)):
@@ -409,13 +462,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Delete an episode and its lines. Cards saved from it are kept (their sentence text
         stays; they just lose the link to the line). Watch time for it is removed."""
         ep = get_episode(session, episode_id)
-        line_ids = select(SubtitleLine.id).where(SubtitleLine.episode_id == episode_id)
-        for card in session.exec(select(Card).where(Card.line_id.in_(line_ids))).all():  # type: ignore[union-attr]
-            card.line_id = None
-            session.add(card)
+        app.state.translator.cancel(episode_id)
+        drop_lines(session, episode_id)
         session.exec(delete(WatchDay).where(WatchDay.episode_id == episode_id))
-        session.exec(delete(LineNote).where(LineNote.line_id.in_(line_ids)))  # type: ignore[attr-defined]
-        session.exec(delete(SubtitleLine).where(SubtitleLine.episode_id == episode_id))
         session.delete(ep)
         session.commit()
 
@@ -874,7 +923,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=auth,
         tags=["episodes", "subs"],
     )
-    def episode_from_jimaku(body: JimakuImport, session: Session = Depends(get_session)):
+    def episode_from_jimaku(
+        body: JimakuImport, response: Response, session: Session = Depends(get_session)
+    ):
         """Download a Jimaku file (zip archives are unpacked) and import it as an episode."""
         jm = app.state.jimaku
         entry = jimaku_call(jm.entry, body.entry_id)
@@ -886,7 +937,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             extract_subtitle, body.file_name, data, int(number) if number is not None else None
         )
         title = body.anime_title or entry.get("english_name") or entry.get("name") or "Unknown"
-        return import_episode(
+        created = import_episode(
             session,
             raw,
             name,
@@ -898,6 +949,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             title_jp=entry.get("japanese_name"),
             jimaku_entry_id=entry["id"],
         )
+        if created["replaced"]:
+            response.status_code = 200
+        return created
 
     def library_anime_for(session: Session, entry: dict) -> Anime | None:
         anime = session.exec(select(Anime).where(Anime.jimaku_entry_id == entry["id"])).first()
