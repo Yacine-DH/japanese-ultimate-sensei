@@ -69,7 +69,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **W-6** (#32) Built-in player for downloaded files (same overlay component as the extension) (antigravity, 2026-11-22: local blob video player at /player and /episodes/:id/watch with fullscreen-safe furigana + Zipf highlight overlay, hover/click word_id dictionary popup, untainted canvas/audio card capture, timing/replay/LLM hotkeys, watch heartbeats, synced transcript sidebar, and post-watch missed words, unit tests)
 
 ## Audit 2026-11-22 (Claude)
-- [ ] **S-14** (#127) Server tests must not read the real `server/.env` (bug)
+- [x] **S-14** (#127) Server tests must not read the real `server/.env` (bug) (claude, 2026-11-23: autouse fixture turns off the env file and clears `SENSEI_*`)
 - [ ] **S-15** (#128) Re-importing the same anime + episode replaces subtitles in place instead of duplicating (bug)
 - [ ] **S-16** (#129) Auto-translate on import + resume pending translations after restart
 - [ ] **S-17** (#130) Sentence translation EN/DE on Anki cards (export + AnkiConnect)
@@ -81,6 +81,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [ ] **S-19** (#137) Piecewise sync points (subtitles survive cuts)
 - [ ] **E-17** (#138) Background re-sync + sync points in the extension. deps: S-19
 - [ ] **S-20** (#139) Netflix [cc] subtitles: 漢字(よみ) as furigana, speaker labels / sound effects apart
+- [ ] **S-22** (#147) Auto-sync by recognizing Japanese speech (ReazonSpeech k2 on the server CPU), VAD as fallback. deps: S-19
 - [x] **S-21** (#140) One-click updater (native messaging host) + GitHub releases (claude, 2026-11-22: `scripts/install-updater.ps1`, `scripts/sensei-updater/`, `scripts/release.sh`, version 0.1.N)
 - [x] **E-18** (#141) Popup **Update now** via the updater + version from `SENSEI_EXT_VERSION`. deps: S-21 (antigravity, 2026-11-22: Chrome-only `nativeMessaging` permission, `SENSEI_EXT_VERSION` manifest version with `0.1.0` fallback + popup footer version, pure `native-updater.ts` state machine for `Update now` / progress / auto-reload / one-time setup / fallback error, Options `Check updater` button via `{action: 'status'}`, unit tests)
 
