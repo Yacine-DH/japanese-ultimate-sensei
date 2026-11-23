@@ -143,6 +143,14 @@ export function buildMissedUrl(serverUrl: string, episodeId: number): string | n
   return `${base}/episodes/${episodeId}?missed=1`;
 }
 
+export function buildSettingsUrl(serverUrl: string): string | null {
+  const base = serverUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/.+/.test(base)) {
+    return null;
+  }
+  return `${base}/settings`;
+}
+
 export function filterEpisodes(
   episodes: readonly EpisodeOut[],
   query: string,

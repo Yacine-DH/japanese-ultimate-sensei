@@ -714,6 +714,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stt/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stt Status */
+        get: operations["stt_status_stt_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stt/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stt Jobs
+         * @description Jobs since the server started, newest first.
+         */
+        get: operations["stt_jobs_stt_jobs_get"];
+        put?: never;
+        /**
+         * Stt Submit
+         * @description Transcribe an episode without Japanese subtitles: the file is uploaded, its audio
+         *     sent to the speech-to-text server, and the transcript imported as a new episode
+         *     (source "stt"; translations start when an LLM is configured). Poll GET /stt/jobs/{id}.
+         */
+        post: operations["stt_submit_stt_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stt/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stt Job */
+        get: operations["stt_job_stt_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1006,6 +1066,20 @@ export interface components {
              */
             dry_run: boolean;
         };
+        /** Body_stt_submit_stt_jobs_post */
+        Body_stt_submit_stt_jobs_post: {
+            /**
+             * File
+             * @description The episode's video or audio file
+             */
+            file: string;
+            /** Anime Title */
+            anime_title: string;
+            /** Episode Number */
+            episode_number?: number | null;
+            /** Title */
+            title?: string | null;
+        };
         /** Body_sync_episode_episodes__episode_id__sync_post */
         Body_sync_episode_episodes__episode_id__sync_post: {
             /**
@@ -1201,6 +1275,12 @@ export interface components {
              */
             created_at: string;
             understanding: components["schemas"]["Understanding"];
+            /**
+             * Replaced
+             * @description True: the anime + episode number existed; its subtitles were replaced in place (same id, sub_offset_ms reset to 0, cards relinked by sentence). Status 200, not 201
+             * @default false
+             */
+            replaced: boolean;
         };
         /** EpisodeOut */
         EpisodeOut: {
@@ -1646,6 +1726,58 @@ export interface components {
             /** Glosses */
             glosses: string[];
         };
+        /** SttJobOut */
+        SttJobOut: {
+            /** Id */
+            id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "extracting" | "transcribing" | "importing" | "done" | "error";
+            /** Anime Title */
+            anime_title: string;
+            /** Episode Number */
+            episode_number: number | null;
+            /** Title */
+            title: string | null;
+            /** Filename */
+            filename: string;
+            /**
+             * Duration Ms
+             * @description Audio length, known once extracted
+             */
+            duration_ms: number | null;
+            /**
+             * Episode Id
+             * @description The new episode, once done
+             */
+            episode_id: number | null;
+            /** Error */
+            error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+        };
+        /** SttStatus */
+        SttStatus: {
+            /** Configured */
+            configured: boolean;
+            /** Reachable */
+            reachable: boolean;
+            /** Base Url */
+            base_url: string | null;
+            /** Model */
+            model: string | null;
+            /** Detail */
+            detail: string;
+        };
         /** SyncOut */
         SyncOut: {
             /**
@@ -1765,6 +1897,11 @@ export interface components {
              * @description Lines the model skipped in the last run (retry later)
              */
             failed_lines: number;
+            /**
+             * Retry At
+             * @description LLM unreachable (laptop asleep): the job retries by itself at this time
+             */
+            retry_at?: string | null;
         };
         /** Understanding */
         Understanding: {
@@ -3225,6 +3362,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineExplanation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stt_status_stt_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SttStatus"];
+                };
+            };
+        };
+    };
+    stt_jobs_stt_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SttJobOut"][];
+                };
+            };
+        };
+    };
+    stt_submit_stt_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_stt_submit_stt_jobs_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SttJobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stt_job_stt_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SttJobOut"];
                 };
             };
             /** @description Validation Error */

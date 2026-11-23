@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { LineOut } from '../src/api/client';
+import type { LineOut, LLMStatus, TranslationJob } from '../src/api/client';
 import {
   findLineForAction,
+  formatTranslationProgress,
   glossLangToLlmLang,
+  isTranslationUnreachable,
   parseInlineMarkdown,
   parseMarkdown,
   pickLineTranslationForLang,
@@ -120,5 +124,191 @@ describe('extension LLM helpers (E-9, #87)', () => {
     expect(container.querySelectorAll('ol li')).toHaveLength(2);
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('blockquote')?.textContent).toContain('<script>alert(1)</script>');
+  });
+
+  it('hides overlay translation row when line is untranslated or whitespace-only (#135)', () => {
+    const emptyLine = makeLine({ translation_en: null, translation_de: null });
+    const blankLine = makeLine({ translation_en: '   ', translation_de: '\n\t' });
+    const revealed = new Set<number>([10]);
+
+    expect(resolveOverlayTranslation(emptyLine, 'en', revealed, 'eng')).toBeNull();
+    expect(resolveOverlayTranslation(emptyLine, 'de', revealed, 'ger')).toBeNull();
+    expect(resolveOverlayTranslation(blankLine, 'en', new Set(), 'eng')).toBeNull();
+    expect(resolveOverlayTranslation(blankLine, 'off', revealed, 'ger')).toBeNull();
+  });
+});
+
+function makeJob(overrides: Partial<TranslationJob> = {}): TranslationJob {
+  return {
+    episode_id: 7,
+    total_lines: 379,
+    translated_lines: 0,
+    queued: false,
+    running: false,
+    error: null,
+    failed_lines: 0,
+    retry_at: null,
+    ...overrides,
+  };
+}
+
+function makeLlmStatus(overrides: Partial<LLMStatus> = {}): LLMStatus {
+  return {
+    configured: true,
+    reachable: true,
+    model: 'gemma3:4b',
+    base_url: 'http://precision:11434/v1',
+    detail: 'ok',
+    ...overrides,
+  };
+}
+
+describe('popup translation progress helpers (E-16, #135)', () => {
+  it('formats active translation progress and enables polling', () => {
+    const pres = formatTranslationProgress(
+      makeJob({ translated_lines: 120, total_lines: 379, running: true }),
+      makeLlmStatus(),
+    );
+    expect(pres).toEqual({
+      status: 'translating',
+      text: 'Translating 120/379',
+      tone: 'active',
+      progressPct: 32,
+      showProgressBar: true,
+      showSettingsLink: false,
+      shouldPoll: true,
+      detail: null,
+    });
+  });
+
+  it('formats queued translation progress and polls until started/done', () => {
+    const pres = formatTranslationProgress(
+      makeJob({ translated_lines: 0, total_lines: 379, queued: true }),
+      makeLlmStatus(),
+    );
+    expect(pres).toMatchObject({
+      status: 'queued',
+      text: 'Translating 0/379 (queued)',
+      tone: 'active',
+      progressPct: 0,
+      showProgressBar: true,
+      showSettingsLink: false,
+      shouldPoll: true,
+    });
+  });
+
+  it('shows "Translations ready" when all lines are translated, even if laptop is offline', () => {
+    const pres = formatTranslationProgress(
+      makeJob({ translated_lines: 379, total_lines: 379, running: false }),
+      makeLlmStatus({ reachable: false, detail: 'Connection refused' }),
+    );
+    expect(pres).toEqual({
+      status: 'ready',
+      text: 'Translations ready',
+      tone: 'ok',
+      progressPct: 100,
+      showProgressBar: false,
+      showSettingsLink: false,
+      shouldPoll: false,
+      detail: null,
+    });
+  });
+
+  it('reports laptop offline with Settings link when retry_at, unreachable error, or unreachable LLM status is present', () => {
+    const viaRetryAt = formatTranslationProgress(
+      makeJob({
+        translated_lines: 48,
+        total_lines: 379,
+        queued: true,
+        error: 'LLM unreachable (connection timed out)',
+        retry_at: '2026-11-23T16:50:00Z',
+      }),
+      null,
+    );
+    expect(viaRetryAt).toMatchObject({
+      status: 'offline',
+      text: 'Laptop offline, translations will continue later',
+      tone: 'warn',
+      showProgressBar: true,
+      showSettingsLink: true,
+      shouldPoll: true,
+    });
+    expect(viaRetryAt?.detail).toContain('48/379 translated so far');
+
+    const viaLlmStatus = formatTranslationProgress(
+      makeJob({ translated_lines: 0, total_lines: 379, queued: false }),
+      makeLlmStatus({ configured: true, reachable: false, detail: 'timed out' }),
+    );
+    expect(viaLlmStatus).toMatchObject({
+      status: 'offline',
+      text: 'Laptop offline, translations will continue later',
+      tone: 'warn',
+      showProgressBar: false,
+      showSettingsLink: true,
+      shouldPoll: false,
+      detail: 'timed out',
+    });
+
+    expect(
+      isTranslationUnreachable(
+        makeJob({ error: 'upstream server unreachable' }),
+        null,
+      ),
+    ).toBe(true);
+  });
+
+  it('handles unconfigured LLM, non-unreachable errors, partial/idle jobs, and empty episodes', () => {
+    const unconfigured = formatTranslationProgress(
+      makeJob({ translated_lines: 0, total_lines: 200 }),
+      makeLlmStatus({ configured: false, reachable: false, model: null, detail: 'not configured' }),
+    );
+    expect(unconfigured).toMatchObject({
+      status: 'unconfigured',
+      showSettingsLink: true,
+      shouldPoll: false,
+    });
+
+    const otherErr = formatTranslationProgress(
+      makeJob({ translated_lines: 10, total_lines: 200, error: 'HTTP 500 internal error' }),
+      makeLlmStatus(),
+    );
+    expect(otherErr).toMatchObject({
+      status: 'error',
+      text: 'Translation paused (10/200)',
+      showSettingsLink: true,
+      detail: 'HTTP 500 internal error',
+    });
+
+    const partial = formatTranslationProgress(
+      makeJob({ translated_lines: 180, total_lines: 200, failed_lines: 4 }),
+      makeLlmStatus(),
+    );
+    expect(partial).toMatchObject({
+      status: 'partial',
+      text: 'Translated 180/200 (4 skipped)',
+      shouldPoll: false,
+    });
+
+    const notStarted = formatTranslationProgress(
+      makeJob({ translated_lines: 0, total_lines: 200 }),
+      makeLlmStatus(),
+    );
+    expect(notStarted).toMatchObject({
+      status: 'not_started',
+      text: 'Not translated yet (0/200)',
+      shouldPoll: false,
+    });
+
+    expect(formatTranslationProgress(makeJob({ total_lines: 0 }), makeLlmStatus())).toBeNull();
+  });
+
+  it('wires translation progress and Settings link into the popup', () => {
+    const popupHtml = readFileSync(resolve(__dirname, '../entrypoints/popup/index.html'), 'utf-8');
+    const popupMain = readFileSync(resolve(__dirname, '../entrypoints/popup/main.ts'), 'utf-8');
+    expect(popupHtml).toContain('id="translation-progress-wrap"');
+    expect(popupHtml).toContain('id="translation-settings-link"');
+    expect(popupMain).toContain('getTranslationJob');
+    expect(popupMain).toContain('formatTranslationProgress');
+    expect(popupMain).toContain('buildSettingsUrl');
   });
 });
