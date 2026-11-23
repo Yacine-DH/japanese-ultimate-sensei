@@ -367,15 +367,15 @@ export function ReviewPage() {
       {/* Main Flashcard */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         {/* Episode metadata bar */}
-        <div className="px-5 py-3 border-b border-slate-800 bg-slate-950/50 flex items-center justify-between text-xs text-slate-400">
-          <span>
+        <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-b border-slate-800 bg-slate-950/50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+          <span className="min-w-0 break-words">
             {currentCard.episode
               ? `${currentCard.episode.anime_title ?? 'Anime'}${
                   currentCard.episode.number !== null ? ` · Ep ${currentCard.episode.number}` : ''
                 }`
               : 'Vocabulary Card'}
           </span>
-          <span className="capitalize px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+          <span className="capitalize px-2 py-0.5 rounded bg-slate-800 text-slate-300 shrink-0">
             {currentCard.card.state} · {currentCard.card.reps} reps
           </span>
         </div>
@@ -438,9 +438,9 @@ export function ReviewPage() {
         </div>
 
         {/* Card Front: Target Word + Context Sentence */}
-        <div className="p-6 sm:p-8 space-y-6">
+        <div className="p-4 sm:p-8 space-y-5 sm:space-y-6">
           <div className="text-center space-y-2">
-            <div className="text-4xl sm:text-5xl font-bold text-slate-100 tracking-wide">
+            <div className="text-3xl sm:text-5xl font-bold text-slate-100 tracking-wide break-words">
               {currentCard.word.lemma}
             </div>
             {revealed && currentCard.word.reading && (
@@ -502,7 +502,7 @@ export function ReviewPage() {
               )}
 
               {/* FSRS Rating Buttons (1-4) */}
-              <div className="pt-3 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="pt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
                 {RATING_BUTTONS.map((btn) => {
                   const interval = formatIntervalFromIso(currentCard.next_due[btn.key]);
                   return (
@@ -511,11 +511,11 @@ export function ReviewPage() {
                       type="button"
                       disabled={submitMutation.isPending}
                       onClick={() => handleRate(btn.rating)}
-                      className={`py-3 px-2 rounded-xl border font-semibold transition cursor-pointer disabled:opacity-50 flex flex-col items-center gap-0.5 ${btn.colorClass}`}
+                      className={`min-h-[56px] py-3 px-2 rounded-xl border font-semibold transition cursor-pointer touch-manipulation disabled:opacity-50 flex flex-col items-center justify-center gap-0.5 ${btn.colorClass}`}
                     >
                       <span className="text-sm">
                         {btn.label}{' '}
-                        <kbd className="text-[10px] opacity-75 ml-0.5">({btn.key})</kbd>
+                        <kbd className="hidden sm:inline text-[10px] opacity-75 ml-0.5">({btn.key})</kbd>
                       </span>
                       <span className="text-xs opacity-85 font-mono">{interval || '—'}</span>
                     </button>
@@ -534,16 +534,17 @@ export function ReviewPage() {
               <button
                 type="button"
                 onClick={() => setRevealed(true)}
-                className="w-full py-3.5 rounded-xl bg-sky-400 hover:bg-sky-300 text-slate-950 font-bold text-base cursor-pointer transition"
+                className="w-full min-h-[48px] py-3.5 rounded-xl bg-sky-400 hover:bg-sky-300 text-slate-950 font-bold text-base cursor-pointer touch-manipulation transition"
               >
-                Show Answer <span className="text-xs font-medium opacity-75 ml-1">(Space)</span>
+                Show Answer{' '}
+                <span className="hidden sm:inline text-xs font-medium opacity-75 ml-1">(Space)</span>
               </button>
             </div>
           )}
         </div>
       </div>
 
-      <div className="text-center text-xs text-slate-500">
+      <div className="hidden sm:block text-center text-xs text-slate-500">
         Shortcuts: <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">Space</kbd> reveal ·{' '}
         <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">1</kbd>–
         <kbd className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">4</kbd> rate ·{' '}
