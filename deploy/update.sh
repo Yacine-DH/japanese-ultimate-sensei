@@ -35,5 +35,10 @@ printf '{"version":"%s","commit":"%s","extension_commit":"%s","built_at":"%s","s
 # GitHub release for a new extension version (zips + notes); never blocks the deploy.
 bash "$REPO/scripts/release.sh" "$SENSEI_EXT_VERSION" "$DL" || echo "warning: GitHub release failed" >&2
 systemctl --user restart sensei  # migrates the DB on start (backs it up first)
-sleep 2
-curl -fsS "http://localhost:${SENSEI_PORT:-8000}/health" && echo
+# A migration backs the DB up first, so startup can take a while: wait up to 60 s.
+for _ in $(seq 30); do
+  curl -fsS "http://localhost:${SENSEI_PORT:-8000}/health" 2>/dev/null && echo && exit 0
+  sleep 2
+done
+echo "server did not answer /health within 60 s: journalctl --user -u sensei -n 50" >&2
+exit 1

@@ -13,7 +13,9 @@ _DRAWING_RE = re.compile(r"\\p[1-9]")
 # SDH annotations (Netflix/Amazon JP subs): a short speaker label before the dialogue,
 # e.g. （ヒンメル）帰ったら…, and bracketed sound cues like ［拍手］ or 〔笑い〕.
 # A reading inside the label is allowed: （岩鷲(ガンジュ)）うっ…  （ＷＩＳＥ(ワイズ)機関員）…
-_NESTED_READING = r"[（(][ぁ-ゖァ-ヺー・･]{1,20}[）)]"
+_NESTED_READING = (
+    r"[（(][ぁ-ゖァ-ヺー・･][ぁ-ゖァ-ヺー・･ 　]{0,24}[）)]"  # （桐ヶ谷直葉(きりがや すぐは)）
+)
 _LABEL = rf"[（(](?:[^（）()。、！？!?\s]|{_NESTED_READING}){{1,24}}[）)]"
 _SPEAKER_RE = re.compile(rf"^(?:[-－‐]\s*)?{_LABEL}\s*")
 # Two speakers in one event: -（モモ）ふっ！ -（彼氏）わぷっ！ (Netflix/Erai .ass)
@@ -73,6 +75,10 @@ def strip_annotations(part: str, keep_readings: bool = False) -> str:
     return cleaned if has_japanese(cleaned) else part
 
 
+_PREV_WORD_RE = re.compile(rf"({_READING_BASE})[ 　]$")
+_KATAKANA_ONLY_RE = re.compile(r"^[ァ-ヺー・･ 　]+$")
+
+
 def extract_readings(text: str) -> tuple[str, list[tuple[int, int, str]]]:
     """Take 漢字(よみ) annotations out of the text: (text, [(start, end, reading)]) with the
     character span of the annotated word in the returned text. Spaces in the reading go."""
@@ -82,8 +88,16 @@ def extract_readings(text: str) -> tuple[str, list[tuple[int, int, str]]]:
         before = text[last : m.start()]
         out.append(before + m.group(1))
         pos += len(before)
-        reading = re.sub(r"[ 　]", "", m.group(2))
-        readings.append((pos, pos + len(m.group(1)), reading))
+        parts = re.split(r"[ 　]+", m.group(2).strip())
+        prev = _PREV_WORD_RE.search(before)
+        if len(parts) == 2 and _KATAKANA_ONLY_RE.match(m.group(2)) and prev:
+            # 嵐脚 凱鳥(ランキャク ガイチョウ): one katakana reading per space-separated word.
+            # (A hiragana name keeps its space inside one word: 綾瀬川弓親(あやせがわ ゆみちか).)
+            p0 = pos - len(prev.group(0))
+            readings.append((p0, p0 + len(prev.group(1)), parts[0]))
+            readings.append((pos, pos + len(m.group(1)), parts[1]))
+        else:
+            readings.append((pos, pos + len(m.group(1)), "".join(parts)))
         pos += len(m.group(1))
         last = m.end()
     out.append(text[last:])
