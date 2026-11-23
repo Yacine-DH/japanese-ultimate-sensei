@@ -1,6 +1,7 @@
-import { buildUpdateOneLiner, formatVersionTag } from './update';
+import { buildUpdateOneLiner, formatVersionTag, reloadExtension } from './update';
 
 export const NATIVE_UPDATER_HOST = 'com.sensei.updater';
+export const DEFAULT_RELOAD_DELAY_MS = 400;
 
 export type UpdaterActionRequest = { action: 'status' } | { action: 'update' };
 
@@ -459,4 +460,105 @@ export function interpretStatusResponse(
       latestError,
     },
   };
+}
+
+export interface BackgroundNativeUpdaterDeps {
+  sendNativeMessage?: (
+    request: UpdaterActionRequest,
+    host?: string,
+  ) => Promise<NativeMessageTransportResult>;
+  reloadExtension?: () => boolean;
+  onStateChange?: (state: PopupUpdateUiState) => void;
+  reloadDelayMs?: number;
+  scheduleTimeout?: (cb: () => void, ms: number) => unknown;
+}
+
+/**
+ * Orchestrates the native updater in the extension background worker so closing
+ * the popup mid-update cannot cancel the native host or lose the final reload (#144).
+ */
+export class BackgroundNativeUpdater {
+  private state: PopupUpdateUiState | null = null;
+  private inFlight: Promise<PopupUpdateUiState> | null = null;
+  private readonly sendNativeMessage: (
+    request: UpdaterActionRequest,
+    host?: string,
+  ) => Promise<NativeMessageTransportResult>;
+  private readonly triggerReload: () => boolean;
+  private readonly onStateChange?: (state: PopupUpdateUiState) => void;
+  private readonly reloadDelayMs: number;
+  private readonly scheduleTimeout: (cb: () => void, ms: number) => unknown;
+
+  constructor(deps: BackgroundNativeUpdaterDeps = {}) {
+    this.sendNativeMessage = deps.sendNativeMessage ?? sendNativeUpdaterMessage;
+    this.triggerReload = deps.reloadExtension ?? reloadExtension;
+    this.onStateChange = deps.onStateChange;
+    this.reloadDelayMs = deps.reloadDelayMs ?? DEFAULT_RELOAD_DELAY_MS;
+    this.scheduleTimeout = deps.scheduleTimeout ?? ((cb, ms) => setTimeout(cb, ms));
+  }
+
+  getState(): PopupUpdateUiState | null {
+    return this.state;
+  }
+
+  isRunning(): boolean {
+    return this.inFlight !== null || this.state?.mode === 'reloading';
+  }
+
+  waitForCurrentUpdate(): Promise<PopupUpdateUiState | null> {
+    if (this.inFlight) {
+      return this.inFlight;
+    }
+    return Promise.resolve(this.state);
+  }
+
+  startUpdate(context: UpdateResponseContext): PopupUpdateUiState {
+    if (this.state && (this.inFlight !== null || this.state.mode === 'reloading')) {
+      return this.state;
+    }
+
+    const updatingState = createUpdatingPopupUpdateState(context);
+    this.state = updatingState;
+    this.emitState(updatingState);
+
+    const task = (async (): Promise<PopupUpdateUiState> => {
+      let result: NativeMessageTransportResult;
+      try {
+        result = await this.sendNativeMessage({ action: 'update' }, NATIVE_UPDATER_HOST);
+      } catch (err) {
+        result = {
+          runtimeError: err instanceof Error ? err.message : String(err),
+        };
+      }
+      const nextState = interpretUpdateResponse(result, context);
+      this.state = nextState;
+      this.emitState(nextState);
+
+      if (nextState.shouldReload) {
+        if (this.reloadDelayMs <= 0) {
+          this.triggerReload();
+        } else {
+          this.scheduleTimeout(() => {
+            this.triggerReload();
+          }, this.reloadDelayMs);
+        }
+      }
+
+      return nextState;
+    })();
+
+    this.inFlight = task.finally(() => {
+      this.inFlight = null;
+    });
+
+    return updatingState;
+  }
+
+  private emitState(state: PopupUpdateUiState): void {
+    try {
+      this.onStateChange?.(state);
+    } catch {
+      // Never let a listener failure break the update lifecycle
+    }
+  }
 }

@@ -22,15 +22,19 @@ import {
   isCaptureVisibleTabMessage,
   isConsumeAutoAttachNoticeMessage,
   isConsumeManualSearchFlagMessage,
+  isGetNativeUpdateStateMessage,
   isGetTabStateMessage,
   isOpenPopupSearchMessage,
   isSetTabStateMessage,
+  isStartNativeUpdateMessage,
   isSyncEpisodeMessage,
   isTriggerAutoAttachMessage,
   isUploadMediaMessage,
   isUploadSubtitleMessage,
   type LineOut,
   markAsBackgroundContext,
+  type NativeUpdateStateChangedMessage,
+  type NativeUpdateStateResponse,
   type OpenPopupSearchResponse,
   type TabEpisodeState,
   type TabStateChangedMessage,
@@ -56,6 +60,7 @@ import {
   type TabTitleWatchState,
 } from '../src/lib/auto-attach';
 import { EpisodeTranscriptCache, type SessionStorageLike } from '../src/lib/line-cache';
+import { BackgroundNativeUpdater, type PopupUpdateUiState } from '../src/lib/native-updater';
 import { getSettings, isServerUrlConfigured, saveSettings } from '../src/lib/settings';
 import { normalizePageUrlPattern } from '../src/lib/url-mapping';
 
@@ -129,6 +134,23 @@ export default defineBackground(() => {
   const manualSearchTabs = new Map<number, number>();
   const transcriptCache = new EpisodeTranscriptCache(getSessionStorage());
   const ankiQueue = new AnkiPushQueue(getLocalStorage());
+
+  async function broadcastNativeUpdateState(state: PopupUpdateUiState): Promise<void> {
+    try {
+      await browser.runtime.sendMessage({
+        type: 'SENSEI_NATIVE_UPDATE_STATE_CHANGED',
+        state,
+      } satisfies NativeUpdateStateChangedMessage);
+    } catch {
+      // Popup is closed or no extension page is listening
+    }
+  }
+
+  const nativeUpdater = new BackgroundNativeUpdater({
+    onStateChange: (state) => {
+      void broadcastNativeUpdateState(state);
+    },
+  });
 
   async function flushAnkiQueueNow(): Promise<AnkiFlushQueueResponse> {
     const settings = await getSettings();
@@ -799,6 +821,23 @@ export default defineBackground(() => {
           }
         }
         return Promise.resolve({ ok: true });
+      }
+
+      if (isStartNativeUpdateMessage(message)) {
+        return (async (): Promise<NativeUpdateStateResponse> => {
+          const settings = await getSettings();
+          const state = nativeUpdater.startUpdate({
+            serverUrl: settings.serverUrl,
+            extensionFolder: settings.extensionFolder,
+          });
+          return { state };
+        })();
+      }
+
+      if (isGetNativeUpdateStateMessage(message)) {
+        return Promise.resolve({
+          state: nativeUpdater.getState(),
+        } satisfies NativeUpdateStateResponse);
       }
 
       return undefined;
