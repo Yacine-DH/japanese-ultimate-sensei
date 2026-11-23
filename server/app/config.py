@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: str = ""
     llm_timeout_s: float = 900
+    # Translate every imported episode in the background (and resume at startup) when an LLM
+    # is configured; the button on the episode page still works when this is off.
+    llm_auto_translate: bool = True
     # Speech-to-text (S-10): OpenAI-compatible /v1/audio/transcriptions, e.g. whisper.cpp's
     # whisper-server on the Precision: http://precision:8080/v1
     stt_base_url: str = ""

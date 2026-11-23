@@ -4773,6 +4773,19 @@
             "type": "integer",
             "title": "Failed Lines",
             "description": "Lines the model skipped in the last run (retry later)"
+          },
+          "retry_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry At",
+            "description": "LLM unreachable (laptop asleep): the job retries by itself at this time"
           }
         },
         "type": "object",

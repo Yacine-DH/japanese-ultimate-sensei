@@ -48,7 +48,11 @@ class LLM:
         self.base_url = base_url.rstrip("/")
         self.model = model
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self.http = httpx.Client(timeout=timeout, headers=headers, transport=transport)
+        # A sleeping laptop over Tailscale never answers the connect: fail that fast (and retry
+        # later), but give a slow model the full timeout to reply.
+        self.http = httpx.Client(
+            timeout=httpx.Timeout(timeout, connect=10), headers=headers, transport=transport
+        )
         self.last_usage: dict = {}  # token counts of the last chat() call, if the server sends them
 
     @property

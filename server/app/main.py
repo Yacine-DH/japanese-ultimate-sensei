@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import tempfile
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -131,7 +132,14 @@ EXTENSION_ORIGINS = (
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     check_auth_settings(settings)
-    app = FastAPI(title="Japanese Ultimate Sensei", version=__version__)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if auto_translate():  # jobs live in memory: pick up what a restart interrupted (#129)
+            app.state.translator.resume()
+        yield
+
+    app = FastAPI(title="Japanese Ultimate Sensei", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = make_engine(settings.db_path)
     app.state.dictionary = load_dictionary(settings.dictionary_path)
@@ -143,6 +151,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.llm_timeout_s,
     )
     app.state.translator = Translator(app.state.engine, app.state.llm)
+
+    def auto_translate() -> bool:
+        return settings.llm_auto_translate and app.state.llm.configured
+
     app.state.stt = STT(
         settings.stt_base_url.strip(), settings.stt_model.strip(), settings.stt_timeout_s
     )
@@ -309,6 +321,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         act.snapshot(session, uid, anime.id)  # first point of the "% understood" trend
         session.commit()
         session.refresh(ep)
+        if auto_translate():  # translate before watching, in the background (#129)
+            app.state.translator.enqueue(ep.id)
         return {
             **episode_out(session, ep),
             "understanding": understanding(session, uid, ep.id),
@@ -1340,6 +1354,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             running=bool(job and job.running),
             error=job.error if job else None,
             failed_lines=job.failed_lines if job else 0,
+            retry_at=job.retry_at if job else None,
         )
 
     @app.post(
@@ -1422,9 +1437,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )  # fmt: skip
             except HTTPException as e:
                 raise STTError(f"transcript not usable: {e.detail}", e.status_code) from e
-        if app.state.llm.configured:
-            app.state.translator.enqueue(created["id"])
-        return created["id"]
+        return created["id"]  # import_episode queued the translation
 
     app.state.stt_jobs = SttJobs(app.state.stt, stt_import)
 
