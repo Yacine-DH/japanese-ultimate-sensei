@@ -120,18 +120,170 @@ export interface PushCardDeps {
   fetchCardNote: (cardId: number, deck: string) => Promise<ApiCallResponse<AnkiNotePayload>>;
   fetchAnkiModel: () => Promise<ApiCallResponse<AnkiModel>>;
   fetchImpl?: typeof fetch;
+  /** Optional per-session cache of ensured `(ankiUrl, modelName)` keys; defaults to module cache. */
+  ensuredModels?: Set<string>;
+}
+
+const sessionEnsuredModels = new Set<string>();
+const inFlightEnsuresByCache = new WeakMap<Set<string>, Map<string, Promise<string | null>>>();
+
+function buildModelCacheKey(ankiUrl: string, modelName: string): string {
+  return `${ankiUrl.trim().replace(/\/+$/, '')}\0${modelName}`;
+}
+
+function getInFlightMap(cache: Set<string>): Map<string, Promise<string | null>> {
+  let map = inFlightEnsuresByCache.get(cache);
+  if (!map) {
+    map = new Map<string, Promise<string | null>>();
+    inFlightEnsuresByCache.set(cache, map);
+  }
+  return map;
+}
+
+/** Reset the in-memory session cache of ensured/upgraded Anki note types (useful in tests). */
+export function resetAnkiModelCache(): void {
+  sessionEnsuredModels.clear();
+  inFlightEnsuresByCache.delete(sessionEnsuredModels);
 }
 
 /**
- * Push a saved Sensei card to Anki via AnkiConnect (E-6):
+ * Ensure the Sensei note type exists in Anki and has every field/template/CSS from `GET /anki/model`.
+ * - Missing model → `createModel`.
+ * - Existing model → `modelFieldNames`; for any missing field in `inOrderFields`, call
+ *   `modelFieldAdd {modelName, fieldName, index}`, and if any field was added, update
+ *   templates (`updateModelTemplates`) and CSS (`updateModelStyling`).
+ * - Cached once per session per `(ankiUrl, modelName)` once verified/upgraded.
+ * Returns `null` on success, or a server-error message if `GET /anki/model` failed.
+ */
+async function ensureAnkiModel(
+  ankiUrl: string,
+  modelName: string,
+  fetchAnkiModel: () => Promise<ApiCallResponse<AnkiModel>>,
+  fetchImpl: typeof fetch,
+  cache: Set<string>,
+): Promise<string | null> {
+  const cacheKey = buildModelCacheKey(ankiUrl, modelName);
+  if (cache.has(cacheKey)) {
+    return null;
+  }
+
+  const inFlightMap = getInFlightMap(cache);
+  const existingPromise = inFlightMap.get(cacheKey);
+  if (existingPromise) {
+    return existingPromise;
+  }
+
+  const task = (async (): Promise<string | null> => {
+    const models = await invokeAnkiConnect<string[]>(ankiUrl, 'modelNames', {}, fetchImpl);
+    const modelRes = await fetchAnkiModel();
+    if (!modelRes.ok || !modelRes.data) {
+      return modelRes.error ?? 'Failed to fetch Sensei Anki note type from server';
+    }
+    const serverModel = modelRes.data;
+
+    if (!Array.isArray(models) || !models.includes(modelName)) {
+      await invokeAnkiConnect(
+        ankiUrl,
+        'createModel',
+        {
+          ...serverModel,
+          modelName,
+        },
+        fetchImpl,
+      );
+      cache.add(cacheKey);
+      return null;
+    }
+
+    const rawFieldNames = await invokeAnkiConnect<string[]>(
+      ankiUrl,
+      'modelFieldNames',
+      { modelName },
+      fetchImpl,
+    );
+    const existingFields = Array.isArray(rawFieldNames) ? rawFieldNames : [];
+    const existingFieldSet = new Set(existingFields);
+    let currentFieldCount = existingFields.length;
+    let addedAnyField = false;
+
+    for (let expectedIndex = 0; expectedIndex < serverModel.inOrderFields.length; expectedIndex++) {
+      const fieldName = serverModel.inOrderFields[expectedIndex]!;
+      if (existingFieldSet.has(fieldName)) {
+        continue;
+      }
+      await invokeAnkiConnect(
+        ankiUrl,
+        'modelFieldAdd',
+        {
+          modelName,
+          fieldName,
+          index: Math.min(expectedIndex, currentFieldCount),
+        },
+        fetchImpl,
+      );
+      existingFieldSet.add(fieldName);
+      currentFieldCount += 1;
+      addedAnyField = true;
+    }
+
+    if (addedAnyField) {
+      const templates: Record<string, { Front: string; Back: string }> = {};
+      for (const tpl of serverModel.cardTemplates) {
+        templates[tpl.Name] = { Front: tpl.Front, Back: tpl.Back };
+      }
+      await invokeAnkiConnect(
+        ankiUrl,
+        'updateModelTemplates',
+        {
+          model: {
+            name: modelName,
+            templates,
+          },
+        },
+        fetchImpl,
+      );
+      await invokeAnkiConnect(
+        ankiUrl,
+        'updateModelStyling',
+        {
+          model: {
+            name: modelName,
+            css: serverModel.css,
+          },
+        },
+        fetchImpl,
+      );
+    }
+
+    cache.add(cacheKey);
+    return null;
+  })();
+
+  inFlightMap.set(cacheKey, task);
+  try {
+    return await task;
+  } finally {
+    inFlightMap.delete(cacheKey);
+  }
+}
+
+/**
+ * Push a saved Sensei card to Anki via AnkiConnect (E-6, E-19):
  * 1. Fetch note + signed media URLs from Sensei server (`GET /cards/{id}/anki-note`)
- * 2. Ensure model exists (`modelNames` → `createModel` via `GET /anki/model` if missing)
+ * 2. Ensure model exists & is upgraded with any new fields/templates/CSS (once per session)
  * 3. Ensure deck exists (`createDeck`)
  * 4. Store each media file (`storeMediaFile`)
  * 5. Add note (`addNote`), treating duplicate errors as already synced
  */
 export async function pushCardToAnki(deps: PushCardDeps): Promise<PushCardResult> {
-  const { cardId, settings, fetchCardNote, fetchAnkiModel, fetchImpl = fetch } = deps;
+  const {
+    cardId,
+    settings,
+    fetchCardNote,
+    fetchAnkiModel,
+    fetchImpl = fetch,
+    ensuredModels = sessionEnsuredModels,
+  } = deps;
   if (!settings.ankiConnectEnabled) {
     return { status: 'disabled' };
   }
@@ -150,29 +302,18 @@ export async function pushCardToAnki(deps: PushCardDeps): Promise<PushCardResult
   const payload = noteRes.data;
 
   try {
-    const models = await invokeAnkiConnect<string[]>(
+    const modelError = await ensureAnkiModel(
       settings.ankiConnectUrl,
-      'modelNames',
-      {},
+      modelName,
+      fetchAnkiModel,
       fetchImpl,
+      ensuredModels,
     );
-    if (!Array.isArray(models) || !models.includes(modelName)) {
-      const modelRes = await fetchAnkiModel();
-      if (!modelRes.ok || !modelRes.data) {
-        return {
-          status: 'error',
-          message: modelRes.error ?? 'Failed to fetch Sensei Anki note type from server',
-        };
-      }
-      await invokeAnkiConnect(
-        settings.ankiConnectUrl,
-        'createModel',
-        {
-          ...modelRes.data,
-          modelName,
-        },
-        fetchImpl,
-      );
+    if (modelError) {
+      return {
+        status: 'error',
+        message: modelError,
+      };
     }
 
     await invokeAnkiConnect(settings.ankiConnectUrl, 'createDeck', { deck }, fetchImpl);
@@ -210,6 +351,9 @@ export async function pushCardToAnki(deps: PushCardDeps): Promise<PushCardResult
       }
       if (err.kind === 'unreachable') {
         return { status: 'queued', message: 'Anki is not running; queued for retry' };
+      }
+      if (/model was not found/i.test(err.message)) {
+        ensuredModels.delete(buildModelCacheKey(settings.ankiConnectUrl, modelName));
       }
       return { status: 'error', message: err.message };
     }

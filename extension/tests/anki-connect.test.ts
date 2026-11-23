@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnkiModel, AnkiNotePayload } from '../src/api/client';
 import {
   AnkiPushQueue,
@@ -7,15 +7,38 @@ import {
   invokeAnkiConnect,
   pickExpressionFieldName,
   pushCardToAnki,
+  resetAnkiModelCache,
   testAnkiConnect,
 } from '../src/lib/anki-connect';
 
+const OLD_FIELDS = [
+  'Word',
+  'Reading',
+  'MeaningEN',
+  'MeaningDE',
+  'Sentence',
+  'SentenceRomaji',
+  'Screenshot',
+  'Audio',
+  'Clip',
+  'Source',
+  'SenseiId',
+];
+
+const UPGRADED_FIELDS = [...OLD_FIELDS, 'SentenceEN', 'SentenceDE'];
+
 const SAMPLE_MODEL: AnkiModel = {
   modelName: 'Sensei Japanese',
-  inOrderFields: ['Word', 'Reading', 'MeaningEN', 'MeaningDE', 'Sentence', 'SenseiId'],
-  css: '.card {}',
+  inOrderFields: UPGRADED_FIELDS,
+  css: '.card { color: #f8fafc; } .sentence-tr { opacity: 0.85; }',
   isCloze: false,
-  cardTemplates: [{ Name: 'Recognition', Front: '{{Word}}', Back: '{{MeaningEN}}' }],
+  cardTemplates: [
+    {
+      Name: 'Recognition',
+      Front: '{{Screenshot}}{{Word}}{{Sentence}}',
+      Back: '{{FrontSide}}<hr id=answer>{{MeaningEN}}{{SentenceEN}}{{SentenceDE}}',
+    },
+  ],
 };
 
 const SAMPLE_PAYLOAD: AnkiNotePayload = {
@@ -54,6 +77,10 @@ function makeAnkiFetch(handlers: Record<string, (params: Record<string, unknown>
 }
 
 describe('AnkiConnect client & E-6 card push', () => {
+  beforeEach(() => {
+    resetAnkiModelCache();
+  });
+
   it('creates missing model + deck, stores media files, and adds the note', async () => {
     const { fetchImpl, calls } = makeAnkiFetch({
       modelNames: () => ['Basic'],
@@ -92,6 +119,7 @@ describe('AnkiConnect client & E-6 card push', () => {
   it('treats duplicate note errors from addNote as already synced', async () => {
     const { fetchImpl } = makeAnkiFetch({
       modelNames: () => ['Sensei Japanese'],
+      modelFieldNames: () => UPGRADED_FIELDS,
       createDeck: () => 1,
       storeMediaFile: () => 'ok',
       addNote: () => new Error('cannot create note because it is a duplicate'),
@@ -157,9 +185,10 @@ describe('AnkiConnect client & E-6 card push', () => {
 
     // Anki comes online: card 11 pushes, card 12 is a duplicate -> queue empties!
     let addCalls = 0;
-    const { fetchImpl: onlineFetch } = makeAnkiFetch({
+    const { fetchImpl: onlineFetch, calls: onlineCalls } = makeAnkiFetch({
       version: () => 6,
       modelNames: () => ['Sensei Japanese'],
+      modelFieldNames: () => UPGRADED_FIELDS,
       createDeck: () => 1,
       storeMediaFile: () => 'ok',
       addNote: () => {
@@ -182,6 +211,212 @@ describe('AnkiConnect client & E-6 card push', () => {
       errors: 0,
     });
     expect(await queue.list()).toEqual([]);
+    // Model was checked only once across both flushed cards (session cache)
+    expect(onlineCalls.filter((c) => c.action === 'modelNames')).toHaveLength(1);
+    expect(onlineCalls.filter((c) => c.action === 'modelFieldNames')).toHaveLength(1);
+  });
+
+  it('upgrades an existing note type with missing SentenceEN/SentenceDE fields, templates, and styling once per session (#154)', async () => {
+    const ankiFields = [...OLD_FIELDS];
+    const fetchAnkiModel = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      data: SAMPLE_MODEL,
+    }));
+
+    const { fetchImpl, calls } = makeAnkiFetch({
+      modelNames: () => ['Basic', 'Sensei Japanese'],
+      modelFieldNames: () => [...ankiFields],
+      modelFieldAdd: (params) => {
+        const fieldName = String(params.fieldName);
+        const index = Number(params.index);
+        ankiFields.splice(index, 0, fieldName);
+        return null;
+      },
+      updateModelTemplates: () => null,
+      updateModelStyling: () => null,
+      createDeck: () => 42,
+      storeMediaFile: () => 'ok',
+      addNote: () => 1001,
+    });
+
+    const settings = {
+      ankiConnectEnabled: true,
+      ankiConnectUrl: 'http://localhost:8765',
+      ankiDeckName: 'Sensei',
+      ankiModelName: 'Sensei Japanese',
+    };
+
+    const first = await pushCardToAnki({
+      cardId: 7,
+      settings,
+      fetchCardNote: async () => ({ ok: true, status: 200, data: SAMPLE_PAYLOAD }),
+      fetchAnkiModel,
+      fetchImpl,
+    });
+    expect(first).toEqual({ status: 'pushed', noteId: 1001 });
+    expect(ankiFields).toEqual(UPGRADED_FIELDS);
+    expect(fetchAnkiModel).toHaveBeenCalledTimes(1);
+
+    expect(calls.map((c) => c.action)).toEqual([
+      'modelNames',
+      'modelFieldNames',
+      'modelFieldAdd',
+      'modelFieldAdd',
+      'updateModelTemplates',
+      'updateModelStyling',
+      'createDeck',
+      'storeMediaFile',
+      'storeMediaFile',
+      'addNote',
+    ]);
+
+    expect(calls[1]?.params).toEqual({ modelName: 'Sensei Japanese' });
+    expect(calls[2]?.params).toEqual({
+      modelName: 'Sensei Japanese',
+      fieldName: 'SentenceEN',
+      index: 11,
+    });
+    expect(calls[3]?.params).toEqual({
+      modelName: 'Sensei Japanese',
+      fieldName: 'SentenceDE',
+      index: 12,
+    });
+    expect(calls[4]?.params).toEqual({
+      model: {
+        name: 'Sensei Japanese',
+        templates: {
+          Recognition: {
+            Front: SAMPLE_MODEL.cardTemplates[0]!.Front,
+            Back: SAMPLE_MODEL.cardTemplates[0]!.Back,
+          },
+        },
+      },
+    });
+    expect(calls[5]?.params).toEqual({
+      model: {
+        name: 'Sensei Japanese',
+        css: SAMPLE_MODEL.css,
+      },
+    });
+
+    // Second push in the same session uses the cache and skips model inspection/upgrade completely
+    calls.length = 0;
+    const second = await pushCardToAnki({
+      cardId: 8,
+      settings,
+      fetchCardNote: async () => ({ ok: true, status: 200, data: SAMPLE_PAYLOAD }),
+      fetchAnkiModel,
+      fetchImpl,
+    });
+    expect(second).toEqual({ status: 'pushed', noteId: 1001 });
+    expect(fetchAnkiModel).toHaveBeenCalledTimes(1);
+    expect(calls.map((c) => c.action)).toEqual([
+      'createDeck',
+      'storeMediaFile',
+      'storeMediaFile',
+      'addNote',
+    ]);
+  });
+
+  it('skips template/styling updates when existing note type already has all fields (#154)', async () => {
+    const { fetchImpl, calls } = makeAnkiFetch({
+      modelNames: () => ['Sensei Japanese'],
+      modelFieldNames: () => [...UPGRADED_FIELDS],
+      createDeck: () => 42,
+      storeMediaFile: () => 'ok',
+      addNote: () => 2002,
+    });
+
+    const res = await pushCardToAnki({
+      cardId: 7,
+      settings: {
+        ankiConnectEnabled: true,
+        ankiConnectUrl: 'http://localhost:8765',
+        ankiDeckName: 'Sensei',
+        ankiModelName: 'Sensei Japanese',
+      },
+      fetchCardNote: async () => ({ ok: true, status: 200, data: SAMPLE_PAYLOAD }),
+      fetchAnkiModel: async () => ({ ok: true, status: 200, data: SAMPLE_MODEL }),
+      fetchImpl,
+    });
+
+    expect(res).toEqual({ status: 'pushed', noteId: 2002 });
+    expect(calls.map((c) => c.action)).toEqual([
+      'modelNames',
+      'modelFieldNames',
+      'createDeck',
+      'storeMediaFile',
+      'storeMediaFile',
+      'addNote',
+    ]);
+  });
+
+  it('deduplicates concurrent model upgrades and retries after a failed upgrade attempt (#154)', async () => {
+    const settings = {
+      ankiConnectEnabled: true,
+      ankiConnectUrl: 'http://localhost:8765',
+      ankiDeckName: 'Sensei',
+      ankiModelName: 'Sensei Japanese',
+    };
+
+    // First attempt fails during modelFieldAdd -> must NOT poison the session cache
+    const { fetchImpl: failingFetch } = makeAnkiFetch({
+      modelNames: () => ['Sensei Japanese'],
+      modelFieldNames: () => [...OLD_FIELDS],
+      modelFieldAdd: () => new Error('Anki busy'),
+    });
+
+    const failed = await pushCardToAnki({
+      cardId: 7,
+      settings,
+      fetchCardNote: async () => ({ ok: true, status: 200, data: SAMPLE_PAYLOAD }),
+      fetchAnkiModel: async () => ({ ok: true, status: 200, data: SAMPLE_MODEL }),
+      fetchImpl: failingFetch,
+    });
+    expect(failed).toEqual({ status: 'error', message: 'Anki busy' });
+
+    // Next attempt (two concurrent pushes) upgrades once and pushes both cards
+    const ankiFields = [...OLD_FIELDS];
+    let noteCounter = 3000;
+    const { fetchImpl: okFetch, calls } = makeAnkiFetch({
+      modelNames: () => ['Sensei Japanese'],
+      modelFieldNames: () => [...ankiFields],
+      modelFieldAdd: (params) => {
+        ankiFields.splice(Number(params.index), 0, String(params.fieldName));
+        return null;
+      },
+      updateModelTemplates: () => null,
+      updateModelStyling: () => null,
+      createDeck: () => 42,
+      storeMediaFile: () => 'ok',
+      addNote: () => ++noteCounter,
+    });
+
+    const [a, b] = await Promise.all([
+      pushCardToAnki({
+        cardId: 7,
+        settings,
+        fetchCardNote: async () => ({ ok: true, status: 200, data: SAMPLE_PAYLOAD }),
+        fetchAnkiModel: async () => ({ ok: true, status: 200, data: SAMPLE_MODEL }),
+        fetchImpl: okFetch,
+      }),
+      pushCardToAnki({
+        cardId: 8,
+        settings,
+        fetchCardNote: async () => ({ ok: true, status: 200, data: SAMPLE_PAYLOAD }),
+        fetchAnkiModel: async () => ({ ok: true, status: 200, data: SAMPLE_MODEL }),
+        fetchImpl: okFetch,
+      }),
+    ]);
+
+    expect(a.status).toBe('pushed');
+    expect(b.status).toBe('pushed');
+    expect(calls.filter((c) => c.action === 'modelNames')).toHaveLength(1);
+    expect(calls.filter((c) => c.action === 'modelFieldAdd')).toHaveLength(2);
+    expect(calls.filter((c) => c.action === 'updateModelTemplates')).toHaveLength(1);
+    expect(calls.filter((c) => c.action === 'updateModelStyling')).toHaveLength(1);
+    expect(calls.filter((c) => c.action === 'addNote')).toHaveLength(2);
   });
 
   it('tests AnkiConnect connectivity and returns version, decks, and models', async () => {
