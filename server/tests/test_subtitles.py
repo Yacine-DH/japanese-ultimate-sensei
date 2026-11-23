@@ -133,3 +133,18 @@ def test_cues_without_hiragana_and_trailing_cues():
     )
     assert strip_annotations("（まさか…）") == "（まさか…）"  # a thought stays
     assert strip_annotations("（行かなきゃ）") == "（行かなきゃ）"
+
+
+def test_two_word_katakana_reading_and_spaced_label_reading():
+    """Live data after reprocess (One Piece 307, Sword Art Online 19)."""
+    from app.subtitles import clean_line
+
+    assert clean_line("嵐脚 凱鳥(ランキャク ガイチョウ)！") == (
+        "嵐脚 凱鳥！",
+        [(0, 2, "ランキャク"), (3, 5, "ガイチョウ")],
+    )
+    assert clean_line("十一番隊 第五席 綾瀬川弓親(あやせがわ ゆみちか)") == (
+        "十一番隊 第五席 綾瀬川弓親",
+        [(9, 14, "あやせがわゆみちか")],
+    )
+    assert clean_line("（桐ヶ谷直葉(きりがや すぐは)）う… うーん…") == ("う… うーん…", [])
