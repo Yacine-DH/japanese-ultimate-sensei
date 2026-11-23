@@ -143,3 +143,89 @@ def test_name_candidates_word_hints_and_language_check():
     assert looks_german("Hey, Fern, ich bin müde")
     assert not looks_german("Is Fern's training going well?")
     assert not looks_german("Die, demon!")  # one German-looking word isn't enough
+
+
+def test_import_translates_automatically(llm_client):
+    """#129: an import queues the translation by itself when an LLM is configured."""
+    ep = upload(llm_client).json()
+    job = llm_client.get(f"/episodes/{ep['id']}/translate").json()
+    assert job["translated_lines"] == job["total_lines"] == 2 and job["retry_at"] is None
+
+
+def test_auto_translate_can_be_turned_off(llm_client):
+    llm_client.app.state.settings.llm_auto_translate = False
+    ep = upload(llm_client).json()
+    assert llm_client.get(f"/episodes/{ep['id']}/translate").json()["translated_lines"] == 0
+    assert calls == []
+
+
+def test_resume_queues_untranslated_episodes_oldest_first(llm_client):
+    llm_client.app.state.settings.llm_auto_translate = False
+    a = upload(llm_client).json()
+    b = upload(llm_client, episode_number="2").json()
+    tr = llm_client.app.state.translator
+    assert tr.pending_episodes() == [a["id"], b["id"]]
+    assert tr.resume() == [a["id"], b["id"]]
+    assert tr.pending_episodes() == []
+    llm_client.delete(f"/episodes/{a['id']}")
+    assert tr.resume() == []
+
+
+def test_resume_runs_at_startup(make_client):
+    client = make_client()
+    client.app.state.settings.llm_auto_translate = False
+    upload(client)
+    llm = LLM("http://llm.local/v1", "qwen2.5:3b", transport=httpx.MockTransport(fake_llm))
+    client.app.state.llm = llm
+    client.app.state.translator = Translator(client.app.state.engine, llm, synchronous=True)
+    client.app.state.settings.llm_auto_translate = True
+    with client:  # runs the lifespan (startup)
+        lines = client.get("/episodes/1/lines").json()
+    assert all(line["translation_en"] for line in lines)
+
+
+def test_unreachable_llm_retries_with_backoff(llm_client):
+    """The laptop is asleep: the job waits and retries instead of failing for good."""
+    up = {"ok": False}
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        if not up["ok"]:
+            raise httpx.ConnectError("no route to host")
+        return fake_llm(request)
+
+    timers: list[tuple[float, object]] = []
+    llm = LLM("http://llm.local/v1", "qwen2.5:3b", transport=httpx.MockTransport(flaky))
+    llm_client.app.state.llm = llm
+    tr = Translator(
+        llm_client.app.state.engine, llm, synchronous=True,
+        schedule=lambda delay, fn: timers.append((delay, fn)),
+    )  # fmt: skip
+    llm_client.app.state.translator = tr
+    ep = upload(llm_client).json()
+    job = llm_client.get(f"/episodes/{ep['id']}/translate").json()
+    assert job["queued"] and job["retry_at"] and "unreachable" in job["error"]
+    assert job["translated_lines"] == 0 and [d for d, _ in timers] == [60]
+
+    timers.pop()[1]()  # still asleep → longer wait
+    assert [d for d, _ in timers] == [120]
+    up["ok"] = True
+    timers.pop()[1]()
+    job = llm_client.get(f"/episodes/{ep['id']}/translate").json()
+    assert job["translated_lines"] == 2 and not job["queued"] and job["error"] is None
+    assert timers == []
+
+
+def test_retry_timer_is_ignored_after_delete(llm_client):
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route to host")
+
+    timers: list = []
+    llm = LLM("http://llm.local/v1", "m", transport=httpx.MockTransport(down))
+    llm_client.app.state.llm = llm
+    tr = Translator(llm_client.app.state.engine, llm, synchronous=True,
+                    schedule=lambda d, fn: timers.append(fn))  # fmt: skip
+    llm_client.app.state.translator = tr
+    ep = upload(llm_client).json()
+    llm_client.delete(f"/episodes/{ep['id']}")
+    timers.pop()()
+    assert timers == []  # cancelled: no new attempt, no new timer

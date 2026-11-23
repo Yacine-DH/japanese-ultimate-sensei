@@ -287,8 +287,14 @@ batches) and writes `llm-bench.md`: speed, estimated time per episode, side-by-s
 ### `POST /episodes/{id}/translate` → 202 `TranslationJob` · `GET /episodes/{id}/translate` → `TranslationJob`
 Background job (one episode at a time) translating every untranslated line to EN + DE in
 batches of 12 with 2 lines of context; results appear in `LineOut.translation_en/de`. Poll GET.
-`{"episode_id":1,"total_lines":255,"translated_lines":120,"queued":false,"running":true,"error":null,"failed_lines":0}`
+`{"episode_id":1,"total_lines":255,"translated_lines":120,"queued":false,"running":true,"error":null,"failed_lines":0,"retry_at":null}`
 Slow on a small local model: start it before watching. Re-running only does missing lines.
+
+**Automatic (#129):** with an LLM configured and `SENSEI_LLM_AUTO_TRANSLATE=true` (default), every
+import (upload, from-jimaku, auto, STT, re-import) queues this job by itself, and at startup the
+server re-queues every episode that still has untranslated lines, oldest first. When the LLM is
+**unreachable** (laptop asleep) the job stays `queued` with `error` set and `retry_at` = the next
+attempt (1, 2, 4 … min, at most every 30 min). POST while it waits runs it right away.
 
 ### `POST /lines/{id}/explain?lang=en|de&refresh=false` → `LineExplanation`
 `{"line_id":812,"lang":"de","text":"**Übersetzung:** …","model":"qwen2.5:3b","cached":false}`. Markdown

@@ -502,6 +502,10 @@ class TranslationJob(BaseModel):
     running: bool
     error: str | None = Field(description="Why the last run stopped (LLM unreachable, …)")
     failed_lines: int = Field(description="Lines the model skipped in the last run (retry later)")
+    retry_at: datetime | None = Field(
+        default=None,
+        description="LLM unreachable (laptop asleep): the job retries by itself at this time",
+    )
 
 
 class SttStatus(BaseModel):
