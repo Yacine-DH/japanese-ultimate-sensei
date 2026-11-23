@@ -269,3 +269,28 @@ def test_entry_ranking_real_search_orders():
     assert rank_entries("Spy x Family", spy, 1)[0]["id"] == 1251
     unrelated = [e(1, "Alpha"), e(2, "Beta")]  # matched by a synonym we don't see: keep order
     assert [x["id"] for x in rank_entries("Gamma", unrelated)] == [1, 2]
+
+
+def test_rank_one_piece_1000_real_list():
+    """10-episode check: a TV zip named "(Wrong EP#)" won over web zips covering ep 1000."""
+    from app.jimaku import rank
+
+    names = [
+        ".(AMZN) ワンピース S1-11 (1-1152).7z",
+        "One Piece 874-1162.7z",
+        "One Piece Arc 10 - Wano Country 890-1085 NETFLIX RIP.zip",
+        "One Piece [0900-1134][TV] (Wrong EP#).zip",
+        "[Crunchyroll] 1-1007 Japanese Subtitles FIXED [No Speaker Labels] [Reformatted].zip",
+        "[Crunchyroll] 1-1007 One Piece Japanese Subtitles [No Speaker Labels] [No SDH] [Reformatted].zip",
+        "[Judas] One Piece 0996-1042.7z",
+        "[Netflix] OnePiece 1-1007 (VTT).zip",
+        "[Crunchyroll] 1-999 One Piece.zip",
+    ]
+    files = rank([{"name": n, "url": "u", "size": 1, "last_modified": ""} for n in names], 1000)
+    best = files[0]
+    assert best.recommended and best.name.startswith("[Crunchyroll] 1-1007"), files[:3]
+    by = {f.name: f for f in files}
+    assert not by[best.name].multi_episode and by[best.name].episode == 1000
+    assert by["One Piece [0900-1134][TV] (Wrong EP#).zip"].score < 0
+    assert by["[Crunchyroll] 1-999 One Piece.zip"].multi_episode  # doesn't have 1000
+    assert by["One Piece 874-1162.7z"].multi_episode and not by["One Piece 874-1162.7z"].supported

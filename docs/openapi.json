@@ -3855,7 +3855,7 @@
           "multi_episode": {
             "type": "boolean",
             "title": "Multi Episode",
-            "description": "Several episodes in one file (e.g. 01-04): can't import"
+            "description": "Several episodes in one file (e.g. 01-04): can't import. A .zip whose range covers the requested episode is not multi_episode (the episode is unpacked)"
           },
           "web_source": {
             "type": "boolean",
