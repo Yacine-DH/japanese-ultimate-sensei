@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   formatIntervalFromIso,
+  formatReviewSentenceTranslation,
   groupCardMedia,
   resolveMediaUrl,
   resolveReviewHotkey,
@@ -63,5 +66,58 @@ describe('FSRS review session helpers (W-3, #24)', () => {
     expect(resolveReviewHotkey({ ...base, code: 'Space' }, true)).toBeNull();
     // Modified keys are ignored
     expect(resolveReviewHotkey({ ...base, code: 'Digit1', ctrlKey: true }, true)).toBeNull();
+  });
+
+  it('formats review sentence translations according to gloss language and omits null (#132)', () => {
+    const both = {
+      translation_en: '  I want to eat something.  ',
+      translation_de: 'Ich möchte etwas essen.',
+    };
+    expect(formatReviewSentenceTranslation(both, 'eng')).toEqual({
+      primary: { lang: 'EN', text: 'I want to eat something.' },
+      secondary: { lang: 'DE', text: 'Ich möchte etwas essen.' },
+    });
+    expect(formatReviewSentenceTranslation(both, 'ger')).toEqual({
+      primary: { lang: 'DE', text: 'Ich möchte etwas essen.' },
+      secondary: { lang: 'EN', text: 'I want to eat something.' },
+    });
+
+    // Falls back cleanly when only one language exists
+    expect(
+      formatReviewSentenceTranslation({ translation_en: 'Only EN', translation_de: null }, 'ger'),
+    ).toEqual({
+      primary: { lang: 'EN', text: 'Only EN' },
+      secondary: null,
+    });
+    expect(
+      formatReviewSentenceTranslation({ translation_en: '   ', translation_de: 'Nur DE' }, 'eng'),
+    ).toEqual({
+      primary: { lang: 'DE', text: 'Nur DE' },
+      secondary: null,
+    });
+
+    // Deduplicates identical EN/DE strings
+    expect(
+      formatReviewSentenceTranslation({ translation_en: 'Frieren!', translation_de: 'Frieren!' }, 'eng'),
+    ).toEqual({
+      primary: { lang: 'EN', text: 'Frieren!' },
+      secondary: null,
+    });
+
+    // Returns null when line or translations are absent/blank
+    expect(formatReviewSentenceTranslation(null, 'eng')).toBeNull();
+    expect(formatReviewSentenceTranslation(undefined, 'ger')).toBeNull();
+    expect(
+      formatReviewSentenceTranslation({ translation_en: null, translation_de: null }, 'eng'),
+    ).toBeNull();
+    expect(
+      formatReviewSentenceTranslation({ translation_en: '  ', translation_de: '' }, 'ger'),
+    ).toBeNull();
+  });
+
+  it('wires sentence translation into ReviewPage only on the revealed answer side (#132)', () => {
+    const reviewPage = readFileSync(resolve(__dirname, '../src/pages/ReviewPage.tsx'), 'utf-8');
+    expect(reviewPage).toContain('formatReviewSentenceTranslation');
+    expect(reviewPage).toContain('showTranslation={revealed}');
   });
 });
