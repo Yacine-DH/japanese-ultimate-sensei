@@ -44,6 +44,9 @@ const pauseOnHoverToggle = document.getElementById('pause-on-hover-toggle') as H
 const shiftHoverToggle = document.getElementById('shift-hover-toggle') as HTMLInputElement;
 const autoPauseToggle = document.getElementById('auto-pause-toggle') as HTMLInputElement;
 const romajiToggle = document.getElementById('romaji-toggle') as HTMLInputElement;
+const backgroundAutoSyncToggle = document.getElementById(
+  'background-auto-sync-toggle',
+) as HTMLInputElement;
 const testBtn = document.getElementById('test-btn') as HTMLButtonElement;
 const statusBox = document.getElementById('status-box') as HTMLDivElement;
 const firstRunBanner = document.getElementById('first-run-banner') as HTMLDivElement;
@@ -146,6 +149,7 @@ async function init(): Promise<void> {
   shiftHoverToggle.checked = settings.requireShiftForHover;
   autoPauseToggle.checked = settings.autoPauseEachLine;
   romajiToggle.checked = settings.romaji;
+  backgroundAutoSyncToggle.checked = settings.backgroundAutoSync;
   ankiEnabledToggle.checked = settings.ankiConnectEnabled;
   ankiUrlInput.value = settings.ankiConnectUrl;
   ankiDeckInput.value = settings.ankiDeckName;
@@ -173,6 +177,7 @@ form.addEventListener('submit', async (event) => {
     requireShiftForHover: shiftHoverToggle.checked,
     autoPauseEachLine: autoPauseToggle.checked,
     romaji: romajiToggle.checked,
+    backgroundAutoSync: backgroundAutoSyncToggle.checked,
   });
   serverUrlInput.value = saved.serverUrl;
   extensionFolderInput.value = saved.extensionFolder;
@@ -195,6 +200,7 @@ testBtn.addEventListener('click', async () => {
     requireShiftForHover: shiftHoverToggle.checked,
     autoPauseEachLine: autoPauseToggle.checked,
     romaji: romajiToggle.checked,
+    backgroundAutoSync: backgroundAutoSyncToggle.checked,
   });
   updateFirstRunBanner(saved.serverUrl);
 

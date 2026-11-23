@@ -9,6 +9,7 @@ import {
   type AutoImportOut,
   type CaptureVisibleTabResponse,
   type EpisodeOut,
+  type EpisodeSyncUpdatedMessage,
   executeApiCall,
   executeMediaUpload,
   executeSubtitleUpload,
@@ -36,6 +37,7 @@ import {
   type NativeUpdateStateChangedMessage,
   type NativeUpdateStateResponse,
   type OpenPopupSearchResponse,
+  type SyncPoint,
   type TabEpisodeState,
   type TabStateChangedMessage,
   type TriggerAutoAttachResponse,
@@ -141,6 +143,23 @@ export default defineBackground(() => {
         type: 'SENSEI_NATIVE_UPDATE_STATE_CHANGED',
         state,
       } satisfies NativeUpdateStateChangedMessage);
+    } catch {
+      // Popup is closed or no extension page is listening
+    }
+  }
+
+  async function broadcastEpisodeSyncUpdated(
+    episodeId: number,
+    subOffsetMs: number,
+    syncPoints: SyncPoint[],
+  ): Promise<void> {
+    try {
+      await browser.runtime.sendMessage({
+        type: 'SENSEI_EPISODE_SYNC_UPDATED',
+        episodeId,
+        subOffsetMs,
+        syncPoints,
+      } satisfies EpisodeSyncUpdatedMessage);
     } catch {
       // Popup is closed or no extension page is listening
     }
@@ -534,6 +553,11 @@ export default defineBackground(() => {
             );
             if (res.ok && res.data) {
               await transcriptCache.setEpisode(res.data);
+              void broadcastEpisodeSyncUpdated(
+                res.data.id,
+                res.data.sub_offset_ms,
+                res.data.sync_points ?? [],
+              );
             }
             return res;
           })();
@@ -607,7 +631,16 @@ export default defineBackground(() => {
           const settings = await getSettings();
           const res = await executeSyncEpisode(settings, message);
           if (res.ok && res.data?.applied) {
-            await transcriptCache.updateEpisodeOffset(message.episodeId, res.data.offset_ms);
+            await transcriptCache.updateEpisodeSync(
+              message.episodeId,
+              res.data.sub_offset_ms,
+              res.data.sync_points ?? [],
+            );
+            void broadcastEpisodeSyncUpdated(
+              message.episodeId,
+              res.data.sub_offset_ms,
+              res.data.sync_points ?? [],
+            );
           }
           return res;
         })();

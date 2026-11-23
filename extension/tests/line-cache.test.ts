@@ -16,6 +16,7 @@ function makeEpisode(id = 1): EpisodeOut {
     source: 'upload',
     source_filename: 'frieren.ass',
     sub_offset_ms: 0,
+    sync_points: [],
     line_count: 1,
     created_at: '2026-11-17T00:00:00Z',
   };

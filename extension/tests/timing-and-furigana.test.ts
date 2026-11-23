@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LineOut, TokenOut } from '../src/api/client';
 import {
   buildLineRomaji,
@@ -8,12 +8,16 @@ import {
 } from '../src/lib/furigana';
 import {
   adjustOffsetMs,
+  applyOffsetToActiveStretch,
   computeSyncOffsetMs,
+  createDebouncer,
   findActiveLine,
   findActiveLines,
   findReferenceLineForSync,
   formatActiveLinesKey,
   isLineActive,
+  normalizeSyncPoints,
+  resolveOffsetAt,
 } from '../src/lib/timing';
 import {
   computeOverlayBounds,
@@ -126,6 +130,108 @@ describe('subtitle timing logic (E-2)', () => {
 
     // At exact boundary 4000ms, line 10 and 11 have ended and line 12 begins
     expect(findActiveLines(lines, 4000, 0).map((l) => l.id)).toEqual([12]);
+  });
+
+  it('normalizes and resolves piecewise sync points by video time (#138)', () => {
+    const normalized = normalizeSyncPoints([
+      { at_ms: 900_000, offset_ms: -500 },
+      { at_ms: 0, offset_ms: 9999 },
+      { at_ms: -100, offset_ms: 8888 },
+      { at_ms: 300_000.4, offset_ms: 1500.2 },
+      { at_ms: 300_000, offset_ms: 2300 },
+    ]);
+    expect(normalized).toEqual([
+      { at_ms: 300_000, offset_ms: 2300 },
+      { at_ms: 900_000, offset_ms: -500 },
+    ]);
+
+    // Empty points -> always base offset
+    expect(resolveOffsetAt(500_000, 1200, [])).toBe(1200);
+
+    // Before first point -> base offset
+    expect(resolveOffsetAt(0, 1000, normalized)).toBe(1000);
+    expect(resolveOffsetAt(299_999, 1000, normalized)).toBe(1000);
+
+    // At and after first point, before second point -> first point offset
+    expect(resolveOffsetAt(300_000, 1000, normalized)).toBe(2300);
+    expect(resolveOffsetAt(899_999, 1000, normalized)).toBe(2300);
+
+    // At and after second point -> second point offset
+    expect(resolveOffsetAt(900_000, 1000, normalized)).toBe(-500);
+    expect(resolveOffsetAt(1_400_000, 1000, normalized)).toBe(-500);
+
+    // Works even if caller passes unsorted points
+    expect(
+      resolveOffsetAt(700_000, 1000, [
+        { at_ms: 900_000, offset_ms: -500 },
+        { at_ms: 300_000, offset_ms: 2300 },
+      ]),
+    ).toBe(2300);
+
+    // End-to-end line activation across a cut: [600_000, 603_000) shifted +2300 -> [602_300, 605_300)
+    const line = makeLine({ id: 5, start_ms: 600_000, end_ms: 603_000 });
+    const pts = [{ at_ms: 500_000, offset_ms: 2300 }];
+    const offsetAtCut = resolveOffsetAt(604_000, 0, pts);
+    expect(offsetAtCut).toBe(2300);
+    expect(findActiveLines([line], 604_000, offsetAtCut).map((l) => l.id)).toEqual([5]);
+    expect(findActiveLines([line], 604_000, 0)).toEqual([]);
+  });
+
+  it('adjusts only the active stretch for manual offset hotkeys (#138)', () => {
+    const points = [
+      { at_ms: 300_000, offset_ms: 2300 },
+      { at_ms: 900_000, offset_ms: -500 },
+    ];
+
+    // Before first point -> adjusts base sub_offset_ms, preserves points
+    const beforeCut = applyOffsetToActiveStretch(120_000, 1000, points, 1100);
+    expect(beforeCut).toEqual({
+      subOffsetMs: 1100,
+      syncPoints: points,
+      target: 'base',
+      pointAtMs: null,
+      offsetMs: 1100,
+      patch: { sub_offset_ms: 1100 },
+    });
+
+    // Inside first sync point stretch -> updates only that point, preserves base and later point
+    const firstStretch = applyOffsetToActiveStretch(642_000, 1000, points, 2400);
+    expect(firstStretch).toEqual({
+      subOffsetMs: 1000,
+      syncPoints: [
+        { at_ms: 300_000, offset_ms: 2400 },
+        { at_ms: 900_000, offset_ms: -500 },
+      ],
+      target: 'point',
+      pointAtMs: 300_000,
+      offsetMs: 2400,
+      patch: {
+        sync_points: [
+          { at_ms: 300_000, offset_ms: 2400 },
+          { at_ms: 900_000, offset_ms: -500 },
+        ],
+      },
+    });
+
+    // Inside second sync point stretch -> updates only the second point
+    const secondStretch = applyOffsetToActiveStretch(900_000, 1000, points, -600);
+    expect(secondStretch.target).toBe('point');
+    expect(secondStretch.pointAtMs).toBe(900_000);
+    expect(secondStretch.subOffsetMs).toBe(1000);
+    expect(secondStretch.syncPoints).toEqual([
+      { at_ms: 300_000, offset_ms: 2300 },
+      { at_ms: 900_000, offset_ms: -600 },
+    ]);
+
+    // Cancelable debouncer drops pending callbacks cleanly on reset/episode change
+    vi.useFakeTimers();
+    const fn = vi.fn();
+    const debouncer = createDebouncer(400);
+    debouncer(fn);
+    debouncer.cancel();
+    vi.advanceTimersByTime(500);
+    expect(fn).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
 

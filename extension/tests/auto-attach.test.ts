@@ -36,6 +36,7 @@ function makeAutoImportOut(overrides: Partial<AutoImportOut> = {}): AutoImportOu
       source: 'jimaku',
       source_filename: '[SubsPlease] Sousou no Frieren - 05 (1080p)_ja.srt',
       sub_offset_ms: 0,
+      sync_points: [],
       line_count: 305,
       created_at: '2026-11-22T17:00:00Z',
       understanding: {

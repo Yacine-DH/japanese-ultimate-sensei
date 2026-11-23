@@ -1,6 +1,7 @@
 import {
   api,
   isAutoAttachNoticeMessage,
+  isEpisodeSyncUpdatedMessage,
   isOpenMissedPanelMessage,
   isStartAutoSyncMessage,
   isTabStateChangedMessage,
@@ -10,6 +11,7 @@ import {
   type LookupResult,
   type MissedWord,
   type StartAutoSyncResponse,
+  type SyncPoint,
   type TokenOut,
   type WatchIn,
   type WordStatus,
@@ -18,10 +20,14 @@ import type { AutoAttachNotice } from '../src/lib/auto-attach';
 import {
   type ActiveSyncRecordingHandle,
   type AutoSyncAbortReason,
+  type AutoSyncRunMode,
   AutoSyncStateMachine,
+  BackgroundAutoSyncScheduler,
   buildSyncOutcomePresentation,
+  formatBackgroundSyncToast,
   formatManualApplyToast,
   formatSyncProgressText,
+  formatSyncTimestamp,
   startSyncAudioRecording,
 } from '../src/lib/auto-sync';
 import {
@@ -72,12 +78,15 @@ import {
 } from '../src/lib/replay';
 import {
   adjustOffsetMs,
+  applyOffsetToActiveStretch,
   computeSyncOffsetMs,
   findActiveLines,
   createDebouncer,
   findReferenceLineForSync,
   formatActiveLinesKey,
+  normalizeSyncPoints,
   OFFSET_STEP_MS,
+  resolveOffsetAt,
 } from '../src/lib/timing';
 import { isEditableTarget, matchHotkey } from '../src/lib/hotkeys';
 import {
@@ -111,6 +120,7 @@ export default defineContentScript({
     let tabOverlayEnabled = false;
     let lines: LineOut[] = [];
     let subOffsetMs = 0;
+    let syncPoints: SyncPoint[] = [];
     let currentVideo: HTMLVideoElement | null = null;
     let renderedLinesKey: string | null = null;
     let prevActiveLineIds: number[] = [];
@@ -152,7 +162,9 @@ export default defineContentScript({
     let syncStatusEl: HTMLDivElement | null = null;
     let syncStatusTextEl: HTMLSpanElement | null = null;
     const autoSyncMachine = new AutoSyncStateMachine();
+    const backgroundSyncScheduler = new BackgroundAutoSyncScheduler();
     let activeSyncHandle: ActiveSyncRecordingHandle | null = null;
+    let activeSyncMode: AutoSyncRunMode | null = null;
     let autoSyncSeq = 0;
     let pausedByHover = false;
     let capturingScene = false;
@@ -1273,22 +1285,36 @@ export default defineContentScript({
       flushPendingAutoAttachNotice();
     }
 
+    function getEffectiveOffsetMs(videoMs: number): number {
+      return resolveOffsetAt(videoMs, subOffsetMs, syncPoints);
+    }
+
+    function isManualSyncActive(): boolean {
+      return autoSyncMachine.isActive() && activeSyncMode === 'manual';
+    }
+
+    function isManualSyncRecording(): boolean {
+      return autoSyncMachine.isRecording() && activeSyncMode === 'manual';
+    }
+
     function syncOverlayControlsVisibility(): void {
-      const syncing = autoSyncMachine.isActive();
+      const manualSyncing = isManualSyncActive();
       const canShowIdleControl =
         Boolean(currentVideo) &&
         tabOverlayEnabled &&
         currentEpisodeId !== null &&
         lines.length > 0 &&
-        !syncing;
+        !manualSyncing;
       overlayControlsEl?.classList.toggle('visible', canShowIdleControl);
-      syncStatusEl?.classList.toggle('visible', syncing);
+      syncStatusEl?.classList.toggle('visible', manualSyncing);
     }
 
     function updateSyncStatusIndicator(): void {
-      const snap = autoSyncMachine.getState();
-      if (syncStatusTextEl) {
-        syncStatusTextEl.textContent = formatSyncProgressText(snap) || 'Syncing…';
+      if (activeSyncMode === 'manual') {
+        const snap = autoSyncMachine.getState();
+        if (syncStatusTextEl) {
+          syncStatusTextEl.textContent = formatSyncProgressText(snap) || 'Syncing…';
+        }
       }
       syncOverlayControlsVisibility();
     }
@@ -1296,11 +1322,14 @@ export default defineContentScript({
     function cancelAutoSync(
       reason: AutoSyncAbortReason = 'cancelled',
       customMessage?: string,
+      silent = false,
     ): void {
       if (!autoSyncMachine.isActive()) return;
+      const wasBackground = activeSyncMode === 'background';
       autoSyncSeq += 1;
       const handle = activeSyncHandle;
       activeSyncHandle = null;
+      activeSyncMode = null;
       if (handle) {
         handle.cancel(reason, customMessage);
       } else {
@@ -1308,53 +1337,80 @@ export default defineContentScript({
       }
       const msg = autoSyncMachine.getState().abortMessage;
       autoSyncMachine.reset();
+      backgroundSyncScheduler.markSyncFinished(Date.now());
       updateSyncStatusIndicator();
-      if (reason !== 'episode_changed' && msg) {
+      if (!silent && !wasBackground && reason !== 'episode_changed' && msg) {
         showToast(msg, 2400);
       }
     }
 
-    function applyManualSyncOffset(episodeId: number, offsetMs: number): void {
+    function applyManualSyncOffset(episodeId: number, offsetMs: number, atMs: number): void {
       if (currentEpisodeId !== episodeId) return;
-      subOffsetMs = offsetMs;
+      persistOffset.cancel();
+      const updated = applyOffsetToActiveStretch(atMs, subOffsetMs, syncPoints, offsetMs);
+      subOffsetMs = updated.subOffsetMs;
+      syncPoints = updated.syncPoints;
       renderedLinesKey = null;
       syncSubtitleFrame();
       showToast(formatManualApplyToast(offsetMs), 3200);
-      void api.patchEpisode(episodeId, { sub_offset_ms: offsetMs }).then((res) => {
-        if (!res.ok) {
-          showToast(`Failed to save offset: ${res.error ?? 'Unknown error'}`, 3200);
-        }
-      });
+      void api
+        .patchEpisode(episodeId, {
+          sub_offset_ms: updated.subOffsetMs,
+          sync_points: updated.syncPoints,
+        })
+        .then((res) => {
+          if (!res.ok) {
+            showToast(`Failed to save offset: ${res.error ?? 'Unknown error'}`, 3200);
+          }
+        });
     }
 
-    function startAutoSync(): StartAutoSyncResponse {
+    function startAutoSync(mode: AutoSyncRunMode = 'manual'): StartAutoSyncResponse {
+      const isBackground = mode === 'background';
+
       if (autoSyncMachine.isActive()) {
-        showToast('Auto-sync already in progress', 2000);
-        return { ok: false, error: 'Auto-sync already in progress' };
+        if (!isBackground && activeSyncMode === 'background') {
+          cancelAutoSync('cancelled', undefined, true);
+        } else {
+          if (!isBackground) {
+            showToast('Auto-sync already in progress', 2000);
+          }
+          return { ok: false, error: 'Auto-sync already in progress' };
+        }
       }
       if (capturingScene) {
-        showToast('Wait for scene capture to finish before syncing', 2200);
+        if (!isBackground) {
+          showToast('Wait for scene capture to finish before syncing', 2200);
+        }
         return { ok: false, error: 'Wait for scene capture to finish before syncing' };
       }
       if (!currentVideo || !tabOverlayEnabled || currentEpisodeId === null || lines.length === 0) {
         const err = 'Attach an episode with subtitles first';
-        showToast(err, 2200);
+        if (!isBackground) {
+          showToast(err, 2200);
+        }
         return { ok: false, error: err };
       }
 
-      ensureOverlayMounted(currentVideo);
+      if (!isBackground) {
+        ensureOverlayMounted(currentVideo);
+      }
       const playbackCheck = autoSyncMachine.checkPlayback({
         paused: currentVideo.paused,
         ended: currentVideo.ended,
         playbackRate: currentVideo.playbackRate,
       });
       if (!playbackCheck.ok) {
-        showToast(playbackCheck.message, 2800);
+        if (!isBackground) {
+          showToast(playbackCheck.message, 2800);
+        }
         return { ok: false, error: playbackCheck.message };
       }
 
       const targetEpisodeId = currentEpisodeId;
       const syncSeq = ++autoSyncSeq;
+      activeSyncMode = mode;
+      backgroundSyncScheduler.markSyncStarted(Date.now());
       const handle = startSyncAudioRecording({
         video: currentVideo,
         machine: autoSyncMachine,
@@ -1369,10 +1425,18 @@ export default defineContentScript({
       const immediateSnap = autoSyncMachine.getState();
       if (immediateSnap.phase === 'aborted') {
         activeSyncHandle = null;
+        activeSyncMode = null;
+        const reason = immediateSnap.abortReason;
         const msg = immediateSnap.abortMessage ?? 'Could not start auto-sync';
         autoSyncMachine.reset();
+        backgroundSyncScheduler.markSyncFinished(Date.now());
+        if (reason === 'unavailable') {
+          backgroundSyncScheduler.markUnavailableForVideo();
+        }
         updateSyncStatusIndicator();
-        showToast(msg, 3000);
+        if (!isBackground) {
+          showToast(msg, 3000);
+        }
         return { ok: false, error: msg };
       }
 
@@ -1385,9 +1449,14 @@ export default defineContentScript({
           return;
         }
         if (!sample.ok) {
+          activeSyncMode = null;
           autoSyncMachine.reset();
+          backgroundSyncScheduler.markSyncFinished(Date.now());
+          if (sample.reason === 'unavailable') {
+            backgroundSyncScheduler.markUnavailableForVideo();
+          }
           updateSyncStatusIndicator();
-          if (sample.reason !== 'episode_changed') {
+          if (!isBackground && sample.reason !== 'episode_changed') {
             showToast(sample.message, 3200);
           }
           return;
@@ -1401,9 +1470,13 @@ export default defineContentScript({
           contentBase64 = await blobToBase64(sample.blob);
         } catch {
           if (syncSeq !== autoSyncSeq) return;
+          activeSyncMode = null;
           autoSyncMachine.reset();
+          backgroundSyncScheduler.markSyncFinished(Date.now());
           updateSyncStatusIndicator();
-          showToast('Auto-sync failed: could not encode recorded audio', 3200);
+          if (!isBackground) {
+            showToast('Auto-sync failed: could not encode recorded audio', 3200);
+          }
           return;
         }
 
@@ -1424,19 +1497,49 @@ export default defineContentScript({
           return;
         }
 
+        activeSyncMode = null;
+        backgroundSyncScheduler.markSyncFinished(Date.now());
+
         if (res.ok && res.data) {
-          console.info('[Sensei] Auto-sync result:', {
-            episodeId: targetEpisodeId,
-            ...res.data,
-          });
+          console.info(
+            isBackground ? '[Sensei] Background auto-sync result:' : '[Sensei] Auto-sync result:',
+            {
+              episodeId: targetEpisodeId,
+              ...res.data,
+            },
+          );
+        }
+
+        if (isBackground) {
+          if (res.ok && res.data?.applied) {
+            autoSyncMachine.finishSuccess(res.data);
+            autoSyncMachine.reset();
+            updateSyncStatusIndicator();
+            persistOffset.cancel();
+            subOffsetMs = res.data.sub_offset_ms;
+            syncPoints = normalizeSyncPoints(res.data.sync_points);
+            renderedLinesKey = null;
+            syncSubtitleFrame();
+            const quietToast = formatBackgroundSyncToast(res.data);
+            if (quietToast && currentVideo) {
+              ensureOverlayMounted(currentVideo);
+              showToast(quietToast, 3500);
+            }
+          } else {
+            autoSyncMachine.reset();
+            updateSyncStatusIndicator();
+          }
+          return;
         }
 
         const outcome = buildSyncOutcomePresentation(res);
-        if (outcome.kind === 'applied') {
-          autoSyncMachine.finishSuccess(res.data!);
+        if (outcome.kind === 'applied' && res.data) {
+          autoSyncMachine.finishSuccess(res.data);
           autoSyncMachine.reset();
           updateSyncStatusIndicator();
-          subOffsetMs = outcome.offsetMs;
+          persistOffset.cancel();
+          subOffsetMs = res.data.sub_offset_ms;
+          syncPoints = normalizeSyncPoints(res.data.sync_points);
           renderedLinesKey = null;
           syncSubtitleFrame();
           showRichToast({
@@ -1444,8 +1547,9 @@ export default defineContentScript({
             meta: outcome.meta,
             durationMs: 4500,
           });
-        } else if (outcome.kind === 'not_applied') {
-          autoSyncMachine.finishSuccess(res.data!);
+        } else if (outcome.kind === 'not_applied' && res.data) {
+          const atMs = res.data.at_ms;
+          autoSyncMachine.finishSuccess(res.data);
           autoSyncMachine.reset();
           updateSyncStatusIndicator();
           showRichToast({
@@ -1454,7 +1558,7 @@ export default defineContentScript({
             meta: outcome.meta,
             actionLabel: outcome.useAnywayLabel,
             durationMs: 15_000,
-            onAction: () => applyManualSyncOffset(targetEpisodeId, outcome.offsetMs),
+            onAction: () => applyManualSyncOffset(targetEpisodeId, outcome.offsetMs, atMs),
           });
         } else {
           autoSyncMachine.finishError(res.error ?? 'Unknown error');
@@ -1468,7 +1572,7 @@ export default defineContentScript({
     }
 
     function pauseVideoOnHover(): void {
-      if (capturingScene || autoSyncMachine.isRecording()) return;
+      if (capturingScene || isManualSyncRecording()) return;
       if (settings && !settings.pauseOnHover) {
         return;
       }
@@ -1522,9 +1626,12 @@ export default defineContentScript({
         return;
       }
       if (status === 'learning') {
-        if (autoSyncMachine.isRecording()) {
+        if (isManualSyncRecording()) {
           showToast('Finish or cancel auto-sync before saving a card');
           return;
+        }
+        if (activeSyncMode === 'background' && autoSyncMachine.isActive()) {
+          cancelAutoSync('cancelled', undefined, true);
         }
         if (capturingScene) {
           showToast('Capture already in progress...');
@@ -1541,7 +1648,7 @@ export default defineContentScript({
             video ? captureVideoScreenshot(video, () => api.captureVisibleTab()) : Promise.resolve(null),
           captureLineMedia: () =>
             video && line
-              ? recordLineMedia(video, line, subOffsetMs, {
+              ? recordLineMedia(video, line, getEffectiveOffsetMs(video.currentTime * 1000), {
                   onStart: () => {
                     capturingScene = true;
                     skipAutoPauseOnce = true;
@@ -1866,7 +1973,8 @@ export default defineContentScript({
     function replayCurrentOrLastLine(slow: boolean): void {
       if (!currentVideo || lines.length === 0) return;
       const videoMs = currentVideo.currentTime * 1000;
-      const target = findLineToReplay(lines, videoMs, subOffsetMs);
+      const effectiveOffsetMs = getEffectiveOffsetMs(videoMs);
+      const target = findLineToReplay(lines, videoMs, effectiveOffsetMs);
       if (!target) {
         showToast('No line to replay');
         return;
@@ -1874,7 +1982,7 @@ export default defineContentScript({
 
       if (slow) {
         const originalRate = slowReplayState?.originalRate ?? currentVideo.playbackRate;
-        slowReplayState = createSlowReplayState(target, subOffsetMs, originalRate);
+        slowReplayState = createSlowReplayState(target, effectiveOffsetMs, originalRate);
         currentVideo.playbackRate = SLOW_REPLAY_RATE;
         showToast(`Slow replay (${SLOW_REPLAY_RATE}×)`);
       } else {
@@ -1883,7 +1991,7 @@ export default defineContentScript({
       }
 
       skipAutoPauseOnce = true;
-      currentVideo.currentTime = computeReplaySeekSeconds(target, subOffsetMs);
+      currentVideo.currentTime = computeReplaySeekSeconds(target, effectiveOffsetMs);
       pausedByHover = false;
       void currentVideo.play().catch(() => {
         // Ignore autoplay restrictions
@@ -2050,9 +2158,12 @@ export default defineContentScript({
         return;
       }
       const videoMs = currentVideo.currentTime * 1000;
-      const active = findActiveLines(lines, videoMs, subOffsetMs);
+      const effectiveOffsetMs = getEffectiveOffsetMs(videoMs);
+      const active = findActiveLines(lines, videoMs, effectiveOffsetMs);
       const targets =
-        active.length > 0 ? active : ([findLineForAction(lines, videoMs, subOffsetMs)].filter(Boolean) as LineOut[]);
+        active.length > 0
+          ? active
+          : ([findLineForAction(lines, videoMs, effectiveOffsetMs)].filter(Boolean) as LineOut[]);
       if (targets.length === 0) {
         showToast('No subtitle line to translate');
         return;
@@ -2321,12 +2432,13 @@ export default defineContentScript({
       const videoMs = currentVideo.currentTime * 1000;
       restoreSlowReplayIfNeeded(videoMs);
 
-      const active = findActiveLines(lines, videoMs, subOffsetMs);
+      const effectiveOffsetMs = getEffectiveOffsetMs(videoMs);
+      const active = findActiveLines(lines, videoMs, effectiveOffsetMs);
       const activeIds = active.map((l) => l.id);
 
       if (
         !capturingScene &&
-        !autoSyncMachine.isRecording() &&
+        !isManualSyncRecording() &&
         !currentVideo.paused &&
         !skipAutoPauseOnce &&
         shouldAutoPauseAfterLine(
@@ -2410,6 +2522,8 @@ export default defineContentScript({
 
       if (!shouldLoad || currentEpisodeId === null) {
         lines = [];
+        subOffsetMs = 0;
+        syncPoints = [];
         loadedEpisodeId = null;
         renderedLinesKey = null;
         renderLines([]);
@@ -2437,6 +2551,10 @@ export default defineContentScript({
       }
       if (epRes.ok && epRes.data) {
         subOffsetMs = epRes.data.sub_offset_ms;
+        syncPoints = normalizeSyncPoints(epRes.data.sync_points);
+      } else {
+        subOffsetMs = 0;
+        syncPoints = [];
       }
       if (linesRes.ok && linesRes.data) {
         lines = linesRes.data;
@@ -2503,10 +2621,43 @@ export default defineContentScript({
       syncWatchHeartbeat();
     }
 
+    function handleVideoSeeked(): void {
+      syncSubtitleFrame();
+      if (currentVideo) {
+        backgroundSyncScheduler.onSeeked(currentVideo.currentTime * 1000, Date.now(), {
+          isCapturing: capturingScene,
+        });
+      }
+    }
+
+    function tickBackgroundAutoSync(nowMs = Date.now()): void {
+      if (!currentVideo || !settings) return;
+      const trigger = backgroundSyncScheduler.tick({
+        nowMs,
+        videoMs: currentVideo.currentTime * 1000,
+        episodeId: currentEpisodeId,
+        overlayEnabled: tabOverlayEnabled && lines.length > 0,
+        isPlaying: !currentVideo.paused && !currentVideo.ended && currentVideo.readyState >= 2,
+        isSeeking: currentVideo.seeking,
+        playbackRate: currentVideo.playbackRate,
+        isBuffering: isVideoBuffering,
+        isCapturing: capturingScene,
+        isSyncActive: autoSyncMachine.isActive(),
+        autoPauseEachLine: settings.autoPauseEachLine,
+      });
+      if (trigger !== null) {
+        startAutoSync('background');
+      }
+    }
+
     function applyTabState(episodeId: number | null, enabled: boolean): void {
       const nextEnabled = enabled && episodeId !== null;
       if (episodeId !== currentEpisodeId || !nextEnabled) {
         cancelAutoSync('episode_changed');
+        persistOffset.cancel();
+      }
+      if (episodeId !== currentEpisodeId) {
+        backgroundSyncScheduler.resetForEpisode(episodeId);
       }
       currentEpisodeId = episodeId;
       tabOverlayEnabled = nextEnabled;
@@ -2521,7 +2672,7 @@ export default defineContentScript({
         if (currentVideo) {
           cancelAutoSync('episode_changed');
           currentVideo.removeEventListener('timeupdate', syncSubtitleFrame);
-          currentVideo.removeEventListener('seeked', syncSubtitleFrame);
+          currentVideo.removeEventListener('seeked', handleVideoSeeked);
           currentVideo.removeEventListener('play', handleVideoPlay);
           currentVideo.removeEventListener('playing', handleVideoPlay);
           currentVideo.removeEventListener('pause', handleVideoPause);
@@ -2536,9 +2687,10 @@ export default defineContentScript({
           videoResizeObserver.disconnect();
         }
         isVideoBuffering = false;
+        backgroundSyncScheduler.resetForVideo();
         currentVideo = best;
         currentVideo.addEventListener('timeupdate', syncSubtitleFrame);
-        currentVideo.addEventListener('seeked', syncSubtitleFrame);
+        currentVideo.addEventListener('seeked', handleVideoSeeked);
         currentVideo.addEventListener('play', handleVideoPlay);
         currentVideo.addEventListener('playing', handleVideoPlay);
         currentVideo.addEventListener('pause', handleVideoPause);
@@ -2590,8 +2742,8 @@ export default defineContentScript({
           return;
         }
 
-        // Escape cancels active auto-sync first
-        if (autoSyncMachine.isActive() && event.code === 'Escape') {
+        // Escape cancels active manual auto-sync first
+        if (isManualSyncActive() && event.code === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
           event.stopImmediatePropagation();
@@ -2671,7 +2823,8 @@ export default defineContentScript({
             closeExplainPanel();
             return;
           }
-          const target = findLineForAction(lines, currentVideo.currentTime * 1000, subOffsetMs);
+          const videoMs = currentVideo.currentTime * 1000;
+          const target = findLineForAction(lines, videoMs, getEffectiveOffsetMs(videoMs));
           if (!target) {
             showToast('No subtitle line to explain');
             return;
@@ -2680,25 +2833,44 @@ export default defineContentScript({
           return;
         }
 
+        const videoMs = currentVideo.currentTime * 1000;
+        const effectiveOffsetMs = getEffectiveOffsetMs(videoMs);
+        let nextStretchOffsetMs: number;
         if (action === 'offsetBack') {
-          subOffsetMs = adjustOffsetMs(subOffsetMs, -OFFSET_STEP_MS);
+          nextStretchOffsetMs = adjustOffsetMs(effectiveOffsetMs, -OFFSET_STEP_MS);
         } else if (action === 'offsetForward') {
-          subOffsetMs = adjustOffsetMs(subOffsetMs, OFFSET_STEP_MS);
+          nextStretchOffsetMs = adjustOffsetMs(effectiveOffsetMs, OFFSET_STEP_MS);
         } else {
-          const videoMs = currentVideo.currentTime * 1000;
-          const refLine = findReferenceLineForSync(lines, videoMs, subOffsetMs);
+          const refLine = findReferenceLineForSync(lines, videoMs, effectiveOffsetMs);
           if (!refLine) return;
-          subOffsetMs = computeSyncOffsetMs(videoMs, refLine);
+          nextStretchOffsetMs = computeSyncOffsetMs(videoMs, refLine);
         }
 
-        const sign = subOffsetMs >= 0 ? '+' : '';
-        showToast(`Sub offset: ${sign}${subOffsetMs} ms`);
+        const updatedStretch = applyOffsetToActiveStretch(
+          videoMs,
+          subOffsetMs,
+          syncPoints,
+          nextStretchOffsetMs,
+        );
+        subOffsetMs = updatedStretch.subOffsetMs;
+        syncPoints = updatedStretch.syncPoints;
+
+        const sign = updatedStretch.offsetMs >= 0 ? '+' : '';
+        const toastText =
+          updatedStretch.target === 'point' && updatedStretch.pointAtMs !== null
+            ? `Sub offset (from ${formatSyncTimestamp(updatedStretch.pointAtMs)}): ${sign}${updatedStretch.offsetMs} ms`
+            : `Sub offset: ${sign}${updatedStretch.offsetMs} ms`;
+        showToast(toastText);
         renderedLinesKey = null;
         syncSubtitleFrame();
         const episodeId = currentEpisodeId;
-        const offset = subOffsetMs;
+        const snapshotBase = subOffsetMs;
+        const snapshotPoints = syncPoints;
         persistOffset(() => {
-          void api.patchEpisode(episodeId, { sub_offset_ms: offset });
+          void api.patchEpisode(episodeId, {
+            sub_offset_ms: snapshotBase,
+            sync_points: snapshotPoints,
+          });
         });
       },
       { capture: true },
@@ -2744,9 +2916,21 @@ export default defineContentScript({
         return Promise.resolve({ ok: false });
       } else if (isStartAutoSyncMessage(msg)) {
         if (currentVideo && currentEpisodeId !== null) {
-          return Promise.resolve(startAutoSync());
+          return Promise.resolve(startAutoSync('manual'));
         }
         return undefined;
+      } else if (isEpisodeSyncUpdatedMessage(msg)) {
+        if (msg.episodeId === currentEpisodeId) {
+          persistOffset.cancel();
+          subOffsetMs = msg.subOffsetMs;
+          syncPoints = normalizeSyncPoints(msg.syncPoints);
+          renderedLinesKey = null;
+          syncSubtitleFrame();
+          if (subOffsetMs === 0 && syncPoints.length === 0) {
+            showToast('Sync reset to 0.0 s');
+          }
+        }
+        return Promise.resolve({ ok: true });
       }
       return undefined;
     });
@@ -2755,6 +2939,10 @@ export default defineContentScript({
       if (changes[SETTINGS_STORAGE_KEY]) {
         void Promise.all([getSettings(), api.getTabState()]).then(([next, tabState]) => {
           settings = next;
+          backgroundSyncScheduler.setEnabled(next.backgroundAutoSync);
+          if (!next.backgroundAutoSync && activeSyncMode === 'background') {
+            cancelAutoSync('cancelled', undefined, true);
+          }
           if (tabState.pageUrl) {
             currentTabPageUrl = tabState.pageUrl;
           }
@@ -2767,6 +2955,7 @@ export default defineContentScript({
 
     void Promise.all([getSettings(), api.getTabState()]).then(([initial, tabState]) => {
       settings = initial;
+      backgroundSyncScheduler.setEnabled(initial.backgroundAutoSync);
       if (tabState.pageUrl) {
         currentTabPageUrl = tabState.pageUrl;
       }
@@ -2775,6 +2964,9 @@ export default defineContentScript({
       applyOverlayPlacement();
       queueAutoAttachNotice(tabState.autoAttachNotice);
       setInterval(scanForVideo, 1500);
+      setInterval(() => {
+        tickBackgroundAutoSync(Date.now());
+      }, 1000);
       setInterval(() => {
         if (currentVideo) {
           dispatchWatchHeartbeat(watchHeartbeat.tick(Date.now()));

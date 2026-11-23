@@ -52,6 +52,7 @@ export type LLMStatus = components['schemas']['LLMStatus'];
 export type TranslationJob = components['schemas']['TranslationJob'];
 export type LineExplanation = components['schemas']['LineExplanation'];
 export type SyncOut = components['schemas']['SyncOut'];
+export type SyncPoint = components['schemas']['SyncPoint'];
 
 export interface ApiCallInit {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -191,6 +192,13 @@ export interface SyncEpisodeMessage {
   videoStartMs: number;
   apply?: boolean;
   searchMs?: number;
+}
+
+export interface EpisodeSyncUpdatedMessage {
+  type: 'SENSEI_EPISODE_SYNC_UPDATED';
+  episodeId: number;
+  subOffsetMs: number;
+  syncPoints: SyncPoint[];
 }
 
 export interface AnkiPushCardMessage {
@@ -403,6 +411,17 @@ export function isSyncEpisodeMessage(msg: unknown): msg is SyncEpisodeMessage {
     typeof (msg as { filename?: unknown }).filename === 'string' &&
     typeof (msg as { contentBase64?: unknown }).contentBase64 === 'string' &&
     typeof (msg as { videoStartMs?: unknown }).videoStartMs === 'number'
+  );
+}
+
+export function isEpisodeSyncUpdatedMessage(msg: unknown): msg is EpisodeSyncUpdatedMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_EPISODE_SYNC_UPDATED' &&
+    typeof (msg as { episodeId?: unknown }).episodeId === 'number' &&
+    typeof (msg as { subOffsetMs?: unknown }).subOffsetMs === 'number' &&
+    Array.isArray((msg as { syncPoints?: unknown }).syncPoints)
   );
 }
 
