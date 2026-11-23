@@ -5,6 +5,7 @@ API docs: https://jimaku.cc/api/docs (auth: `Authorization: <api key>`).
 
 import io
 import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 
@@ -213,3 +214,40 @@ class Jimaku:
         except httpx.HTTPError as e:
             raise JimakuError(f"download failed: {e}") from e
         return bytes(data)
+
+
+# ---- picking the anime from search hits (#158) ---------------------------------------------
+
+_TITLE_KEYS = ("name", "english_name", "japanese_name", "alt_name")
+
+
+def _norm_title(s: str) -> str:
+    s = unicodedata.normalize("NFKC", s).lower().replace("×", "x")
+    return "".join(c for c in s if c.isalnum())
+
+
+def entry_score(query: str, entry: dict, episode: float | None = None) -> float:
+    """How well a search hit matches the title the user is watching. Jimaku's own order
+    isn't by closeness: "Naruto" lists BORUTO first, "One Piece" a 3D2Y special."""
+    q = _norm_title(query)
+    if not q:
+        return 0.0
+    titles = [_norm_title(str(entry.get(k))) for k in _TITLE_KEYS if entry.get(k)]
+    if q in titles:
+        score = 100.0
+    elif any(t.startswith(q) for t in titles):
+        score = 30.0
+    elif any(q in t for t in titles):
+        score = 10.0
+    else:
+        return -50.0
+    extra = min(len(t) - len(q) for t in titles if q in t)
+    score -= min(extra, 60) * 0.5  # "Bleach" over "Bleach: Sennen Kessen-hen"
+    if (entry.get("flags") or {}).get("movie"):
+        score -= 40 if episode is not None and episode > 1 else 15
+    return score
+
+
+def rank_entries(query: str, entries: list[dict], episode: float | None = None) -> list[dict]:
+    """Best match first; Jimaku's order breaks ties (sorted() is stable)."""
+    return sorted(entries, key=lambda e: -entry_score(query, e, episode))

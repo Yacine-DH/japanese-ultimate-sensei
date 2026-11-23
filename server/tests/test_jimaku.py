@@ -234,3 +234,38 @@ def test_auto_import_errors(jclient):
     assert r.status_code == 404 and "nothing" in r.json()["detail"]
     r = jclient.post("/episodes/auto", json={"anime_id": 999, "episode_number": 1})
     assert r.status_code == 404
+
+
+def test_entry_ranking_real_search_orders():
+    """#158: Jimaku's order (real results, 2026-11-23) put the wrong show first."""
+    from app.jimaku import rank_entries
+
+    def e(i, name, en=None, movie=False):
+        return {"id": i, "name": name, "english_name": en, "flags": {"movie": movie}}
+
+    naruto = [
+        e(1959, "BORUTO: NARUTO NEXT GENERATIONS", "Boruto: Naruto Next Generations"),
+        e(3452, "BORUTO: NARUTO THE MOVIE", "Boruto: Naruto the Movie", movie=True),
+        e(983, "NARUTO", "Naruto"),
+        e(2142, "NARUTO: Shippuuden", "Naruto: Shippuden"),
+    ]
+    assert rank_entries("Naruto", naruto, 1)[0]["id"] == 983
+    assert rank_entries("Naruto Shippuden", naruto, 1)[0]["id"] == 2142
+    one_piece = [
+        e(3425, 'ONE PIECE "3D2Y": Ace no shi wo Koete!', "One Piece 3D2Y: Overcome Ace's Death!"),
+        e(3409, "ONE PIECE FILM: GOLD", "One Piece Film: Gold", movie=True),
+        e(7782, "ONE PIECE: Gyojin Tou-hen"),
+        e(1563, "ONE PIECE", None),
+    ]
+    assert rank_entries("One Piece", one_piece, 1000)[0]["id"] == 1563
+    frieren = [
+        e(729, "Sousou no Frieren", "Frieren: Beyond Journey’s End"),
+        e(11446, "Sousou no Frieren 2nd Season", "Frieren: Beyond Journey’s End Season 2"),
+        e(7350, "Dragon Ball: Ossu! Kaette Kita Son Goku", None),
+    ]
+    assert rank_entries("Frieren", frieren, 1)[0]["id"] == 729
+    assert rank_entries("Sousou no Frieren 2nd Season", frieren, 1)[0]["id"] == 11446
+    spy = [e(6522, "SPY×FAMILY CODE: White", movie=True), e(1251, "SPY×FAMILY", "SPY x FAMILY")]
+    assert rank_entries("Spy x Family", spy, 1)[0]["id"] == 1251
+    unrelated = [e(1, "Alpha"), e(2, "Beta")]  # matched by a synonym we don't see: keep order
+    assert [x["id"] for x in rank_entries("Gamma", unrelated)] == [1, 2]
