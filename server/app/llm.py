@@ -73,7 +73,10 @@ class LLM:
             return False, f"model '{self.model}' not available (have: {', '.join(ids[:8])})"
         return True, "ok"
 
-    def chat(self, system: str, user: str, json_mode: bool = False) -> str:
+    def chat(
+        self, system: str, user: str, json_mode: bool = False, timeout: float | None = None
+    ) -> str:
+        """`timeout`: seconds to wait for this reply instead of the client's default."""
         if not self.configured:
             raise LLMError("LLM not configured (SENSEI_LLM_BASE_URL + SENSEI_LLM_MODEL)", 503)
         body: dict = {
@@ -85,8 +88,16 @@ class LLM:
         if json_mode:
             body["response_format"] = {"type": "json_object"}
         try:
-            r = self.http.post(f"{self.base_url}/chat/completions", json=body)
+            r = self.http.post(
+                f"{self.base_url}/chat/completions",
+                json=body,
+                timeout=httpx.Timeout(timeout, connect=10) if timeout else self.http.timeout,
+            )
         except httpx.HTTPError as e:
+            if timeout and isinstance(e, httpx.ReadTimeout):
+                msg = "the LLM took too long to answer (busy?), try again later"
+                raise LLMError(msg, 504) from e
+            # translation jobs retry on "unreachable"
             raise LLMError(f"LLM unreachable: {e}") from e
         if r.status_code >= 400:
             raise LLMError(f"LLM error {r.status_code}: {r.text[:200]}")
@@ -187,6 +198,7 @@ def explain_line(
     after: list[str],
     lang: str,
     tokens: list[dict] | None = None,
+    timeout: float | None = None,
 ) -> str:
     language = {"en": "English", "de": "German"}[lang]
     user = ""
@@ -195,4 +207,4 @@ def explain_line(
     if tokens and (hints := word_hints(tokens)):
         user += f"Words of the line with their readings: {hints}\n\n"
     user += f"Explain this line: {line}"
-    return llm.chat(EXPLAIN_SYSTEM.format(lang=language), user).strip()
+    return llm.chat(EXPLAIN_SYSTEM.format(lang=language), user, timeout=timeout).strip()

@@ -1482,8 +1482,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         after = [x.text for x in neighbours[pos + 1 : pos + 2]]
         try:
             text = explain_line(
-                app.state.llm, line.text, before, after, lang, json.loads(line.tokens_json)
-            )
+                app.state.llm, line.text, before, after, lang, json.loads(line.tokens_json),
+                timeout=settings.llm_explain_timeout_s,
+            )  # fmt: skip
         except LLMError as e:
             raise HTTPException(e.status, str(e)) from e
         note = note or LineNote(line_id=line_id, lang=lang, text="", model="")

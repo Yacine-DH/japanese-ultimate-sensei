@@ -3,7 +3,7 @@
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 
-from app.nlp.kana import furigana, has_japanese, kata_to_hira, to_romaji
+from app.nlp.kana import furigana, has_japanese, has_kanji, kata_to_hira, to_romaji
 
 # Top-level Sudachi (UniDic-style) POS tags we treat as "real vocabulary".
 CONTENT_POS = {"名詞", "動詞", "形容詞", "形状詞", "副詞", "連体詞", "感動詞", "代名詞", "接続詞"}
@@ -97,6 +97,7 @@ def tokenize(text: str, readings: list[tuple[int, int, str]] | tuple = ()) -> li
             )
         )
     _fix_readings(out)
+    _skip_auxiliary_verbs(out)
     for start, end, reading in sorted(readings, reverse=True):  # right to left: indexes stay
         _apply_given_reading(out, start, end, reading)
     _fix_trailing_sokuon(out)
@@ -184,6 +185,24 @@ def _nan_or_nani(t: Token, nxt: Token | None) -> str:
     if nxt is not None and nxt.pos in ("助詞", "助動詞") and nxt.reading[:1] in _NAN_SOUNDS:
         return "なん"
     return "なに"
+
+
+def _skip_auxiliary_verbs(tokens: list[Token]) -> None:
+    """Helper verbs are grammar, not vocabulary: しまう in 食べてしまう, きれる in 逃げきれる.
+    The same verbs on their own (家にいる, 紐が切れる) stay learnable."""
+    for prev, t in zip(tokens, tokens[1:], strict=False):
+        if t.pos != "動詞" or "非自立可能" not in t.pos_detail:
+            continue
+        compound = prev.pos == "動詞" and any(d.startswith("連用形") for d in prev.pos_detail)
+        # kana only after て: 座って見る is two real verbs, やってみる is not
+        after_te = (
+            prev.pos == "助詞"
+            and "接続助詞" in prev.pos_detail
+            and prev.surface in ("て", "で")
+            and not has_kanji(t.surface)
+        )
+        if compound or after_te:
+            t.is_content = False
 
 
 def _fix_readings(tokens: list[Token]) -> None:

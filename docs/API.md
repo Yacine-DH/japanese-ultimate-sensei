@@ -326,6 +326,7 @@ server re-queues every episode that still has untranslated lines, oldest first. 
 attempt (1, 2, 4 … min, at most every 30 min). POST while it waits runs it right away.
 
 ### `POST /lines/{id}/explain?lang=en|de&refresh=false` → `LineExplanation`
+504 = no answer within `SENSEI_LLM_EXPLAIN_TIMEOUT_S` (120 s; batch translation waits longer).
 `{"line_id":812,"lang":"de","text":"**Übersetzung:** …","model":"qwen2.5:3b","cached":false}`. Markdown
 with translation, word breakdown and grammar points; cached per line + language. Can take tens
 of seconds uncached: show a spinner.
