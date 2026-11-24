@@ -5,6 +5,7 @@ import { apiClient, type EpisodeOut, SenseiApiError } from '../api/client';
 import { JimakuImportPanel } from '../components/JimakuImportPanel';
 import { TranscribePanel } from '../components/TranscribePanel';
 import { computeBarSegments, groupEpisodesByAnime } from '../lib/transcript';
+import { emitIsland } from '../scene/bus';
 
 function EpisodeUnderstandingBar({ episodeId }: { episodeId: number }) {
   const { data, isLoading } = useQuery({
@@ -17,8 +18,8 @@ function EpisodeUnderstandingBar({ episodeId }: { episodeId: number }) {
   if (isLoading || !data) {
     return (
       <div className="space-y-1.5">
-        <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden" />
-        <div className="text-xs text-slate-500">Calculating understanding...</div>
+        <div className="h-2 w-full rounded-full bg-chip overflow-hidden" />
+        <div className="text-xs text-faint">Calculating understanding...</div>
       </div>
     );
   }
@@ -28,22 +29,22 @@ function EpisodeUnderstandingBar({ episodeId }: { episodeId: number }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="font-semibold text-emerald-400">
+        <span className="font-semibold text-leaf-ink">
           {data.token_pct.toFixed(1)}% understood
         </span>
-        <span className="text-slate-400">
+        <span className="text-muted">
           {data.known_unique}/{data.unique_words} unique words
           {data.learning_unique > 0 ? ` · ${data.learning_unique} learning` : ''}
         </span>
       </div>
-      <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden flex">
+      <div className="h-2 w-full rounded-full bg-chip overflow-hidden flex">
         <div
-          className="bg-emerald-500 transition-all"
+          className="bg-leaf transition-all"
           style={{ width: `${knownPct}%` }}
           title={`Known: ${knownPct}%`}
         />
         <div
-          className="bg-amber-400 transition-all"
+          className="bg-gold transition-all"
           style={{ width: `${learningPct}%` }}
           title={`Learning: ${learningPct}%`}
         />
@@ -60,27 +61,27 @@ function EpisodeCard({
   onDelete: (id: number) => void;
 }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-4 flex flex-col justify-between gap-3 transition">
+    <div className="card p-4 flex flex-col justify-between gap-3 transition">
       <div className="flex items-start justify-between gap-2">
         <Link to={`/episodes/${episode.id}`} className="group flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {episode.number !== null && (
-              <span className="text-xs px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 font-semibold">
+              <span className="text-xs px-2 py-0.5 rounded bg-sun/30 text-torii-ink font-semibold">
                 Ep {episode.number}
               </span>
             )}
-            <span className="font-semibold text-slate-100 group-hover:text-sky-300 transition truncate">
+            <span className="font-semibold text-ink group-hover:text-torii-ink transition truncate">
               {episode.title ?? episode.source_filename ?? `Episode #${episode.id}`}
             </span>
           </div>
-          <div className="text-xs text-slate-400 mt-1">
+          <div className="text-xs text-muted mt-1">
             {episode.line_count} lines · offset {episode.sub_offset_ms} ms
           </div>
         </Link>
         <button
           type="button"
           onClick={() => onDelete(episode.id)}
-          className="text-xs text-slate-500 hover:text-rose-400 px-2 py-1 rounded hover:bg-slate-800 cursor-pointer"
+          className="text-xs text-faint hover:text-rose-ink px-2 py-1 rounded hover:bg-chip cursor-pointer"
           title="Delete episode"
         >
           Delete
@@ -92,7 +93,7 @@ function EpisodeCard({
       <div className="flex justify-end">
         <Link
           to={`/episodes/${episode.id}`}
-          className="text-xs font-semibold text-sky-400 hover:text-sky-300"
+          className="text-xs font-semibold text-torii-ink hover:text-torii-ink"
         >
           Open Transcript &rarr;
         </Link>
@@ -174,11 +175,11 @@ export function LibraryPage() {
     : allGroups;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="space-y-4">
+      <div className="headline flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Anime Library</h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <h1 className="text-2xl font-bold text-ink">Anime Library</h1>
+          <p className="text-sm text-muted mt-1">
             Upload Japanese subtitles, track your % understood per episode, and pre-study
             transcripts.
           </p>
@@ -191,7 +192,7 @@ export function LibraryPage() {
               setShowUpload(false);
               setShowTranscribe(false);
             }}
-            className="px-4 py-2 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-sm cursor-pointer"
+            className="btn btn-sun px-4 py-2 font-semibold text-sm cursor-pointer"
           >
             {showJimaku ? 'Close Jimaku Search' : '+ Search Jimaku'}
           </button>
@@ -202,7 +203,7 @@ export function LibraryPage() {
               setShowJimaku(false);
               setShowTranscribe(false);
             }}
-            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-sm border border-slate-700 cursor-pointer"
+            className="btn px-4 py-2 text-ink font-semibold text-sm cursor-pointer"
           >
             {showUpload ? 'Close Upload' : '+ Upload File'}
           </button>
@@ -213,7 +214,7 @@ export function LibraryPage() {
               setShowJimaku(false);
               setShowUpload(false);
             }}
-            className="px-4 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 font-semibold text-sm border border-indigo-400/50 cursor-pointer"
+            className="btn btn-plum px-4 py-2 font-semibold text-sm cursor-pointer"
           >
             {showTranscribe ? 'Close Transcribe' : '+ Transcribe File'}
           </button>
@@ -230,12 +231,12 @@ export function LibraryPage() {
       {showTranscribe ? (
         <TranscribePanel onClose={() => setShowTranscribe(false)} />
       ) : (
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-slate-300">
-            <span className="font-semibold text-indigo-300">
+        <div className="bg-paper border border-line rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-ink-2">
+            <span className="font-semibold text-plum-ink">
               No Japanese subtitles? Transcribe the episode file
             </span>{' '}
-            <span className="text-slate-400">
+            <span className="text-muted">
               — generate a Japanese transcript from video or audio using Whisper.
             </span>
           </div>
@@ -246,7 +247,7 @@ export function LibraryPage() {
               setShowJimaku(false);
               setShowUpload(false);
             }}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-200 font-semibold text-xs border border-indigo-500/40 cursor-pointer"
+            className="btn px-3 py-1.5 text-plum-ink font-semibold text-xs border border-plum/60 cursor-pointer"
           >
             Open Transcriber
           </button>
@@ -256,14 +257,14 @@ export function LibraryPage() {
       {showUpload && (
         <form
           onSubmit={handleUploadSubmit}
-          className="bg-slate-900 border border-sky-500/40 rounded-xl p-5 space-y-4"
+          className="bg-paper border border-torii/60 rounded-xl p-5 space-y-4"
         >
-          <div className="text-sm font-semibold text-sky-300">
+          <div className="text-sm font-semibold text-torii-ink">
             Upload Japanese Subtitle (.srt / .ass / .ssa / .vtt)
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-medium text-ink-2 mb-1">
                 Anime Title *
               </label>
               <input
@@ -272,11 +273,11 @@ export function LibraryPage() {
                 value={animeTitle}
                 onChange={(e) => setAnimeTitle(e.target.value)}
                 placeholder="e.g. Sousou no Frieren"
-                className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
+                className="field w-full px-3 py-2 text-sm text-ink"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-medium text-ink-2 mb-1">
                 Episode Number
               </label>
               <input
@@ -285,11 +286,11 @@ export function LibraryPage() {
                 value={episodeNumber}
                 onChange={(e) => setEpisodeNumber(e.target.value)}
                 placeholder="e.g. 1"
-                className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
+                className="field w-full px-3 py-2 text-sm text-ink"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-medium text-ink-2 mb-1">
                 Episode Title (optional)
               </label>
               <input
@@ -297,13 +298,13 @@ export function LibraryPage() {
                 value={episodeTitle}
                 onChange={(e) => setEpisodeTitle(e.target.value)}
                 placeholder="e.g. The Journey's End"
-                className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
+                className="field w-full px-3 py-2 text-sm text-ink"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">
+            <label className="block text-xs font-medium text-ink-2 mb-1">
               Subtitle File *
             </label>
             <input
@@ -311,12 +312,12 @@ export function LibraryPage() {
               required
               accept=".srt,.ass,.ssa,.vtt"
               onChange={(e) => setSubtitleFile(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-slate-300 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-sky-300 hover:file:bg-slate-700"
+              className="block w-full text-sm text-ink-2 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-chip file:text-torii-ink hover:file:bg-chip-2"
             />
           </div>
 
           {uploadMutation.isError && (
-            <div className="text-xs text-rose-400">
+            <div className="text-xs text-rose-ink">
               Upload failed: {(uploadMutation.error as Error)?.message ?? 'Unknown error'}
             </div>
           )}
@@ -325,7 +326,7 @@ export function LibraryPage() {
             <button
               type="submit"
               disabled={uploadMutation.isPending}
-              className="px-4 py-2 rounded-lg bg-sky-400 hover:bg-sky-300 disabled:opacity-50 text-slate-950 font-semibold text-sm cursor-pointer"
+              className="btn btn-sun px-4 py-2 disabled:opacity-50 font-semibold text-sm cursor-pointer"
             >
               {uploadMutation.isPending ? 'Tokenizing & Ingesting...' : 'Upload & Open Transcript'}
             </button>
@@ -340,27 +341,27 @@ export function LibraryPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Filter anime or episodes..."
-            className="w-full sm:w-80 rounded-lg bg-slate-900 border border-slate-800 px-3.5 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-400"
+            className="w-full sm:w-80 rounded-lg bg-paper border border-line px-3.5 py-2 text-sm text-ink placeholder:text-faint focus:outline-none focus:border-torii"
           />
         </div>
       )}
 
       {episodesQuery.isLoading ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-sm text-slate-400">
+        <div className="card p-6 text-sm text-muted">
           Loading episodes...
         </div>
       ) : episodesQuery.isError ? (
         <div
-          className={`bg-slate-900 rounded-xl p-6 text-sm ${
+          className={`bg-paper rounded-xl p-6 text-sm ${
             episodesQuery.error instanceof SenseiApiError && episodesQuery.error.status === 401
-              ? 'border border-amber-500/40 text-amber-300'
-              : 'border border-rose-900/60 text-rose-300'
+              ? 'border border-gold/60 text-gold-ink'
+              : 'border border-rose/80 text-rose-ink'
           }`}
         >
           {episodesQuery.error instanceof SenseiApiError && episodesQuery.error.status === 401 ? (
             <>
               API token is missing or wrong (401). Set <code>SENSEI_API_TOKEN</code> in{' '}
-              <Link to="/settings" className="underline text-sky-300">
+              <Link to="/settings" className="underline text-torii-ink">
                 Settings
               </Link>
               .
@@ -369,7 +370,7 @@ export function LibraryPage() {
             <>
               Server unreachable: {(episodesQuery.error as Error)?.message ?? 'Error'}. Check your
               Server URL in{' '}
-              <Link to="/settings" className="underline text-sky-300">
+              <Link to="/settings" className="underline text-torii-ink">
                 Settings
               </Link>
               .
@@ -377,27 +378,33 @@ export function LibraryPage() {
           )}
         </div>
       ) : visibleGroups.length === 0 ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
-          <p className="text-slate-300 font-medium">
+        <div className="card p-8 text-center">
+          <p className="text-ink-2 font-medium">
             {episodesQuery.data && episodesQuery.data.length > 0
               ? 'No episodes match your filter'
               : 'No episodes uploaded yet'}
           </p>
-          <p className="text-xs text-slate-500 mt-1">
-            Click &ldquo;+ Upload Subtitle&rdquo; to ingest a Japanese .srt or .ass file.
+          <p className="text-xs text-faint mt-1">
+            Use &ldquo;+ Upload File&rdquo; to add a Japanese .srt or .ass file.
           </p>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-4">
           {visibleGroups.map((group) => (
-            <section key={group.key} className="space-y-3">
-              <div className="flex items-baseline justify-between border-b border-slate-800 pb-2">
-                <h2 className="text-lg font-bold text-slate-100">{group.title}</h2>
-                <span className="text-xs text-slate-500">
+            <section
+              key={group.key}
+              className="card p-4 space-y-3"
+              onPointerEnter={() =>
+                emitIsland({ type: 'floor', animeId: group.episodes[0]?.anime_id ?? null })
+              }
+            >
+              <div className="flex items-baseline justify-between border-b border-line pb-2">
+                <h2 className="text-lg font-bold text-ink">{group.title}</h2>
+                <span className="text-xs text-faint">
                   {group.episodes.length} episode{group.episodes.length === 1 ? '' : 's'}
                 </span>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
                 {group.episodes.map((ep) => (
                   <EpisodeCard key={ep.id} episode={ep} onDelete={handleDelete} />
                 ))}

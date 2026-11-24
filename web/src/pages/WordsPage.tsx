@@ -23,13 +23,13 @@ const PAGE_SIZE = 50;
 function statusBadgeClass(status: WordStatus): string {
   switch (status) {
     case 'known':
-      return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+      return 'bg-leaf/30 text-leaf-ink border-leaf/50';
     case 'learning':
-      return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+      return 'bg-gold/30 text-gold-ink border-gold/50';
     case 'ignored':
-      return 'bg-slate-800 text-slate-400 border-slate-700';
+      return 'bg-chip text-muted border-line-2';
     default:
-      return 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+      return 'bg-sun/30 text-torii-ink border-torii/50';
   }
 }
 
@@ -157,17 +157,17 @@ export function WordsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="headline flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Vocabulary</h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <h1 className="text-2xl font-bold text-ink">Vocabulary</h1>
+          <p className="text-sm text-muted mt-1">
             Filter words by status, anime, or episode; search by kanji/reading; and bulk-update
             known words.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {notice && (
-            <div className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+            <div className="text-xs px-3 py-1.5 rounded-lg bg-leaf/30 border border-leaf/50 text-leaf-ink">
               {notice}
             </div>
           )}
@@ -175,14 +175,14 @@ export function WordsPage() {
             type="button"
             disabled={exportAnkiMutation.isPending}
             onClick={() => exportAnkiMutation.mutate()}
-            className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-50 transition cursor-pointer"
+            className="btn px-3.5 py-2 text-xs font-semibold text-ink disabled:opacity-50 transition cursor-pointer"
           >
             {exportAnkiMutation.isPending ? 'Exporting…' : 'Export Anki (.apkg)'}
           </button>
           <button
             type="button"
             onClick={() => setShowImport((v) => !v)}
-            className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-sky-500/20 border border-sky-400/50 text-sky-200 hover:bg-sky-500/30 transition cursor-pointer"
+            className="btn btn-sun px-3.5 py-2 text-xs font-semibold transition cursor-pointer"
           >
             {showImport ? 'Hide Import' : 'Import Anki / Words'}
           </button>
@@ -197,7 +197,7 @@ export function WordsPage() {
       )}
 
       {/* Filters */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+      <div className="card p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             {WORD_STATUS_OPTIONS.map((opt) => (
@@ -210,8 +210,8 @@ export function WordsPage() {
                 }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
                   statusFilter === opt.value
-                    ? 'bg-sky-400/20 border-sky-400 text-sky-200'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-sun/40 border-torii text-torii-ink'
+                    : 'bg-field border-line text-muted hover:text-ink'
                 }`}
               >
                 {opt.label}
@@ -227,8 +227,8 @@ export function WordsPage() {
             }}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
               sortMode === 'frequency'
-                ? 'bg-indigo-500/20 border-indigo-400 text-indigo-200'
-                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                ? 'bg-plum/40 border-plum text-plum-ink'
+                : 'bg-field border-line text-muted hover:text-ink'
             }`}
           >
             {sortMode === 'frequency' ? 'Sorted: Most Useful (Zipf)' : 'Sort by Frequency (Zipf)'}
@@ -244,7 +244,7 @@ export function WordsPage() {
               resetPageAndSelection();
             }}
             placeholder="Search lemma or reading..."
-            className="rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
+            className="field px-3 py-1.5 text-sm text-ink"
           />
 
           <select
@@ -255,7 +255,7 @@ export function WordsPage() {
               setEpisodeId(null);
               resetPageAndSelection();
             }}
-            className="rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
+            className="field px-3 py-1.5 text-sm text-ink"
           >
             <option value="">All Anime (newest first)</option>
             {animeOptions.map((a) => (
@@ -272,7 +272,7 @@ export function WordsPage() {
               setEpisodeId(e.target.value ? Number(e.target.value) : null);
               resetPageAndSelection();
             }}
-            className="rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 disabled:opacity-50 focus:outline-none focus:border-sky-400"
+            className="field px-3 py-1.5 text-sm text-ink disabled:opacity-50"
           >
             <option value="">All Episodes in Anime</option>
             {selectedAnime?.episodes.map((ep) => (
@@ -287,8 +287,8 @@ export function WordsPage() {
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="bg-sky-950/50 border border-sky-500/40 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm font-semibold text-sky-200">
+        <div className="bg-sun/25 border border-torii/60 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-torii-ink">
             {selectedIds.size} word{selectedIds.size === 1 ? '' : 's'} selected
           </span>
           <div className="flex flex-wrap items-center gap-2">
@@ -298,7 +298,7 @@ export function WordsPage() {
               onClick={() =>
                 bulkStatusMutation.mutate({ ids: Array.from(selectedIds), status: 'known' })
               }
-              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 text-xs font-semibold cursor-pointer"
+              className="btn btn-leaf px-3 py-1.5 text-xs font-semibold cursor-pointer"
             >
               Mark Known
             </button>
@@ -308,7 +308,7 @@ export function WordsPage() {
               onClick={() =>
                 bulkStatusMutation.mutate({ ids: Array.from(selectedIds), status: 'learning' })
               }
-              className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-xs font-semibold cursor-pointer"
+              className="btn btn-gold px-3 py-1.5 text-xs font-semibold cursor-pointer"
             >
               Mark Learning
             </button>
@@ -318,7 +318,7 @@ export function WordsPage() {
               onClick={() =>
                 bulkStatusMutation.mutate({ ids: Array.from(selectedIds), status: 'ignored' })
               }
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-semibold cursor-pointer"
+              className="btn px-3 py-1.5 border border-line-2 text-ink text-xs font-semibold cursor-pointer"
             >
               Mark Ignored
             </button>
@@ -328,14 +328,14 @@ export function WordsPage() {
               onClick={() =>
                 bulkStatusMutation.mutate({ ids: Array.from(selectedIds), status: 'new' })
               }
-              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+              className="btn px-3 py-1.5 text-ink-2 text-xs font-semibold cursor-pointer"
             >
               Reset New
             </button>
             <button
               type="button"
               onClick={() => setSelectedIds(new Set())}
-              className="px-2 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+              className="px-2 py-1.5 text-xs text-muted hover:text-ink cursor-pointer"
             >
               Clear
             </button>
@@ -345,15 +345,15 @@ export function WordsPage() {
 
       {/* Main split: table + dictionary inspector */}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px] items-start">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="card overflow-hidden">
           {wordsQuery.isLoading ? (
-            <div className="p-6 text-sm text-slate-400">Loading vocabulary...</div>
+            <div className="p-6 text-sm text-muted">Loading vocabulary...</div>
           ) : wordsQuery.isError ? (
-            <div className="p-6 text-sm text-rose-300">
+            <div className="p-6 text-sm text-rose-ink">
               {wordsQuery.error instanceof SenseiApiError && wordsQuery.error.status === 401 ? (
                 <>
                   API token is missing or wrong (401). Update it in{' '}
-                  <Link to="/settings" className="underline text-sky-300">
+                  <Link to="/settings" className="underline text-torii-ink">
                     Settings
                   </Link>
                   .
@@ -363,7 +363,7 @@ export function WordsPage() {
               )}
             </div>
           ) : items.length === 0 ? (
-            <div className="p-8 text-center text-sm text-slate-400">
+            <div className="p-8 text-center text-sm text-muted">
               No words match the current filters.
             </div>
           ) : (
@@ -371,7 +371,7 @@ export function WordsPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
-                    <tr className="border-b border-slate-800 bg-slate-950/60 text-xs text-slate-400">
+                    <tr className="border-b border-line bg-field text-xs text-muted">
                       <th className="py-2.5 pl-4 pr-2 w-9">
                         <input
                           type="checkbox"
@@ -380,7 +380,7 @@ export function WordsPage() {
                             setSelectedIds((prev) => toggleAllSelection(prev, visibleIds))
                           }
                           aria-label="Select all visible words"
-                          className="rounded border-slate-700 bg-slate-950"
+                          className="rounded border-line-2 bg-field"
                         />
                       </th>
                       <th className="py-2.5 px-3 font-semibold">Word</th>
@@ -392,7 +392,7 @@ export function WordsPage() {
                       <th className="py-2.5 pl-3 pr-4 font-semibold text-right">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-line">
                     {items.map((word) => {
                       const isChecked = selectedIds.has(word.id);
                       const isActive = activeWord?.id === word.id;
@@ -402,10 +402,10 @@ export function WordsPage() {
                           onClick={() => setActiveWord(word)}
                           className={`cursor-pointer transition ${
                             isActive
-                              ? 'bg-sky-500/15'
+                              ? 'bg-sun/30'
                               : isChecked
-                                ? 'bg-slate-800/50'
-                                : 'hover:bg-slate-800/40'
+                                ? 'bg-chip'
+                                : 'hover:bg-chip'
                           }`}
                         >
                           <td
@@ -419,21 +419,21 @@ export function WordsPage() {
                                 setSelectedIds((prev) => toggleIdSelection(prev, word.id))
                               }
                               aria-label={`Select ${word.lemma}`}
-                              className="rounded border-slate-700 bg-slate-950"
+                              className="rounded border-line-2 bg-field"
                             />
                           </td>
-                          <td className="py-2.5 px-3 font-semibold text-slate-100">
+                          <td className="py-2.5 px-3 font-semibold text-ink">
                             <span>{word.lemma}</span>
                             {word.common && (
-                              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 font-medium">
+                              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-sun/30 text-torii-ink font-medium">
                                 common
                               </span>
                             )}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-300">{word.reading}</td>
-                          <td className="py-2.5 px-3 text-xs text-slate-400">{word.pos}</td>
+                          <td className="py-2.5 px-3 text-ink-2">{word.reading}</td>
+                          <td className="py-2.5 px-3 text-xs text-muted">{word.pos}</td>
                           {showOccurrences && (
-                            <td className="py-2.5 px-3 text-right font-mono text-xs text-slate-300">
+                            <td className="py-2.5 px-3 text-right font-mono text-xs text-ink-2">
                               {word.occurrences ?? '-'}
                             </td>
                           )}
@@ -451,7 +451,7 @@ export function WordsPage() {
                 </table>
               </div>
 
-              <div className="border-t border-slate-800 px-4 py-3 flex items-center justify-between text-xs text-slate-400">
+              <div className="border-t border-line px-4 py-3 flex items-center justify-between text-xs text-muted">
                 <span>
                   Showing {pagination.start}–{pagination.end} of {total} words (Page{' '}
                   {pagination.page} / {pagination.totalPages})
@@ -461,7 +461,7 @@ export function WordsPage() {
                     type="button"
                     disabled={!pagination.hasPrev}
                     onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-                    className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 font-semibold cursor-pointer"
+                    className="btn px-3 py-1 disabled:opacity-40 text-ink font-semibold cursor-pointer"
                   >
                     Previous
                   </button>
@@ -469,7 +469,7 @@ export function WordsPage() {
                     type="button"
                     disabled={!pagination.hasNext}
                     onClick={() => setOffset((o) => o + PAGE_SIZE)}
-                    className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 font-semibold cursor-pointer"
+                    className="btn px-3 py-1 disabled:opacity-40 text-ink font-semibold cursor-pointer"
                   >
                     Next
                   </button>
@@ -480,15 +480,15 @@ export function WordsPage() {
         </div>
 
         {/* Sticky Dictionary & Quick Action Inspector */}
-        <aside className="bg-slate-900 border border-slate-800 rounded-xl p-5 lg:sticky lg:top-20 space-y-4">
+        <aside className="card p-5 lg:sticky lg:top-20 space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-muted uppercase tracking-wider">
               Word Inspector
             </span>
             <select
               value={glossLang}
               onChange={(e) => setGlossLang(e.target.value as GlossLanguage)}
-              className="rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs text-slate-200"
+              className="field px-2 py-1 text-xs text-ink"
             >
               <option value="eng">EN</option>
               <option value="ger">DE</option>
@@ -496,7 +496,7 @@ export function WordsPage() {
           </div>
 
           {!activeWord ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-faint">
               Click any word in the table to inspect its JMdict EN/DE meanings, update its status,
               or create a review card.
             </p>
@@ -504,13 +504,13 @@ export function WordsPage() {
             <>
               <div>
                 <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className="text-2xl font-bold text-slate-100">{activeWord.lemma}</span>
+                  <span className="text-2xl font-bold text-ink">{activeWord.lemma}</span>
                   {activeWord.reading && activeWord.reading !== activeWord.lemma && (
-                    <span className="text-sm text-sky-400">{activeWord.reading}</span>
+                    <span className="text-sm text-torii-ink">{activeWord.reading}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 mt-1.5 text-xs">
-                  <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                  <span className="px-2 py-0.5 rounded bg-chip text-ink-2">
                     {activeWord.pos}
                   </span>
                   <span
@@ -528,7 +528,7 @@ export function WordsPage() {
                   onClick={() =>
                     singleStatusMutation.mutate({ wordId: activeWord.id, status: 'known' })
                   }
-                  className="py-1.5 rounded-lg text-xs font-semibold border border-emerald-500/40 bg-slate-800 hover:bg-slate-700 text-emerald-300 cursor-pointer"
+                  className="btn py-1.5 text-xs font-semibold border border-leaf/60 text-leaf-ink cursor-pointer"
                 >
                   Known
                 </button>
@@ -538,7 +538,7 @@ export function WordsPage() {
                   onClick={() =>
                     singleStatusMutation.mutate({ wordId: activeWord.id, status: 'ignored' })
                   }
-                  className="py-1.5 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                  className="btn py-1.5 text-xs font-semibold text-ink-2 cursor-pointer"
                 >
                   Ignore
                 </button>
@@ -546,17 +546,17 @@ export function WordsPage() {
                   type="button"
                   disabled={addCardMutation.isPending}
                   onClick={() => addCardMutation.mutate(activeWord.id)}
-                  className="py-1.5 rounded-lg text-xs font-semibold border border-sky-500/40 bg-slate-800 hover:bg-slate-700 text-sky-300 cursor-pointer"
+                  className="btn py-1.5 text-xs font-semibold border border-torii/60 text-torii-ink cursor-pointer"
                 >
                   + Card
                 </button>
               </div>
 
-              <div className="border-t border-slate-800 pt-3 space-y-3">
+              <div className="border-t border-line pt-3 space-y-3">
                 {lookupQuery.isLoading ? (
-                  <div className="text-xs text-slate-400">Looking up in JMdict...</div>
+                  <div className="text-xs text-muted">Looking up in JMdict...</div>
                 ) : lookupQuery.isError ? (
-                  <div className="text-xs text-rose-400">
+                  <div className="text-xs text-rose-ink">
                     {(lookupQuery.error as Error)?.message ?? 'Dictionary unavailable'}
                   </div>
                 ) : lookupQuery.data && lookupQuery.data.entries.length > 0 ? (
@@ -564,13 +564,13 @@ export function WordsPage() {
                     const { lang, senses } = pickEntrySenses(entry, glossLang);
                     return (
                       <div key={entry.id} className="space-y-1">
-                        <div className="flex items-center justify-between text-xs text-slate-400">
+                        <div className="flex items-center justify-between text-xs text-muted">
                           <span>
                             {entry.kanji[0] ?? entry.kana[0]} ({entry.kana[0]})
                           </span>
-                          <span className="uppercase text-[10px] text-slate-500">{lang}</span>
+                          <span className="uppercase text-[10px] text-faint">{lang}</span>
                         </div>
-                        <ol className="list-decimal list-inside text-sm text-slate-200 space-y-1">
+                        <ol className="list-decimal list-inside text-sm text-ink space-y-1">
                           {senses.slice(0, 5).map((sense, i) => (
                             <li key={i}>{sense.glosses.join('; ')}</li>
                           ))}
@@ -579,7 +579,7 @@ export function WordsPage() {
                     );
                   })
                 ) : (
-                  <div className="text-xs text-slate-500">No dictionary entries found.</div>
+                  <div className="text-xs text-faint">No dictionary entries found.</div>
                 )}
               </div>
             </>

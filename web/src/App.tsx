@@ -1,77 +1,122 @@
-import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { LibraryPage } from './pages/LibraryPage';
+import { IslandStage } from './components/IslandStage';
+import { useIslandData } from './components/useIslandData';
+import { loadIslandSettings, routeFor, saveIslandSettings, timeOfDay } from './lib/island';
 import { EpisodeDetailPage } from './pages/EpisodeDetailPage';
-import { ReviewPage } from './pages/ReviewPage';
-import { WordsPage } from './pages/WordsPage';
+import { HomePage } from './pages/HomePage';
 import { KanaPage } from './pages/KanaPage';
+import { LibraryPage } from './pages/LibraryPage';
 import { PlayerPage } from './pages/PlayerPage';
-import { StatsPage } from './pages/StatsPage';
+import { ReviewPage } from './pages/ReviewPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { StatsPage } from './pages/StatsPage';
+import { WordsPage } from './pages/WordsPage';
+import { emitIsland } from './scene/bus';
 
 const queryClient = new QueryClient();
 
 const navItems = [
-  { to: '/', label: 'Library', end: true },
-  { to: '/player', label: 'Player' },
-  { to: '/review', label: 'Review' },
-  { to: '/words', label: 'Words' },
-  { to: '/kana', label: 'Kana' },
-  { to: '/stats', label: 'Stats' },
-  { to: '/settings', label: 'Settings' },
+  { to: '/', jp: '島', label: 'Home', end: true },
+  { to: '/library', jp: '書庫', label: 'Library' },
+  { to: '/review', jp: '道場', label: 'Review' },
+  { to: '/words', jp: '言葉', label: 'Words' },
+  { to: '/kana', jp: '仮名', label: 'Kana' },
+  { to: '/stats', jp: '上達', label: 'Progress' },
+  { to: '/player', jp: '映写', label: 'Player' },
+  { to: '/settings', jp: '設定', label: 'Settings' },
 ];
+
+/** Time of day: follows the clock until you move it; double-click goes back to the clock. */
+function Sundial() {
+  const [value, setValue] = useState(() => loadIslandSettings().time ?? timeOfDay(new Date()));
+  return (
+    <label
+      className="sundial"
+      title="Time of day on the island. Double-click to follow your clock again."
+      onDoubleClick={() => {
+        saveIslandSettings({ time: null });
+        const now = timeOfDay(new Date());
+        setValue(now);
+        emitIsland({ type: 'time', value: now });
+      }}
+    >
+      <span lang="ja">朝</span>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        aria-label="Time of day on the island"
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          setValue(next);
+          saveIslandSettings({ time: next });
+          emitIsland({ type: 'time', value: next });
+        }}
+      />
+      <span lang="ja">夜</span>
+    </label>
+  );
+}
+
+function Shell() {
+  const { pathname } = useLocation();
+  const route = routeFor(pathname);
+  const island = useIslandData();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
+  return (
+    <>
+      <IslandStage route={route} floors={island.floors} knownWords={island.knownWords} />
+      <header className="topbar">
+        <NavLink to="/" end className="brand" aria-label="Sensei Island, home">
+          <span lang="ja">先生の島</span>
+          <small>Sensei Island</small>
+        </NavLink>
+        <nav className="signpost" aria-label="Main">
+          {navItems.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end}>
+              <span lang="ja">{item.jp}</span>
+              <em>{item.label}</em>
+              {item.to === '/review' && island.due > 0 && (
+                <i className="due not-italic" aria-label={`${island.due} due`}>
+                  {island.due > 99 ? '99+' : island.due}
+                </i>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      </header>
+      <main className="page" data-layout={route.layout} data-page={route.page}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/episodes/:id" element={<EpisodeDetailPage />} />
+          <Route path="/episodes/:id/watch" element={<PlayerPage />} />
+          <Route path="/player" element={<PlayerPage />} />
+          <Route path="/review" element={<ReviewPage />} />
+          <Route path="/words" element={<WordsPage />} />
+          <Route path="/kana" element={<KanaPage />} />
+          <Route path="/stats" element={<StatsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Routes>
+      </main>
+      {route.layout !== 'wide' && <Sundial />}
+    </>
+  );
+}
 
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col overflow-x-hidden">
-          <header className="border-b border-slate-800 bg-slate-900/75 backdrop-blur sticky top-0 z-10">
-            <div className="max-w-5xl mx-auto px-3 sm:px-4 py-2 sm:py-0 sm:h-14 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div className="flex items-center gap-2 shrink-0">
-                <img
-                  src="/favicon-32x32.png"
-                  alt="Sensei"
-                  width={24}
-                  height={24}
-                  className="w-6 h-6 rounded"
-                />
-                <span className="font-semibold text-slate-100 tracking-tight">Sensei</span>
-              </div>
-              <nav className="flex items-center gap-1 overflow-x-auto max-w-full pb-0.5 sm:pb-0">
-                {navItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    className={({ isActive }) =>
-                      `px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap shrink-0 ${
-                        isActive
-                          ? 'bg-sky-400/15 text-sky-300'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                      }`
-                    }
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-              </nav>
-            </div>
-          </header>
-          <main className="flex-1 max-w-5xl w-full mx-auto px-3 sm:px-4 py-5 sm:py-8">
-            <Routes>
-              <Route path="/" element={<LibraryPage />} />
-              <Route path="/episodes/:id" element={<EpisodeDetailPage />} />
-              <Route path="/episodes/:id/watch" element={<PlayerPage />} />
-              <Route path="/player" element={<PlayerPage />} />
-              <Route path="/review" element={<ReviewPage />} />
-              <Route path="/words" element={<WordsPage />} />
-              <Route path="/kana" element={<KanaPage />} />
-              <Route path="/stats" element={<StatsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
-          </main>
-        </div>
+        <Shell />
       </BrowserRouter>
     </QueryClientProvider>
   );

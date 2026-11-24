@@ -631,10 +631,10 @@ export function PlayerPage() {
   return (
     <div className="space-y-5">
       {/* Header + Episode Selector */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="headline flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Built-In Video Player</h1>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <h1 className="text-2xl font-bold text-ink">Built-In Video Player</h1>
+          <p className="text-xs text-muted mt-0.5">
             Play downloaded episodes locally in your browser with interactive furigana subtitles,
             dictionary lookup, and instant scene-card capture.
           </p>
@@ -653,7 +653,7 @@ export function PlayerPage() {
               setPopupToken(null);
               setExplainLine(null);
             }}
-            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 max-w-xs"
+            className="rounded-lg bg-paper border border-line-2 px-3 py-1.5 text-xs text-ink max-w-xs"
           >
             <option value="">
               {(episodesQuery.data ?? []).length === 0
@@ -668,7 +668,7 @@ export function PlayerPage() {
             ))}
           </select>
 
-          <label className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-500/20 border border-sky-400/50 text-sky-200 hover:bg-sky-500/30 cursor-pointer transition">
+          <label className="btn btn-sun px-3 py-1.5 text-xs font-semibold cursor-pointer transition">
             <span>{videoUrl ? 'Change Video File' : 'Open Video File…'}</span>
             <input
               type="file"
@@ -682,7 +682,7 @@ export function PlayerPage() {
             <button
               type="button"
               onClick={() => setShowTranscribe((v) => !v)}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-500/20 border border-indigo-400/50 text-indigo-200 hover:bg-indigo-500/30 cursor-pointer transition"
+              className="btn btn-plum px-3 py-1.5 text-xs font-semibold cursor-pointer transition"
             >
               {showTranscribe ? 'Hide Transcribe' : 'Transcribe this file'}
             </button>
@@ -691,7 +691,7 @@ export function PlayerPage() {
           {activeEpisodeId !== null && (
             <Link
               to={`/episodes/${activeEpisodeId}`}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-800"
+              className="btn px-3 py-1.5 text-xs font-medium text-ink-2"
             >
               Episode Details
             </Link>
@@ -700,15 +700,15 @@ export function PlayerPage() {
       </div>
 
       {videoFile && activeEpisodeId === null && !showTranscribe && (
-        <div className="rounded-xl bg-indigo-500/10 border border-indigo-500/35 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="text-indigo-100">
+        <div className="rounded-xl bg-plum/20 border border-plum/55 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="text-plum-ink">
             No episode subtitles attached to <span className="font-semibold">{videoName}</span>.
             Need Japanese subtitles generated from this file?
           </div>
           <button
             type="button"
             onClick={() => setShowTranscribe(true)}
-            className="px-3 py-1.5 rounded-lg bg-indigo-400 hover:bg-indigo-300 text-slate-950 font-semibold cursor-pointer"
+            className="btn btn-plum px-3 py-1.5 font-semibold cursor-pointer"
           >
             Transcribe this file
           </button>
@@ -732,7 +732,7 @@ export function PlayerPage() {
       )}
 
       {videoError && (
-        <div className="rounded-xl bg-rose-950/50 border border-rose-800/70 px-4 py-2.5 text-xs text-rose-200">
+        <div className="rounded-xl bg-rose/25 border border-rose/90 px-4 py-2.5 text-xs text-rose-ink">
           {videoError}
         </div>
       )}
@@ -750,23 +750,23 @@ export function PlayerPage() {
               onDrop={handleDrop}
               className={`rounded-2xl border-2 border-dashed p-12 text-center space-y-4 transition ${
                 dragActive
-                  ? 'border-sky-400 bg-sky-500/10'
-                  : 'border-slate-700 bg-slate-900/70'
+                  ? 'border-torii bg-sun/20'
+                  : 'border-line-2 bg-paper'
               }`}
             >
               <div className="text-4xl" aria-hidden="true">
                 🎬
               </div>
               <div className="space-y-1">
-                <div className="text-base font-semibold text-slate-100">
+                <div className="text-base font-semibold text-ink">
                   Drop a downloaded episode here
                 </div>
-                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                <p className="text-xs text-muted max-w-md mx-auto">
                   Plays 100% locally in your browser (nothing is uploaded). Supports MP4, WebM, and
                   browser-playable MKV files with instant untainted screenshot &amp; audio capture.
                 </p>
               </div>
-              <label className="inline-block px-4 py-2 rounded-lg text-xs font-bold bg-sky-400 hover:bg-sky-300 text-slate-950 cursor-pointer">
+              <label className="btn btn-sun inline-block px-4 py-2 text-xs font-bold cursor-pointer">
                 Choose Video File
                 <input
                   type="file"
@@ -964,12 +964,12 @@ export function PlayerPage() {
           )}
 
           {/* Controls Toolbar */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="card p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => shiftOffset(-PLAYER_OFFSET_STEP_MS)}
-                className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="btn px-2 py-1 text-ink cursor-pointer"
                 title="Shift subtitles earlier ([)"
               >
                 −100ms
@@ -977,7 +977,7 @@ export function PlayerPage() {
               <button
                 type="button"
                 onClick={syncLineNow}
-                className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-sky-300 hover:bg-slate-800 cursor-pointer"
+                className="btn px-2 py-1 text-torii-ink cursor-pointer"
                 title="Sync nearest line to current playback time (\)"
               >
                 Sync ({formatOffsetLabel(subOffsetMs)})
@@ -985,7 +985,7 @@ export function PlayerPage() {
               <button
                 type="button"
                 onClick={() => shiftOffset(PLAYER_OFFSET_STEP_MS)}
-                className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="btn px-2 py-1 text-ink cursor-pointer"
                 title="Shift subtitles later (])"
               >
                 +100ms
@@ -993,7 +993,7 @@ export function PlayerPage() {
               <button
                 type="button"
                 onClick={() => replayLine(false)}
-                className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="btn px-2 py-1 text-ink cursor-pointer"
                 title="Replay line (R)"
               >
                 Replay (R)
@@ -1001,7 +1001,7 @@ export function PlayerPage() {
               <button
                 type="button"
                 onClick={() => replayLine(true)}
-                className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="btn px-2 py-1 text-ink cursor-pointer"
                 title="Slow replay 0.75× (Shift+R)"
               >
                 0.75×
@@ -1009,7 +1009,7 @@ export function PlayerPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-1 text-slate-300 cursor-pointer">
+              <label className="flex items-center gap-1 text-ink-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={pauseOnHover}
@@ -1017,7 +1017,7 @@ export function PlayerPage() {
                 />
                 Pause on hover
               </label>
-              <label className="flex items-center gap-1 text-slate-300 cursor-pointer">
+              <label className="flex items-center gap-1 text-ink-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={autoPause}
@@ -1025,7 +1025,7 @@ export function PlayerPage() {
                 />
                 Auto-pause
               </label>
-              <label className="flex items-center gap-1 text-slate-300 cursor-pointer">
+              <label className="flex items-center gap-1 text-ink-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={showRomaji}
@@ -1037,7 +1037,7 @@ export function PlayerPage() {
                 aria-label="Dictionary gloss language"
                 value={glossLang}
                 onChange={(e) => setGlossLang(e.target.value as GlossLanguage)}
-                className="rounded bg-slate-950 border border-slate-700 px-1.5 py-1 text-slate-200"
+                className="field px-1.5 py-1 text-ink"
               >
                 <option value="eng">Dict EN</option>
                 <option value="ger">Dict DE</option>
@@ -1052,7 +1052,7 @@ export function PlayerPage() {
                     : 'Configure an LLM on the server to enable translations'
                 }
                 onChange={(e) => setTranslationMode(e.target.value as TranslationMode)}
-                className="rounded bg-slate-950 border border-slate-700 px-1.5 py-1 text-slate-200 disabled:opacity-40"
+                className="field px-1.5 py-1 text-ink disabled:opacity-40"
               >
                 <option value="off">Trans: Off</option>
                 <option value="en">Trans: EN</option>
@@ -1062,7 +1062,7 @@ export function PlayerPage() {
                 <button
                   type="button"
                   onClick={toggleFullscreen}
-                  className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-slate-200 hover:bg-slate-800 cursor-pointer"
+                  className="btn px-2 py-1 text-ink cursor-pointer"
                 >
                   Fullscreen
                 </button>
@@ -1070,7 +1070,7 @@ export function PlayerPage() {
               <button
                 type="button"
                 onClick={() => setShowTranscript((v) => !v)}
-                className="px-2 py-1 rounded bg-slate-950 border border-slate-700 text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="btn px-2 py-1 text-ink cursor-pointer"
               >
                 {showTranscript ? 'Hide Lines' : 'Show Lines'}
               </button>
@@ -1078,7 +1078,7 @@ export function PlayerPage() {
                 <button
                   type="button"
                   onClick={() => setShowMissed((v) => !v)}
-                  className="px-2 py-1 rounded bg-amber-500/20 border border-amber-400/50 text-amber-200 hover:bg-amber-500/30 cursor-pointer font-semibold"
+                  className="btn btn-gold px-2 py-1 cursor-pointer font-semibold"
                 >
                   Missed Words
                 </button>
@@ -1088,28 +1088,28 @@ export function PlayerPage() {
 
           {/* Explain Grammar Panel */}
           {explainLine && (
-            <section className="bg-slate-900 border border-indigo-500/40 rounded-xl p-4 space-y-2">
+            <section className="bg-paper border border-plum/60 rounded-xl p-4 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">
+                  <div className="text-xs font-semibold text-plum-ink uppercase tracking-wider">
                     Grammar Explanation
                   </div>
-                  <div className="text-sm font-medium text-slate-100 mt-0.5">
+                  <div className="text-sm font-medium text-ink mt-0.5">
                     {explainLine.text}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setExplainLine(null)}
-                  className="text-xs px-2 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  className="btn text-xs px-2 py-1 text-ink-2"
                 >
                   Close
                 </button>
               </div>
               {explainQuery.isLoading ? (
-                <div className="text-xs text-slate-400">Explaining line…</div>
+                <div className="text-xs text-muted">Explaining line…</div>
               ) : explainQuery.isError ? (
-                <div className="text-xs text-rose-400">
+                <div className="text-xs text-rose-ink">
                   {(explainQuery.error as Error)?.message ?? 'Could not explain line.'}
                 </div>
               ) : explainQuery.data ? (
@@ -1130,12 +1130,12 @@ export function PlayerPage() {
 
         {/* Synced Transcript Sidebar */}
         {showTranscript && (
-          <aside className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col max-h-[76vh]">
-            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-xs">
-              <span className="font-semibold text-slate-200">
+          <aside className="card p-3 flex flex-col max-h-[76vh]">
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-line text-xs">
+              <span className="font-semibold text-ink">
                 Transcript ({lines.length} lines)
               </span>
-              <span className="text-slate-500">Click line to seek</span>
+              <span className="text-faint">Click line to seek</span>
             </div>
             <div className="overflow-y-auto space-y-1 flex-1 pr-1">
               {lines.map((line) => {
@@ -1152,11 +1152,11 @@ export function PlayerPage() {
                     }}
                     className={`w-full text-left rounded-lg px-2.5 py-2 text-xs transition cursor-pointer ${
                       isActive
-                        ? 'bg-sky-500/20 border border-sky-400/50 text-sky-100'
-                        : 'bg-slate-950/50 border border-transparent hover:bg-slate-800/70 text-slate-300'
+                        ? 'bg-sun/40 border border-torii/70 text-torii-ink'
+                        : 'bg-field border border-transparent hover:bg-chip text-ink-2'
                     }`}
                   >
-                    <div className="font-mono text-[10px] text-slate-500">
+                    <div className="font-mono text-[10px] text-faint">
                       {formatTimestampMs(Math.max(0, line.start_ms + subOffsetMs))}
                     </div>
                     <div className="mt-0.5 leading-snug">{line.text}</div>

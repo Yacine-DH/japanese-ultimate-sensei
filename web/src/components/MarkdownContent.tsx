@@ -5,13 +5,13 @@ function renderInlines(inlines: readonly InlineNode[]) {
     switch (node.type) {
       case 'bold':
         return (
-          <strong key={idx} className="font-semibold text-slate-100">
+          <strong key={idx} className="font-semibold text-ink">
             {node.text}
           </strong>
         );
       case 'italic':
         return (
-          <em key={idx} className="italic text-slate-200">
+          <em key={idx} className="italic text-ink">
             {node.text}
           </em>
         );
@@ -19,7 +19,7 @@ function renderInlines(inlines: readonly InlineNode[]) {
         return (
           <code
             key={idx}
-            className="px-1 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-[0.85em]"
+            className="px-1 py-0.5 rounded bg-chip text-torii-ink font-mono text-[0.85em]"
           >
             {node.text}
           </code>
@@ -34,16 +34,16 @@ export function MarkdownContent({ text }: { text: string }) {
   const blocks = parseMarkdown(text);
 
   return (
-    <div className="space-y-2.5 text-sm text-slate-200 leading-relaxed break-words">
+    <div className="space-y-2.5 text-sm text-ink leading-relaxed break-words">
       {blocks.map((block, idx) => {
         switch (block.type) {
           case 'heading': {
             const cls =
               block.level === 1
-                ? 'text-base font-bold text-sky-300 pt-1'
+                ? 'text-base font-bold text-torii-ink pt-1'
                 : block.level === 2
-                  ? 'text-sm font-bold text-sky-300 pt-1'
-                  : 'text-xs font-bold uppercase tracking-wide text-slate-300 pt-1';
+                  ? 'text-sm font-bold text-torii-ink pt-1'
+                  : 'text-xs font-bold uppercase tracking-wide text-ink-2 pt-1';
             return (
               <div key={idx} className={cls}>
                 {renderInlines(block.inlines)}
@@ -52,7 +52,7 @@ export function MarkdownContent({ text }: { text: string }) {
           }
           case 'ul':
             return (
-              <ul key={idx} className="list-disc pl-5 space-y-1.5 text-slate-200">
+              <ul key={idx} className="list-disc pl-5 space-y-1.5 text-ink">
                 {block.items.map((item, i) => (
                   <li key={i}>{renderInlines(item)}</li>
                 ))}
@@ -60,7 +60,7 @@ export function MarkdownContent({ text }: { text: string }) {
             );
           case 'ol':
             return (
-              <ol key={idx} className="list-decimal pl-5 space-y-1.5 text-slate-200">
+              <ol key={idx} className="list-decimal pl-5 space-y-1.5 text-ink">
                 {block.items.map((item, i) => (
                   <li key={i}>{renderInlines(item)}</li>
                 ))}
@@ -70,7 +70,7 @@ export function MarkdownContent({ text }: { text: string }) {
             return (
               <blockquote
                 key={idx}
-                className="border-l-2 border-sky-400/60 pl-3 text-slate-300 italic"
+                className="border-l-2 border-torii/80 pl-3 text-ink-2 italic"
               >
                 {renderInlines(block.inlines)}
               </blockquote>
@@ -79,7 +79,7 @@ export function MarkdownContent({ text }: { text: string }) {
             return (
               <pre
                 key={idx}
-                className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs font-mono text-slate-200 overflow-x-auto whitespace-pre-wrap"
+                className="bg-field border border-line rounded-lg p-2.5 text-xs font-mono text-ink overflow-x-auto whitespace-pre-wrap"
               >
                 {block.text}
               </pre>
