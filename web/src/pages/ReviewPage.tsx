@@ -402,7 +402,7 @@ export function ReviewPage() {
               src={screenshotUrl}
               alt={currentCard.word.lemma}
               onError={() => setImageErrorForCardId(currentCard.card.id)}
-              className="w-full max-h-52 object-contain bg-black"
+              className="w-full max-h-64 object-contain bg-chip"
             />
           ) : (
             <div className="h-20 flex flex-col items-center justify-center text-faint px-4 text-center">
