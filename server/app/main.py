@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import tempfile
+import threading
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
@@ -33,6 +34,7 @@ from sqlmodel import Session, delete, func, or_, select
 
 from app import __version__, anki_export, anki_import, srs
 from app import activity as act
+from app import asr_sync as asr_lib
 from app import media as media_lib
 from app import sync as sync_lib
 from app.config import Settings, check_auth_settings, get_settings
@@ -161,6 +163,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def auto_translate() -> bool:
         return settings.llm_auto_translate and app.state.llm.configured
+
+    asr_lock = threading.Lock()
+
+    def asr_recognizer() -> asr_lib.Recognize | None:
+        """The ASR model for auto-sync (#147), loaded on first use (a few seconds); tests can
+        set app.state.asr directly."""
+        with asr_lock:
+            if not hasattr(app.state, "asr"):
+                app.state.asr = asr_lib.load_recognizer(
+                    settings.models_dir / asr_lib.MODEL_NAME, settings.asr_threads
+                )
+            return app.state.asr
 
     app.state.stt = STT(
         settings.stt_base_url.strip(), settings.stt_model.strip(), settings.stt_timeout_s
@@ -460,23 +474,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(413, f"sample too large (max {limit // 1024 // 1024} MB)")
         if not raw:
             raise HTTPException(422, "empty file")
-        lines = [
-            (s, e)
-            for s, e in session.exec(
-                select(SubtitleLine.start_ms, SubtitleLine.end_ms).where(
-                    SubtitleLine.episode_id == episode_id
-                )
-            ).all()
-        ]
+        texts = session.exec(
+            select(SubtitleLine.start_ms, SubtitleLine.end_ms, SubtitleLine.text)
+            .where(SubtitleLine.episode_id == episode_id)
+            .order_by(SubtitleLine.idx)
+        ).all()
+        lines = [(s, e) for s, e, _ in texts]
         points = json.loads(ep.sync_points_json or "[]")
         previous = sync_lib.offset_at(video_start_ms, ep.sub_offset_ms, points)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "sample"
             path.write_bytes(raw)
             try:
-                r = sync_lib.sync_file(path, lines, video_start_ms, search_ms, previous)
+                pcm = sync_lib.decode_pcm(path)
             except sync_lib.SyncError as e:
                 raise HTTPException(422, str(e)) from e
+        signal, speech_ms = sync_lib.features(pcm)
+        r, method, anchors = None, "vad", 0
+        recognize = asr_recognizer()
+        if recognize is not None and speech_ms >= sync_lib.MIN_SPEECH_MS:
+            lo, hi = previous - search_ms, previous + search_ms
+            try:
+                a = asr_lib.sync_pcm(
+                    pcm, sync_lib.speech_frames(pcm), [tuple(t) for t in texts],
+                    video_start_ms, lo, hi, recognize,
+                )  # fmt: skip
+            except Exception:  # never let the optional ASR path break auto-sync
+                log.exception("ASR sync failed for episode %s, using voice activity", episode_id)
+            else:
+                anchors = len(a.anchors)
+                if a.confident:
+                    best, corr = sync_lib.refine_offset(signal, lines, video_start_ms, a.offset_ms)
+                    sample_ms = len(signal) * sync_lib.VAD_FRAME_MS
+                    shown = sum(
+                        1 for s, e in lines
+                        if e + best > video_start_ms and s + best < video_start_ms + sample_ms
+                    )  # fmt: skip
+                    r = sync_lib.SyncResult(
+                        best, True, float(a.agreeing), float(a.runner_up), corr,
+                        speech_ms, sample_ms, shown, "ok",
+                    )  # fmt: skip
+                    method = "asr"
+        if r is None:
+            r = sync_lib.find_offset(signal, lines, video_start_ms, search_ms, previous, speech_ms)
         action = "none"
         if apply and r.confident:
             ep.sub_offset_ms, points, action = sync_lib.apply_sync(
@@ -487,15 +527,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             session.add(ep)
             session.commit()
         log.warning(  # warning: shows in the journal without debug logging
-            "sync episode %s at %d ms: offset %d → %d, confidence %.2f (runner-up %.2f), "
-            "speech %d ms, lines %d, %s → %s",
-            episode_id, video_start_ms, previous, r.offset_ms, r.confidence, r.runner_up,
-            r.speech_ms, r.lines_in_window, r.detail, action,
+            "sync episode %s at %d ms (%s, %d lines recognized): offset %d → %d, "
+            "confidence %.2f (runner-up %.2f), speech %d ms, lines %d, %s → %s",
+            episode_id, video_start_ms, method, anchors, previous, r.offset_ms, r.confidence,
+            r.runner_up, r.speech_ms, r.lines_in_window, r.detail, action,
         )  # fmt: skip
         return SyncOut(
             previous_offset_ms=previous, applied=action != "none", action=action,
             at_ms=video_start_ms, sub_offset_ms=ep.sub_offset_ms, sync_points=points,
-            **asdict(r),
+            method=method, anchors=anchors, **asdict(r),
         )  # fmt: skip
 
     @app.delete("/episodes/{episode_id}", status_code=204, dependencies=auth, tags=["episodes"])
