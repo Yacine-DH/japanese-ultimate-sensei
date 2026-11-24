@@ -4,7 +4,7 @@ import re
 import httpx
 import pytest
 
-from app.llm import LLM, parse_translations
+from app.llm import LLM, LLMError, explain_line, parse_translations
 from app.translate_jobs import Translator
 
 from .test_api import upload
@@ -229,3 +229,19 @@ def test_retry_timer_is_ignored_after_delete(llm_client):
     llm_client.delete(f"/episodes/{ep['id']}")
     timers.pop()()
     assert timers == []  # cancelled: no new attempt, no new timer
+
+
+def test_explain_gives_up_before_batch_translation_does():
+    seen = []
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"])
+        raise httpx.ReadTimeout("timed out")
+
+    llm = LLM("http://llm.local/v1", "m", timeout=900, transport=httpx.MockTransport(slow))
+    with pytest.raises(LLMError) as e:
+        explain_line(llm, "台詞", [], [], "en", timeout=120)
+    assert e.value.status == 504 and "too long" in str(e.value)
+    with pytest.raises(LLMError, match="unreachable"):  # translation jobs retry on this word
+        llm.chat("s", "u")
+    assert [t["read"] for t in seen] == [120, 900] and [t["connect"] for t in seen] == [10, 10]

@@ -124,3 +124,17 @@ def test_real_data_keys_and_romaji():
     assert rom("なさそうだし") == "nasasou da shi"
     assert rom("ハイター様が") == "haitaa-sama ga"  # honorifics keep the hyphen
     assert rom("見捨てないような") == "misutenai you na"
+
+
+def test_helper_verbs_are_not_vocabulary():
+    def learnable(text):
+        return [t.lemma for t in tokenize(text) if t.pos == "動詞" and t.is_content]
+
+    assert learnable("どうやら逃げきれそうだな") == ["逃げる"]
+    assert learnable("食べてしまった") == ["食べる"]
+    assert learnable("話し始める") == ["話す"]
+    assert learnable("やってみる") == ["やる"]
+    # the same verbs standing on their own are real vocabulary
+    assert learnable("紐が切れる") == ["切れる"]
+    assert learnable("家にいる") == ["いる"]
+    assert learnable("座って見る") == ["座る", "見る"]

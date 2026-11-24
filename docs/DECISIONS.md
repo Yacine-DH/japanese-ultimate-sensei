@@ -3,6 +3,13 @@
 Newest first. One entry per decision that would surprise someone later.
 
 
+### 2026-11-24: Helper verbs aren't vocabulary; Explain gives up after 2 min (Claude)
+- Verbs Sudachi tags 非自立可能 lose `is_content` right after a verb's 連用形 (逃げ**きれる**, 話し**始める**)
+  or, in kana, after て/で (食べて**しまう**). Alone (家にいる, 紐が切れる) they stay learnable. Existing
+  episodes need `uv run python -m app.reprocess`.
+- Explain has its own `llm_explain_timeout_s` (120 s → 504): it shared the 900 s batch timeout,
+  with the video paused behind a spinner.
+
 ### 2026-11-23: Auto-sync by recognizing the speech (Claude, #147)
 - **ASR first, voice activity as fallback.** VAD correlation only knows *when* someone talks;
   on SAO S1E19 (miruro stream vs. Amazon WEBRip subs, offset ≈ +14 s estimated by eye from the English subs) it found no clear
