@@ -13,6 +13,7 @@
   --gut: max(clamp(20px, 5vw, 84px), env(safe-area-inset-left, 0px));
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; scroll-padding-top: 76px; }
 body {
   margin: 0;
