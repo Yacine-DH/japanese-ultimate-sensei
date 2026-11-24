@@ -46,8 +46,9 @@ Any device → Web app (served by FastAPI):     │ SQLite (data/sensei.sqlite) 
 
 ### Web app (`web/`), Phase 1
 React + Vite + TypeScript + Tailwind, built to static files and served by FastAPI (one origin).
-Pages: Library (episodes, upload subs, understanding %), Review (FSRS with scene media),
-Words (filter by status), Stats (heatmap), Settings.
+Pages: Home (the island), Library (episodes, upload subs, understanding %), Review (FSRS with scene
+media), Words (filter by status), Kana, Stats (heatmap), Player, Settings. `src/scene/` is the
+framework-free three.js island behind them: lazy-loaded, optional, fed by `lib/island.ts`.
 
 ## Data model (SQLite)
 `Anime 1─* Episode 1─* SubtitleLine` (tokens as JSON) · `Word` (lemma+reading, jmdict_id, common) ·

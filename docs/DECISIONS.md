@@ -169,3 +169,16 @@ Newest first. One entry per decision that would surprise someone later.
   work the same as for Jimaku files. No new Python dependency.
 - Input for now: an uploaded episode file (built-in player / downloads). Recording a whole
   stream's audio in the extension is left for later.
+
+### 2026-11-24: The web app is a 3D island, built with three.js (Claude, owner's choice)
+- The owner picked "Sensei Island" from four prototypes. `three` (pinned, 0.170.0) is the only new
+  runtime dependency with code; it is lazy-loaded (~130 KB gzip), so pages work before and without it.
+- The scene is framework-free (`web/src/scene/`) and built from primitives: no model or texture
+  downloads. Pages talk to it through a tiny event bus and never depend on it.
+- It must not cost study time: full speed only where the island is the star, 12 fps behind dense
+  pages, nothing on the Player or in hidden tabs, Light/Off in Settings, light by default on touch
+  devices, calm under `prefers-reduced-motion`.
+- Fonts (Mochiy Pop One, Zen Maru Gothic) are self-hosted via `@fontsource`, so the app stays local.
+- Pages use design tokens (`ink`, `paper`, `sun`, `torii`, ...) from `web/src/index.css`, not raw
+  Tailwind palette colours. Only the overlay drawn on top of a video keeps the dark look.
+- `/` is now the island; the library moved to `/library`. `/episodes/:id` links are unchanged.

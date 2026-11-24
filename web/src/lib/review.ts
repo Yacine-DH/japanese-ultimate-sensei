@@ -15,25 +15,25 @@ export const RATING_BUTTONS: readonly RatingMeta[] = [
     rating: 1,
     key: '1',
     label: 'Again',
-    colorClass: 'border-rose-500/50 bg-rose-500/15 hover:bg-rose-500/25 text-rose-200',
+    colorClass: 'border-rose/70 bg-rose/30 hover:bg-rose/50 text-rose-ink',
   },
   {
     rating: 2,
     key: '2',
     label: 'Hard',
-    colorClass: 'border-amber-500/50 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200',
+    colorClass: 'border-gold/70 bg-gold/30 hover:bg-gold/50 text-gold-ink',
   },
   {
     rating: 3,
     key: '3',
     label: 'Good',
-    colorClass: 'border-emerald-500/50 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200',
+    colorClass: 'border-leaf/70 bg-leaf/30 hover:bg-leaf/50 text-leaf-ink',
   },
   {
     rating: 4,
     key: '4',
     label: 'Easy',
-    colorClass: 'border-sky-500/50 bg-sky-500/15 hover:bg-sky-500/25 text-sky-200',
+    colorClass: 'border-torii/70 bg-sun/30 hover:bg-sun/50 text-torii-ink',
   },
 ];
 

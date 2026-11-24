@@ -46,15 +46,15 @@ function PrepExampleSentence({
   const translation = line ? formatReviewSentenceTranslation(line, glossLang) : null;
 
   return (
-    <div className="bg-slate-900/80 border border-slate-800 rounded-lg px-3.5 py-2.5 space-y-1">
-      <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+    <div className="bg-paper border border-line rounded-lg px-3.5 py-2.5 space-y-1">
+      <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-faint font-semibold">
         <span>Example in this episode</span>
         {startMs !== null && (
-          <span className="font-mono text-slate-500">{formatTimestampMs(startMs)}</span>
+          <span className="font-mono text-faint">{formatTimestampMs(startMs)}</span>
         )}
       </div>
       {line ? (
-        <div className="text-sm sm:text-base leading-loose text-slate-200 break-words">
+        <div className="text-sm sm:text-base leading-loose text-ink break-words">
           {line.tokens.map((tok: TokenOut, idx: number) => {
             const isTarget =
               tok.word_id === item.word.id ||
@@ -64,7 +64,7 @@ function PrepExampleSentence({
                 key={idx}
                 className={
                   isTarget
-                    ? 'px-0.5 rounded bg-sky-500/25 text-sky-200 border-b border-sky-400 font-semibold'
+                    ? 'px-0.5 rounded bg-sun/50 text-torii-ink border-b border-torii font-semibold'
                     : undefined
                 }
               >
@@ -72,7 +72,7 @@ function PrepExampleSentence({
                   seg.ruby ? (
                     <ruby key={sIdx}>
                       {seg.text}
-                      <rt className="text-[10px] text-slate-400 font-normal">{seg.ruby}</rt>
+                      <rt className="text-[10px] text-muted font-normal">{seg.ruby}</rt>
                     </ruby>
                   ) : (
                     <span key={sIdx}>{seg.text}</span>
@@ -83,11 +83,11 @@ function PrepExampleSentence({
           })}
         </div>
       ) : (
-        <div className="text-sm text-slate-200 break-words">{item.example?.text}</div>
+        <div className="text-sm text-ink break-words">{item.example?.text}</div>
       )}
       {translation && (
-        <div className="text-xs text-slate-400">
-          <span className="inline-block mr-1 px-1 py-0.5 rounded bg-slate-800 text-[10px] font-semibold text-slate-400">
+        <div className="text-xs text-muted">
+          <span className="inline-block mr-1 px-1 py-0.5 rounded bg-chip text-[10px] font-semibold text-muted">
             {translation.primary.lang}
           </span>
           {translation.primary.text}
@@ -228,29 +228,29 @@ export function PreWatchPrimer({
     baselinePct !== null ? Math.max(0, Number((currentPct - baselinePct).toFixed(1))) : 0;
 
   return (
-    <section className="bg-slate-900 border border-sky-500/40 rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg">
+    <section className="bg-paper border border-torii/60 rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-bold text-sky-300">
+            <h2 className="text-base font-bold text-torii-ink">
               Prep this episode — {PRIMING_WORD_LIMIT} most useful words
             </h2>
             {potentialGainPct > 0 && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-leaf/30 text-leaf-ink border border-leaf/50 font-semibold">
                 +{potentialGainPct}% episode coverage
               </span>
             )}
             {items.length > 0 && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-chip text-ink-2 font-mono">
                 {decidedCount}/{items.length} prepped
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-muted mt-0.5">
             Warm up on the highest-value unknown words (frequency + episode &amp; anime repeats)
             before pressing play.
             {deltaPct > 0 && (
-              <span className="ml-2 text-emerald-400 font-semibold">
+              <span className="ml-2 text-leaf-ink font-semibold">
                 Understood jumped +{deltaPct.toFixed(1)}% so far!
               </span>
             )}
@@ -259,38 +259,38 @@ export function PreWatchPrimer({
         <button
           type="button"
           onClick={onClose}
-          className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+          className="btn text-xs px-2.5 py-1 text-ink-2 cursor-pointer"
         >
           Close Prep
         </button>
       </div>
 
       {actionError && (
-        <div className="text-xs px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300">
+        <div className="text-xs px-3 py-2 rounded-lg bg-rose/20 border border-rose/50 text-rose-ink">
           {actionError}
         </div>
       )}
 
       {prepQuery.isLoading ? (
-        <div className="text-sm text-slate-400 py-4">Ranking the 10 most useful words…</div>
+        <div className="text-sm text-muted py-4">Ranking the 10 most useful words…</div>
       ) : prepQuery.isError ? (
-        <div className="text-sm text-rose-400 py-2">
+        <div className="text-sm text-rose-ink py-2">
           Could not load prep words: {(prepQuery.error as Error)?.message ?? 'Unknown error'}
         </div>
       ) : items.length === 0 ? (
-        <div className="text-sm text-emerald-300 py-3">
+        <div className="text-sm text-leaf-ink py-3">
           No unknown words left in this episode — you&apos;re ready to watch!
         </div>
       ) : (
         <div className="space-y-3">
           {allDone && (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center space-y-2">
-              <div className="text-base font-bold text-emerald-300">
+            <div className="bg-leaf/20 border border-leaf/50 rounded-xl p-4 text-center space-y-2">
+              <div className="text-base font-bold text-leaf-ink">
                 Prep complete! ({items.length}/{items.length} words)
               </div>
-              <p className="text-xs text-slate-300">
+              <p className="text-xs text-ink-2">
                 Episode understanding is now{' '}
-                <strong className="text-emerald-300">{currentPct.toFixed(1)}%</strong>
+                <strong className="text-leaf-ink">{currentPct.toFixed(1)}%</strong>
                 {deltaPct > 0 ? ` (+${deltaPct.toFixed(1)}% from prep)` : ''}. Enjoy the episode!
               </p>
               <div className="pt-1 flex flex-wrap justify-center gap-2">
@@ -300,14 +300,14 @@ export function PreWatchPrimer({
                     setDecided({});
                     void prepQuery.refetch();
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-sky-300 border border-slate-700 cursor-pointer"
+                  className="btn px-3 py-1.5 text-xs font-semibold text-torii-ink cursor-pointer"
                 >
                   Load next 10 words
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-3 py-1.5 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 text-xs font-semibold cursor-pointer"
+                  className="btn btn-sun px-3 py-1.5 text-xs font-semibold cursor-pointer"
                 >
                   Done
                 </button>
@@ -330,37 +330,37 @@ export function PreWatchPrimer({
                   key={item.word.id}
                   className={`rounded-xl border p-4 space-y-3 transition ${
                     decision === 'known'
-                      ? 'bg-emerald-950/20 border-emerald-500/30'
+                      ? 'bg-leaf/25 border-leaf/50'
                       : decision === 'learning'
-                        ? 'bg-sky-950/20 border-sky-500/30'
-                        : 'bg-slate-950 border-slate-800'
+                        ? 'bg-sun/25 border-torii/50'
+                        : 'bg-field border-line'
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-baseline gap-2">
-                        <span className="text-xs font-mono text-slate-500">#{idx + 1}</span>
-                        <span className="text-2xl font-bold text-slate-100">{item.word.lemma}</span>
+                        <span className="text-xs font-mono text-faint">#{idx + 1}</span>
+                        <span className="text-2xl font-bold text-ink">{item.word.lemma}</span>
                         {item.word.reading && item.word.reading !== item.word.lemma && (
-                          <span className="text-sm text-sky-400 font-medium">
+                          <span className="text-sm text-torii-ink font-medium">
                             {item.word.reading}
                           </span>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                        <span className="px-1.5 py-0.5 rounded bg-chip text-ink-2">
                           {item.word.pos}
                         </span>
                         {item.word.zipf !== null && item.word.zipf !== undefined && (
-                          <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                          <span className="px-1.5 py-0.5 rounded bg-plum/30 text-plum-ink border border-plum/50">
                             Zipf {item.word.zipf.toFixed(1)}
                           </span>
                         )}
-                        <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 font-semibold">
+                        <span className="px-1.5 py-0.5 rounded bg-gold/30 text-gold-ink font-semibold">
                           ×{item.word.occurrences ?? 1} ep
                         </span>
                         {item.anime_occurrences > (item.word.occurrences ?? 1) && (
-                          <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
+                          <span className="px-1.5 py-0.5 rounded bg-paper border border-line text-muted">
                             ×{item.anime_occurrences} anime
                           </span>
                         )}
@@ -372,17 +372,17 @@ export function PreWatchPrimer({
                         <button
                           type="button"
                           onClick={() => playLineAudio(item.word.id, audioUrl)}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-xs font-semibold cursor-pointer"
+                          className="btn px-2.5 py-1.5 text-torii-ink text-xs font-semibold cursor-pointer"
                         >
                           {playingWordId === item.word.id ? '■ Stop audio' : '▶ Play audio'}
                         </button>
                       )}
                       {decision === 'learning' ? (
-                        <span className="px-2.5 py-1.5 rounded-lg bg-sky-500/15 border border-sky-400/40 text-sky-300 text-xs font-semibold">
+                        <span className="px-2.5 py-1.5 rounded-lg bg-sun/30 border border-torii/60 text-torii-ink text-xs font-semibold">
                           Added to Learn ✓
                         </span>
                       ) : decision === 'known' ? (
-                        <span className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-xs font-semibold">
+                        <span className="px-2.5 py-1.5 rounded-lg bg-leaf/30 border border-leaf/60 text-leaf-ink text-xs font-semibold">
                           Known ✓
                         </span>
                       ) : (
@@ -396,7 +396,7 @@ export function PreWatchPrimer({
                                 lineId: exampleLine?.id ?? item.example?.line_id ?? null,
                               })
                             }
-                            className="px-3 py-1.5 rounded-lg bg-sky-400 hover:bg-sky-300 disabled:opacity-50 text-slate-950 text-xs font-bold cursor-pointer"
+                            className="btn btn-sun px-3 py-1.5 disabled:opacity-50 text-xs font-bold cursor-pointer"
                           >
                             Learn
                           </button>
@@ -406,7 +406,7 @@ export function PreWatchPrimer({
                             onClick={() =>
                               statusMutation.mutate({ wordId: item.word.id, status: 'known' })
                             }
-                            className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-50 border border-emerald-400/50 text-emerald-200 text-xs font-semibold cursor-pointer"
+                            className="btn btn-leaf px-3 py-1.5 disabled:opacity-50 text-xs font-semibold cursor-pointer"
                           >
                             I know it
                           </button>
@@ -418,15 +418,15 @@ export function PreWatchPrimer({
                   {/* Meanings (EN / DE) */}
                   {glosses ? (
                     <div className="space-y-0.5">
-                      <div className="text-sm text-slate-100">
-                        <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-semibold text-slate-400 align-middle">
+                      <div className="text-sm text-ink">
+                        <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded bg-chip text-[10px] font-semibold text-muted align-middle">
                           {glosses.primary.lang}
                         </span>
                         <span>{glosses.primary.text}</span>
                       </div>
                       {glosses.secondary && (
-                        <div className="text-xs text-slate-400">
-                          <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded bg-slate-800/70 text-[10px] font-semibold text-slate-500 align-middle">
+                        <div className="text-xs text-muted">
+                          <span className="inline-block mr-1.5 px-1.5 py-0.5 rounded bg-chip text-[10px] font-semibold text-faint align-middle">
                             {glosses.secondary.lang}
                           </span>
                           <span>{glosses.secondary.text}</span>
@@ -434,7 +434,7 @@ export function PreWatchPrimer({
                       )}
                     </div>
                   ) : (
-                    <div className="text-xs text-slate-500">No dictionary gloss available.</div>
+                    <div className="text-xs text-faint">No dictionary gloss available.</div>
                   )}
 
                   {/* Example sentence with furigana */}

@@ -32,12 +32,12 @@ export interface TranscribePanelProps {
 
 function StatusBadge({ status }: { status: SttJobOut['status'] }) {
   const styles: Record<SttJobOut['status'], string> = {
-    queued: 'bg-slate-800 text-slate-300 border-slate-700',
-    extracting: 'bg-sky-500/15 text-sky-300 border-sky-500/40',
-    transcribing: 'bg-indigo-500/20 text-indigo-300 border-indigo-400/50',
-    importing: 'bg-amber-500/15 text-amber-300 border-amber-400/40',
-    done: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-    error: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+    queued: 'bg-chip text-ink-2 border-line-2',
+    extracting: 'bg-sun/30 text-torii-ink border-torii/60',
+    transcribing: 'bg-plum/40 text-plum-ink border-plum/70',
+    importing: 'bg-gold/30 text-gold-ink border-gold/60',
+    done: 'bg-leaf/40 text-leaf-ink border-leaf/60',
+    error: 'bg-rose/40 text-rose-ink border-rose/60',
   };
   return (
     <span
@@ -212,11 +212,11 @@ export function TranscribePanel({
   }
 
   return (
-    <section className="bg-slate-900 border border-indigo-500/40 rounded-xl p-5 space-y-4">
+    <section className="bg-paper border border-plum/60 rounded-xl p-5 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-bold text-indigo-300">{heading}</h2>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <h2 className="text-sm font-bold text-plum-ink">{heading}</h2>
+          <p className="text-xs text-muted mt-0.5">
             Upload a video or audio file to generate Japanese subtitles via Whisper and import it
             straight into your library.
           </p>
@@ -228,7 +228,7 @@ export function TranscribePanel({
               void statusQuery.refetch();
               void jobsQuery.refetch();
             }}
-            className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+            className="btn text-xs px-2.5 py-1 text-ink-2 cursor-pointer"
           >
             Refresh
           </button>
@@ -236,7 +236,7 @@ export function TranscribePanel({
             <button
               type="button"
               onClick={onClose}
-              className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+              className="btn text-xs px-2.5 py-1 text-ink-2 cursor-pointer"
             >
               Close
             </button>
@@ -246,13 +246,13 @@ export function TranscribePanel({
 
       {/* Availability status / graceful degradation banner */}
       {!availability.available ? (
-        <div className="rounded-lg bg-amber-500/10 border border-amber-500/35 px-3.5 py-2.5 text-xs space-y-1">
-          <div className="font-semibold text-amber-200">{availability.headline}</div>
-          {availability.hint && <div className="text-amber-300/85">{availability.hint}</div>}
+        <div className="rounded-lg bg-gold/20 border border-gold/55 px-3.5 py-2.5 text-xs space-y-1">
+          <div className="font-semibold text-gold-ink">{availability.headline}</div>
+          {availability.hint && <div className="text-gold-ink">{availability.hint}</div>}
         </div>
       ) : (
-        <div className="text-xs text-emerald-400 flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+        <div className="text-xs text-leaf-ink flex items-center gap-2">
+          <span className="inline-block h-2 w-2 rounded-full bg-leaf" />
           <span>{availability.headline}</span>
         </div>
       )}
@@ -261,16 +261,16 @@ export function TranscribePanel({
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
         <fieldset disabled={!availability.available || uploading} className="space-y-3 disabled:opacity-55">
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">
+            <label className="block text-xs font-medium text-ink-2 mb-1">
               Episode Video / Audio File *
             </label>
             {initialFile && file === initialFile ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-xs">
-                <span className="text-slate-200 truncate">
+              <div className="field flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
+                <span className="text-ink truncate">
                   {file.name}{' '}
-                  <span className="text-slate-400">({formatTransferBytes(file.size)})</span>
+                  <span className="text-muted">({formatTransferBytes(file.size)})</span>
                 </span>
-                <label className="text-sky-400 hover:text-sky-300 font-semibold cursor-pointer">
+                <label className="text-torii-ink hover:text-torii-ink font-semibold cursor-pointer">
                   Choose another
                   <input
                     type="file"
@@ -285,11 +285,11 @@ export function TranscribePanel({
                 type="file"
                 accept={STT_ACCEPT_ATTR}
                 onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
-                className="block w-full text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-indigo-300 hover:file:bg-slate-700"
+                className="block w-full text-xs text-ink-2 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-chip file:text-plum-ink hover:file:bg-chip-2"
               />
             )}
             {file && !initialFile && (
-              <div className="text-[11px] text-slate-400 mt-1">
+              <div className="text-[11px] text-muted mt-1">
                 Selected: {file.name} ({formatTransferBytes(file.size)}) — files up to 4 GB
                 supported.
               </div>
@@ -298,7 +298,7 @@ export function TranscribePanel({
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-medium text-ink-2 mb-1">
                 Anime Title *
               </label>
               <input
@@ -307,11 +307,11 @@ export function TranscribePanel({
                 value={animeTitle}
                 onChange={(e) => setAnimeTitle(e.target.value)}
                 placeholder="e.g. Sousou no Frieren"
-                className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-400"
+                className="field w-full px-3 py-1.5 text-sm text-ink focus:border-plum"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-medium text-ink-2 mb-1">
                 Episode Number
               </label>
               <input
@@ -321,11 +321,11 @@ export function TranscribePanel({
                 value={episodeNumber}
                 onChange={(e) => setEpisodeNumber(e.target.value)}
                 placeholder="e.g. 2"
-                className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-400"
+                className="field w-full px-3 py-1.5 text-sm text-ink focus:border-plum"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="block text-xs font-medium text-ink-2 mb-1">
                 Episode Title (optional)
               </label>
               <input
@@ -333,7 +333,7 @@ export function TranscribePanel({
                 value={episodeTitle}
                 onChange={(e) => setEpisodeTitle(e.target.value)}
                 placeholder="Optional"
-                className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-400"
+                className="field w-full px-3 py-1.5 text-sm text-ink focus:border-plum"
               />
             </div>
           </div>
@@ -341,20 +341,20 @@ export function TranscribePanel({
 
         {/* Upload progress bar */}
         {uploading && uploadProgress && (
-          <div className="rounded-lg bg-slate-950 border border-indigo-500/40 p-3 space-y-2">
+          <div className="rounded-lg bg-field border border-plum/60 p-3 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-indigo-200">
+              <span className="font-semibold text-plum-ink">
                 Uploading episode file…
                 {uploadProgress.percent !== null ? ` ${uploadProgress.percent}%` : ''}
               </span>
-              <span className="text-slate-400">
+              <span className="text-muted">
                 {formatTransferBytes(uploadProgress.loaded)}
                 {uploadProgress.total > 0 ? ` / ${formatTransferBytes(uploadProgress.total)}` : ''}
               </span>
             </div>
-            <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+            <div className="h-2 w-full rounded-full bg-chip overflow-hidden">
               <div
-                className="h-full bg-indigo-400 transition-all duration-150"
+                className="h-full bg-plum transition-all duration-150"
                 style={{ width: `${uploadProgress.percent ?? 15}%` }}
               />
             </div>
@@ -362,7 +362,7 @@ export function TranscribePanel({
         )}
 
         {submitError && (
-          <div className="text-xs px-3 py-2 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300">
+          <div className="text-xs px-3 py-2 rounded-lg bg-rose/30 border border-rose/60 text-rose-ink">
             {submitError}
           </div>
         )}
@@ -371,7 +371,7 @@ export function TranscribePanel({
           <button
             type="submit"
             disabled={!availability.available || !file || !animeTitle.trim() || uploading}
-            className="px-4 py-2 rounded-lg bg-indigo-400 hover:bg-indigo-300 disabled:opacity-45 disabled:cursor-not-allowed text-slate-950 font-semibold text-sm cursor-pointer"
+            className="btn btn-plum px-4 py-2 disabled:opacity-45 disabled:cursor-not-allowed font-semibold text-sm cursor-pointer"
           >
             {uploading ? 'Uploading…' : 'Transcribe Episode'}
           </button>
@@ -379,7 +379,7 @@ export function TranscribePanel({
             <button
               type="button"
               onClick={() => abortRef.current?.abort()}
-              className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 cursor-pointer"
+              className="btn px-3 py-2 text-xs font-semibold text-ink cursor-pointer"
             >
               Cancel Upload
             </button>
@@ -389,17 +389,17 @@ export function TranscribePanel({
 
       {/* Active / Focused Job Status Stepper */}
       {focusedJob && (
-        <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-4 space-y-3">
+        <div className="rounded-xl bg-field border border-line p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-slate-100 truncate">
+              <div className="text-xs font-semibold text-ink truncate">
                 #{focusedJob.id} · {focusedJob.anime_title}
                 {focusedJob.episode_number !== null ? ` Ep ${focusedJob.episode_number}` : ''}
               </div>
-              <div className="text-[11px] text-slate-400 truncate">{focusedJob.filename}</div>
+              <div className="text-[11px] text-muted truncate">{focusedJob.filename}</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400 font-mono">
+              <span className="text-[11px] text-muted font-mono">
                 {formatSttElapsedSummary(focusedJob, nowMs)}
               </span>
               <StatusBadge status={focusedJob.status} />
@@ -411,20 +411,20 @@ export function TranscribePanel({
               const visual = getSttStepVisualState(step, focusedJob.status);
               const barClass =
                 visual === 'done'
-                  ? 'bg-emerald-500'
+                  ? 'bg-leaf'
                   : visual === 'active'
-                    ? 'bg-indigo-400 animate-pulse'
+                    ? 'bg-plum animate-pulse'
                     : visual === 'error'
-                      ? 'bg-rose-500'
-                      : 'bg-slate-800';
+                      ? 'bg-rose'
+                      : 'bg-chip';
               const labelClass =
                 visual === 'done'
-                  ? 'text-emerald-300'
+                  ? 'text-leaf-ink'
                   : visual === 'active'
-                    ? 'text-indigo-200 font-semibold'
+                    ? 'text-plum-ink font-semibold'
                     : visual === 'error'
-                      ? 'text-rose-300'
-                      : 'text-slate-500';
+                      ? 'text-rose-ink'
+                      : 'text-faint';
               return (
                 <div key={step} className="space-y-1">
                   <div className={`h-1.5 rounded-full ${barClass}`} />
@@ -437,7 +437,7 @@ export function TranscribePanel({
           </div>
 
           {focusedJob.status === 'error' && (
-            <div className="text-xs px-3 py-2 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300">
+            <div className="text-xs px-3 py-2 rounded-lg bg-rose/30 border border-rose/60 text-rose-ink">
               {focusedJob.error ?? 'Transcription failed.'}
             </div>
           )}
@@ -448,14 +448,14 @@ export function TranscribePanel({
                 <button
                   type="button"
                   onClick={() => onEpisodeReady(focusedJob.episode_id!)}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-semibold text-xs cursor-pointer"
+                  className="btn btn-leaf px-3 py-1.5 font-semibold text-xs cursor-pointer"
                 >
                   Attach to Player
                 </button>
               )}
               <Link
                 to={`/episodes/${focusedJob.episode_id}`}
-                className="px-3 py-1.5 rounded-lg bg-sky-400 hover:bg-sky-300 text-slate-950 font-semibold text-xs"
+                className="btn btn-sun px-3 py-1.5 font-semibold text-xs"
               >
                 Open Episode Transcript &rarr;
               </Link>
@@ -466,12 +466,12 @@ export function TranscribePanel({
 
       {/* Recent Transcriptions List */}
       {allJobs.length > 0 && (
-        <div className="border-t border-slate-800 pt-3 space-y-2">
+        <div className="border-t border-line pt-3 space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold text-slate-300">
+            <span className="font-semibold text-ink-2">
               Transcriptions ({allJobs.length})
             </span>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-faint">
               Runs one at a time · clears on server restart
             </span>
           </div>
@@ -479,24 +479,24 @@ export function TranscribePanel({
             {allJobs.map((job) => (
               <div
                 key={job.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-950/70 border border-slate-800 px-3 py-2 text-xs"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-field border border-line px-3 py-2 text-xs"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-slate-200 truncate">
+                    <span className="font-semibold text-ink truncate">
                       {job.anime_title}
                       {job.episode_number !== null ? ` Ep ${job.episode_number}` : ''}
                     </span>
                     <StatusBadge status={job.status} />
                   </div>
-                  <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                  <div className="text-[11px] text-muted truncate mt-0.5">
                     {job.filename}
                     {formatSttElapsedSummary(job, nowMs)
                       ? ` · ${formatSttElapsedSummary(job, nowMs)}`
                       : ''}
                   </div>
                   {job.status === 'error' && job.error && (
-                    <div className="text-[11px] text-rose-400 mt-0.5">{job.error}</div>
+                    <div className="text-[11px] text-rose-ink mt-0.5">{job.error}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -504,7 +504,7 @@ export function TranscribePanel({
                     <button
                       type="button"
                       onClick={() => setActiveJobId(job.id)}
-                      className="text-xs px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 cursor-pointer"
+                      className="btn text-xs px-2 py-1 text-plum-ink cursor-pointer"
                     >
                       Track
                     </button>
@@ -515,14 +515,14 @@ export function TranscribePanel({
                         <button
                           type="button"
                           onClick={() => onEpisodeReady(job.episode_id!)}
-                          className="text-xs px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/30 font-semibold cursor-pointer"
+                          className="btn btn-leaf text-xs px-2.5 py-1 font-semibold cursor-pointer"
                         >
                           Attach
                         </button>
                       )}
                       <Link
                         to={`/episodes/${job.episode_id}`}
-                        className="text-xs font-semibold text-sky-400 hover:text-sky-300"
+                        className="text-xs font-semibold text-torii-ink hover:text-torii-ink"
                       >
                         Open &rarr;
                       </Link>
