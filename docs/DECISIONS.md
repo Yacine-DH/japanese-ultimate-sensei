@@ -5,7 +5,7 @@ Newest first. One entry per decision that would surprise someone later.
 
 ### 2026-11-23: Auto-sync by recognizing the speech (Claude, #147)
 - **ASR first, voice activity as fallback.** VAD correlation only knows *when* someone talks;
-  on SAO S1E19 (miruro stream vs. Amazon WEBRip subs, true offset ≈ +14 s) it found no clear
+  on SAO S1E19 (miruro stream vs. Amazon WEBRip subs, offset ≈ +14 s estimated by eye from the English subs) it found no clear
   match (confidence 3.7, runner-up 3.1) and suggested −103.6 s. Now the sample is cut at
   pauses, each chunk is transcribed, text and lines are compared as hiragana (Sudachi
   readings, so kanji choice doesn't matter), and lines heard clearly (≥ 60 % of their kana in
@@ -23,7 +23,8 @@ Newest first. One entry per decision that would surprise someone later.
   4 lines recognized, all agreeing → 14 488 ms, refined to 14 280 ms; VAD alone on the same
   sample: "no clear match" (confidence 3.9). Optional test: `SENSEI_TEST_ASR_MODEL=<model dir
   with test_wavs/> uv run pytest tests/test_asr_sync.py`.
-- **Still to watch:** a real episode with the server model installed (SAO S1E19 is a good case).
+- **Not verified yet:** real episodes (Bleach 42, Black Clover 5, SAO S1E19); needs the model on
+  the live server (`uv sync`, then `python -m app.asr_setup`, a 713 MB download).
 ### 2026-11-23: Piecewise subtitle offsets (sync points) (Claude, #137)
 - Extends "one offset per episode": an episode has `sub_offset_ms` plus optional
   **sync points** `{at_ms (video time), offset_ms}`, each valid until the next. The 10-episode
