@@ -87,6 +87,7 @@ Protocol: see [AGENTS.md](../AGENTS.md). Claim → branch → PR/merge → tick.
 - [x] **S-24** (#163) 10-episode check follow-ups: zips covering the episode are importable, "Wrong EP#" files last, CR tie-break, more sound cues (claude, 2026-11-23)
 - [x] **S-21** (#140) One-click updater (native messaging host) + GitHub releases (claude, 2026-11-22: `scripts/install-updater.ps1`, `scripts/sensei-updater/`, `scripts/release.sh`, version 0.1.N)
 - [x] **E-18** (#141) Popup **Update now** via the updater + version from `SENSEI_EXT_VERSION`. deps: S-21 (antigravity, 2026-11-22: Chrome-only `nativeMessaging` permission, `SENSEI_EXT_VERSION` manifest version with `0.1.0` fallback + popup footer version, pure `native-updater.ts` state machine for `Update now` / progress / auto-reload / one-time setup / fallback error, Options `Check updater` button via `{action: 'status'}`, unit tests)
+- [~] **W-14** (#175) Public website for GitHub Pages in `site/` (claude, 2026-11-24: built and tested; not published, the repo owner has to enable Pages first, see `site/README.md`)
 - [x] **E-18b** (#144) Run native update from the background worker so closing the popup mid-update cannot cancel the host or lose reload (antigravity, 2026-11-23: `BackgroundNativeUpdater` in `native-updater.ts` keeping `interpretUpdateResponse`, background runtime messages `SENSEI_START_NATIVE_UPDATE` / `SENSEI_GET_NATIVE_UPDATE_STATE` / `SENSEI_NATIVE_UPDATE_STATE_CHANGED`, popup subscribes + polls progress, unit tests)
 
 ## Requests (cross-team)
