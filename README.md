@@ -254,12 +254,8 @@ npx serve dist        # English at /, Japanese at /ja/
 
 Before the first publish:
 
-1. Decide how Pages becomes available: a public repository, or a paid plan for a private one. The
-   site itself is public either way.
-2. If the repository goes public, first remove the home server's hostname from scripts, tests, docs
-   and git history, and choose a license.
-3. Settings → Pages → Source: **GitHub Actions**.
-4. Actions → **Website** → Run workflow → tick **publish**.
+1. Settings → Pages → Source: **GitHub Actions** (the repository is public, so Pages is available).
+2. Actions → **Website** → Run workflow → tick **publish**.
 
 Details: [`site/README.md`](site/README.md)
 </details>
@@ -392,7 +388,15 @@ What comes next is on the [task board](docs/TASKS.md).
 - [three.js](https://threejs.org) (MIT); fonts Mochiy Pop One, Zen Maru Gothic, Yuji Boku and
   Shippori Mincho (SIL OFL 1.1)
 
-Sensei contains no anime and is not affiliated with any streaming service or studio. The repository
-is private and has no license yet.
+Sensei contains no anime and is not affiliated with any streaming service or studio.
+
+## License
+
+[MIT](LICENSE) © 2026 Mohamed Yacine Dhouafli and contributors. Third-party data, models and fonts keep their own
+licenses (see Credits); the dictionary data is downloaded at setup and is not part of this repository.
+
+The helper scripts in `scripts/` default to the author's home server (`barkhausstr64`, a name that only resolves
+inside the author's private network). Pass your own server with `-Server` (PowerShell) or as the argument of
+`release_notes.py`.
 
 <p align="center"><br><b lang="ja">物語の一言が、いつか君の言葉になる。</b><br><sub>A line from a story will one day be your own word.</sub><br><br><a href="#top">Back to top</a></p>
