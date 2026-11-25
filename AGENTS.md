@@ -5,7 +5,7 @@ Two agents build this project for one human (the owner):
 - **Antigravity**: owns `extension/` and `web/`.
 
 **Files are how we communicate**, so keep them current:
-- **Agent channel: `/home/yacine/orca/projects/sensei-channel.md`** (outside git, shared by both
+- **Agent channel: `~/orca/projects/sensei-channel.md`** (outside git, shared by both
   agents on the home server). Direct messages: "merged X, you can start Y", questions, answers.
   **Read it at the start of every session, before claiming work, and after every PR you merge.**
   Append only; rules at the top of that file. No secrets.

@@ -22,9 +22,9 @@ pnpm test               # run after a build
 publishes **only when someone runs it by hand** (Actions → Website → Run workflow → publish).
 Before the first run, the repository owner has to:
 
-1. Make Pages available: GitHub Pages needs a public repository, or a paid plan for a private one.
-   Pages sites are public either way.
-2. Settings → Pages → Source: **GitHub Actions**.
+1. Settings → Pages → Source: **GitHub Actions** (the repository is public, so Pages is available).
+2. Run the workflow by hand with **publish** ticked.
 
-Read this before making the repository public: the home server's hostname is in `scripts/`, tests,
-docs and git history, and the repository has no license yet.
+The site build refuses to publish if a download contains a private hostname, address, path or token.
+The repository is MIT-licensed; the author's home server hostname still appears in `scripts/`, tests and
+older git history, and resolves only inside the author's private network.
