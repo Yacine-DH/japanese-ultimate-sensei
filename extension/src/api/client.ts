@@ -274,6 +274,23 @@ export interface NativeUpdateStateResponse {
   error?: string;
 }
 
+export interface ClaimUnconfiguredHintMessage {
+  type: 'SENSEI_CLAIM_UNCONFIGURED_HINT';
+}
+
+export interface ClaimUnconfiguredHintResponse {
+  show: boolean;
+}
+
+export interface OpenSetupPopupMessage {
+  type: 'SENSEI_OPEN_SETUP_POPUP';
+}
+
+export interface OpenSetupPopupResponse {
+  ok: boolean;
+  opened: 'popup' | 'options' | 'none';
+}
+
 export function isApiCallMessage(msg: unknown): msg is ApiCallMessage {
   return (
     typeof msg === 'object' &&
@@ -472,6 +489,24 @@ export function isGetNativeUpdateStateMessage(msg: unknown): msg is GetNativeUpd
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_GET_NATIVE_UPDATE_STATE'
+  );
+}
+
+export function isClaimUnconfiguredHintMessage(
+  msg: unknown,
+): msg is ClaimUnconfiguredHintMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_CLAIM_UNCONFIGURED_HINT'
+  );
+}
+
+export function isOpenSetupPopupMessage(msg: unknown): msg is OpenSetupPopupMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_OPEN_SETUP_POPUP'
   );
 }
 
@@ -1360,6 +1395,42 @@ export const api = {
       return { state: null };
     } catch {
       return { state: null };
+    }
+  },
+
+  async claimUnconfiguredHint(): Promise<ClaimUnconfiguredHintResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { show: false };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_CLAIM_UNCONFIGURED_HINT',
+      } satisfies ClaimUnconfiguredHintMessage)) as ClaimUnconfiguredHintResponse | undefined;
+      if (res && typeof res.show === 'boolean') {
+        return res;
+      }
+      return { show: false };
+    } catch {
+      return { show: false };
+    }
+  },
+
+  async openSetupPopup(): Promise<OpenSetupPopupResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { ok: false, opened: 'none' };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_OPEN_SETUP_POPUP',
+      } satisfies OpenSetupPopupMessage)) as OpenSetupPopupResponse | undefined;
+      if (res && typeof res.ok === 'boolean') {
+        return res;
+      }
+      return { ok: false, opened: 'none' };
+    } catch {
+      return { ok: false, opened: 'none' };
     }
   },
 };
