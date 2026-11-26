@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest';
 import {
   boxPixelsToFraction,
   clampBoxPixels,
+  computeDefaultBottomOffsetPx,
   computeDraggedOverlayPlacement,
   extractOverlayHostKey,
   fractionToBoxPixels,
   getOverlayPositionForHost,
+  OVERLAY_DEFAULT_BOTTOM_PX,
   sanitizeOverlayPosition,
   sanitizeOverlayPositions,
   shouldPlacePopupBelow,
@@ -114,6 +116,24 @@ describe('overlay-position pure math (#111)', () => {
 
     const reset = withOverlayPositionForHost(updated, 'SITE-A.TO', null);
     expect(reset).toEqual({ 'site-b.to': { x: 0.4, y: 0.6 } });
+  });
+
+  it('raises default bottom clearance above player controls and site subtitles (#171)', () => {
+    expect(OVERLAY_DEFAULT_BOTTOM_PX).toBeGreaterThanOrEqual(96);
+    expect(computeDefaultBottomOffsetPx(0)).toBe(OVERLAY_DEFAULT_BOTTOM_PX);
+    expect(computeDefaultBottomOffsetPx(Number.NaN)).toBe(OVERLAY_DEFAULT_BOTTOM_PX);
+
+    // Embedded 360p/540p/720p players clear site controls + English subtitles
+    expect(computeDefaultBottomOffsetPx(360)).toBe(96);
+    expect(computeDefaultBottomOffsetPx(540)).toBe(96);
+    expect(computeDefaultBottomOffsetPx(720)).toBe(115);
+
+    // Fullscreen 1080p/4K caps cleanly so subtitles stay in the lower portion
+    expect(computeDefaultBottomOffsetPx(1080)).toBe(160);
+    expect(computeDefaultBottomOffsetPx(2160)).toBe(160);
+
+    // Tiny preview embeds cap at 35% of height so subtitles stay visible
+    expect(computeDefaultBottomOffsetPx(200)).toBe(70);
   });
 
   it('wires popup romaji toggle and reset overlay position button in popup/index.html', () => {

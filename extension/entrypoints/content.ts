@@ -101,10 +101,12 @@ import {
 } from '../src/lib/hover-intent';
 import {
   clampNumber,
+  computeDefaultBottomOffsetPx,
   computeDraggedOverlayPlacement,
   extractOverlayHostKey,
   fractionToBoxPixels,
   getOverlayPositionForHost,
+  OVERLAY_DEFAULT_BOTTOM_PX,
   type OverlayPosition,
   shouldPlacePopupBelow,
   withOverlayPositionForHost,
@@ -210,7 +212,7 @@ export default defineContentScript({
             justify-content: flex-end;
             pointer-events: none;
             box-sizing: border-box;
-            padding-bottom: 44px;
+            padding-bottom: ${OVERLAY_DEFAULT_BOTTOM_PX}px;
             font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif;
           }
           .sensei-toast {
@@ -1129,6 +1131,7 @@ export default defineContentScript({
       root.style.top = `${bounds.top}px`;
       root.style.width = `${bounds.width}px`;
       root.style.height = `${bounds.height}px`;
+      root.style.paddingBottom = `${computeDefaultBottomOffsetPx(bounds.height)}px`;
       applyOverlayPlacement();
     }
 
