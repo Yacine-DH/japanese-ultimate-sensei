@@ -38,6 +38,7 @@ describe('web Jimaku search helpers (#60)', () => {
         source: 'jimaku',
         source_filename: 'frieren05.ass',
         sub_offset_ms: 0,
+        sync_points: [],
         line_count: 290,
         created_at: '2026-11-21T00:00:00Z',
       },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LineOut, TokenOut } from '../src/api/client';
 import {
+  applyPlayerOffsetToActiveStretch,
   computePlayerSeekSeconds,
   computeSyncOffsetMs,
   findActivePlayerLines,
@@ -8,8 +9,11 @@ import {
   findReferenceLineForSync,
   formatOffsetLabel,
   isSupportedVideoFile,
+  normalizePlayerSyncPoints,
   PlayerWatchAccumulator,
   rankPlayerHighlightIndices,
+  resolvePlayerOffsetAt,
+  resolvePlayerOffsetForLine,
   shouldAutoPauseAfterLine,
 } from '../src/lib/player';
 
@@ -104,5 +108,55 @@ describe('web built-in player helpers (W-6 / #32)', () => {
     // Paused time is never counted
     now += 60_000;
     expect(acc.tick(now)).toBeNull();
+  });
+
+  it('normalizes and resolves piecewise sync_points across video time and transcript seeks (#184)', () => {
+    const points = normalizePlayerSyncPoints([
+      { at_ms: 900_000, offset_ms: -1_200 },
+      { at_ms: 0, offset_ms: 9999 },
+      { at_ms: -50, offset_ms: 8888 },
+      { at_ms: 420_000.4, offset_ms: 2_500.2 },
+      { at_ms: 420_000, offset_ms: 2_600 },
+    ]);
+    expect(points).toEqual([
+      { at_ms: 420_000, offset_ms: 2_600 },
+      { at_ms: 900_000, offset_ms: -1_200 },
+    ]);
+
+    expect(resolvePlayerOffsetAt(0, 400, points)).toBe(400);
+    expect(resolvePlayerOffsetAt(419_999, 400, points)).toBe(400);
+    expect(resolvePlayerOffsetAt(420_000, 400, points)).toBe(2_600);
+    expect(resolvePlayerOffsetAt(899_999, 400, points)).toBe(2_600);
+    expect(resolvePlayerOffsetAt(900_000, 400, points)).toBe(-1_200);
+
+    // Seeking to a line before the first cut uses base offset; after cuts uses that stretch's offset
+    expect(resolvePlayerOffsetForLine({ start_ms: 100_000 }, 400, points)).toBe(400);
+    expect(resolvePlayerOffsetForLine({ start_ms: 500_000 }, 400, points)).toBe(2_600);
+    expect(resolvePlayerOffsetForLine({ start_ms: 950_000 }, 400, points)).toBe(-1_200);
+  });
+
+  it('scopes manual offset adjustments to the active sync stretch without clobbering other stretches (#184)', () => {
+    const points = [
+      { at_ms: 420_000, offset_ms: 2_600 },
+      { at_ms: 900_000, offset_ms: -1_200 },
+    ];
+
+    // Before first point: updates base sub_offset_ms only
+    const before = applyPlayerOffsetToActiveStretch(120_000, 400, points, 500);
+    expect(before.target).toBe('base');
+    expect(before.subOffsetMs).toBe(500);
+    expect(before.syncPoints).toEqual(points);
+    expect(before.patch).toEqual({ sub_offset_ms: 500 });
+
+    // Inside middle stretch: updates only the 420s point
+    const middle = applyPlayerOffsetToActiveStretch(600_000, 400, points, 2_700);
+    expect(middle.target).toBe('point');
+    expect(middle.pointAtMs).toBe(420_000);
+    expect(middle.subOffsetMs).toBe(400);
+    expect(middle.syncPoints).toEqual([
+      { at_ms: 420_000, offset_ms: 2_700 },
+      { at_ms: 900_000, offset_ms: -1_200 },
+    ]);
+    expect(middle.patch).toEqual({ sync_points: middle.syncPoints });
   });
 });

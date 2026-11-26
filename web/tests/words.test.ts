@@ -17,6 +17,7 @@ function makeEpisode(overrides: Partial<EpisodeOut> = {}): EpisodeOut {
     source: 'upload',
     source_filename: 'frieren.ass',
     sub_offset_ms: 0,
+    sync_points: [],
     line_count: 250,
     created_at: '2026-11-19T00:00:00Z',
     ...overrides,
