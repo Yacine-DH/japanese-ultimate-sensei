@@ -58,6 +58,7 @@ import {
   isLookupableToken,
   rankHighlightedTokenIndices,
   selectSensesForLanguage,
+  updateWordStatusesInLines,
   updateWordStatusInLines,
 } from '../src/lib/highlight';
 import { shouldLoadTranscriptForFrame } from '../src/lib/line-cache';
@@ -137,6 +138,7 @@ export default defineContentScript({
     let frameLoopMode: 'rvfc' | 'raf' | null = null;
     let hostEl: HTMLDivElement | null = null;
     let shadowRoot: ShadowRoot | null = null;
+    let overlayRootEl: HTMLDivElement | null = null;
     let subShellEl: HTMLDivElement | null = null;
     let dragGripEl: HTMLButtonElement | null = null;
     let subBoxEl: HTMLDivElement | null = null;
@@ -161,6 +163,7 @@ export default defineContentScript({
     const revealedTranslationLineIds = new Set<number>();
     const explainCache = new Map<string, LineExplanation>();
     let missedPromptedEpisodeId: number | null = null;
+    let missedPanelSeq = 0;
     let toastEl: HTMLDivElement | null = null;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let checkedUnconfiguredHint = false;
@@ -185,7 +188,7 @@ export default defineContentScript({
     let positionRafId: number | null = null;
     let videoResizeObserver: ResizeObserver | null = null;
     const lookupCache = new Map<string, LookupResult>();
-    const hoverIntent = new HoverIntentController<TokenOut>(() => ({
+    const hoverIntent = new HoverIntentController<{ token: TokenOut; line: LineOut }>(() => ({
       hoverDelayMs: settings?.hoverDelayMs ?? DEFAULT_HOVER_CONFIG.hoverDelayMs,
       pauseOnHover: settings?.pauseOnHover ?? DEFAULT_HOVER_CONFIG.pauseOnHover,
       requireShiftForHover:
@@ -870,6 +873,7 @@ export default defineContentScript({
 
         const root = document.createElement('div');
         root.className = 'sensei-overlay-root';
+        overlayRootEl = root;
 
         toastEl = document.createElement('div');
         toastEl.className = 'sensei-toast';
@@ -970,9 +974,8 @@ export default defineContentScript({
     }
 
     function applyOverlayPlacement(): void {
-      if (!shadowRoot || !subShellEl) return;
-      const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
-      if (!root) return;
+      const root = overlayRootEl;
+      if (!root || !subShellEl) return;
 
       const host = getCurrentOverlayHostKey();
       const saved =
@@ -1038,9 +1041,8 @@ export default defineContentScript({
     }
 
     function handleGripPointerDown(ev: PointerEvent): void {
-      if (ev.button !== 0 || !shadowRoot || !subShellEl || !dragGripEl) return;
-      const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
-      if (!root) return;
+      const root = overlayRootEl;
+      if (ev.button !== 0 || !root || !subShellEl || !dragGripEl) return;
       const rootRect = root.getBoundingClientRect();
       const shellRect = subShellEl.getBoundingClientRect();
       if (rootRect.width <= 0 || rootRect.height <= 0) return;
@@ -1068,9 +1070,8 @@ export default defineContentScript({
 
     function handleGripPointerMove(ev: PointerEvent): void {
       if (!activeDragState || ev.pointerId !== activeDragState.pointerId) return;
-      if (!shadowRoot || !subShellEl) return;
-      const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
-      if (!root) return;
+      const root = overlayRootEl;
+      if (!root || !subShellEl) return;
 
       const deltaX = ev.clientX - activeDragState.startClientX;
       const deltaY = ev.clientY - activeDragState.startClientY;
@@ -1120,8 +1121,7 @@ export default defineContentScript({
     }
 
     function updateOverlayPosition(video: HTMLVideoElement): void {
-      if (!shadowRoot) return;
-      const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
+      const root = overlayRootEl;
       if (!root) return;
       const fs = document.fullscreenElement;
       const fsRect =
@@ -1789,22 +1789,20 @@ export default defineContentScript({
 
       popupEl.innerHTML = '';
       popupEl.classList.add('visible');
-      if (shadowRoot && subShellEl) {
-        const root = shadowRoot.querySelector('.sensei-overlay-root') as HTMLDivElement | null;
-        if (root) {
-          popupEl.style.left = '50%';
-          popupEl.style.transform = 'translateX(-50%)';
-          const rootRect = root.getBoundingClientRect();
-          const shellRect = subShellEl.getBoundingClientRect();
-          const popupRect = popupEl.getBoundingClientRect();
-          if (rootRect.width > 0 && popupRect.width > 0) {
-            const desiredLeft =
-              shellRect.left - rootRect.left + shellRect.width / 2 - popupRect.width / 2;
-            const maxLeft = Math.max(8, rootRect.width - popupRect.width - 8);
-            const clampedLeft = clampNumber(desiredLeft, 8, maxLeft);
-            popupEl.style.left = `${Math.round(clampedLeft - (shellRect.left - rootRect.left))}px`;
-            popupEl.style.transform = 'none';
-          }
+      if (overlayRootEl && subShellEl) {
+        const root = overlayRootEl;
+        popupEl.style.left = '50%';
+        popupEl.style.transform = 'translateX(-50%)';
+        const rootRect = root.getBoundingClientRect();
+        const shellRect = subShellEl.getBoundingClientRect();
+        const popupRect = popupEl.getBoundingClientRect();
+        if (rootRect.width > 0 && popupRect.width > 0) {
+          const desiredLeft =
+            shellRect.left - rootRect.left + shellRect.width / 2 - popupRect.width / 2;
+          const maxLeft = Math.max(8, rootRect.width - popupRect.width - 8);
+          const clampedLeft = clampNumber(desiredLeft, 8, maxLeft);
+          popupEl.style.left = `${Math.round(clampedLeft - (shellRect.left - rootRect.left))}px`;
+          popupEl.style.transform = 'none';
         }
       }
 
@@ -1967,9 +1965,9 @@ export default defineContentScript({
             span.addEventListener('mouseenter', (ev) => {
               if (activeDragState) return;
               cancelHoverClose();
-              hoverIntent.enter(token, ev.shiftKey, (t) => {
+              hoverIntent.enter({ token, line }, ev.shiftKey, (target) => {
                 if (activeDragState) return;
-                void openHoverPopup(t, line);
+                void openHoverPopup(target.token, target.line);
               });
             });
             span.addEventListener('mouseleave', () => {
@@ -2257,6 +2255,7 @@ export default defineContentScript({
     }
 
     function closeMissedWordsPanel(): void {
+      missedPanelSeq += 1;
       missedPanelEl?.classList.remove('visible');
     }
 
@@ -2265,6 +2264,7 @@ export default defineContentScript({
       ensureOverlayMounted(currentVideo);
       if (!missedPanelEl) return;
 
+      const seq = ++missedPanelSeq;
       missedPromptedEpisodeId = episodeId;
       missedPanelEl.innerHTML = '';
       missedPanelEl.classList.add('visible');
@@ -2290,6 +2290,13 @@ export default defineContentScript({
       missedPanelEl.appendChild(statusLine);
 
       const res = await api.getEpisodeMissedWords(episodeId, 25, false);
+      if (
+        seq !== missedPanelSeq ||
+        episodeId !== currentEpisodeId ||
+        !missedPanelEl.classList.contains('visible')
+      ) {
+        return;
+      }
       if (!res.ok || !res.data) {
         statusLine.textContent = res.error ?? 'Could not load missed words.';
         return;
@@ -2418,10 +2425,9 @@ export default defineContentScript({
         if (ids.length === 0) return;
         saveCardsBtn.disabled = markKnownBtn.disabled = ignoreBtn.disabled = true;
         const bulkRes = await api.bulkWordStatus(ids, status);
+        if (seq !== missedPanelSeq || episodeId !== currentEpisodeId) return;
         if (bulkRes.ok) {
-          for (const wid of ids) {
-            lines = updateWordStatusInLines(lines, wid, status);
-          }
+          lines = updateWordStatusesInLines(lines, ids, status);
           renderedLinesKey = null;
           syncSubtitleFrame();
           items = items.filter((i) => !selectedIds.has(i.word.id));
@@ -2446,9 +2452,8 @@ export default defineContentScript({
           }
           return created;
         });
-        for (const wid of saveRes.savedWordIds) {
-          lines = updateWordStatusInLines(lines, wid, 'learning');
-        }
+        if (seq !== missedPanelSeq || episodeId !== currentEpisodeId) return;
+        lines = updateWordStatusesInLines(lines, saveRes.savedWordIds, 'learning');
         renderedLinesKey = null;
         syncSubtitleFrame();
         const savedSet = new Set(saveRes.savedWordIds);
@@ -2490,7 +2495,12 @@ export default defineContentScript({
         prevActiveLineIds = [];
         return;
       }
-      ensureOverlayMounted(currentVideo);
+      if (
+        !hostEl ||
+        hostEl.parentElement !== resolveOverlayMountTarget(document, currentVideo)
+      ) {
+        ensureOverlayMounted(currentVideo);
+      }
       const videoMs = currentVideo.currentTime * 1000;
       restoreSlowReplayIfNeeded(videoMs);
 
@@ -2799,8 +2809,8 @@ export default defineContentScript({
 
         // Yomitan-style Shift trigger while already resting on a content token (#5)
         if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
-          hoverIntent.triggerWithShift((token) => {
-            void openHoverPopup(token);
+          hoverIntent.triggerWithShift((target) => {
+            void openHoverPopup(target.token, target.line);
           });
           return;
         }

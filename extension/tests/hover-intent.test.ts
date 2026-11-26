@@ -61,6 +61,20 @@ describe('hover intent and hovered-word keyboard actions (#5)', () => {
     expect(onOpen).toHaveBeenCalledWith('魔導書');
   });
 
+  it('preserves structured token + line target on Shift trigger (#182)', () => {
+    vi.useFakeTimers();
+    const onOpen = vi.fn();
+    const ctrl = new HoverIntentController<{ token: string; lineId: number }>(() => ({
+      hoverDelayMs: 200,
+      pauseOnHover: true,
+      requireShiftForHover: true,
+    }));
+
+    ctrl.enter({ token: '魔法', lineId: 42 }, false, onOpen);
+    expect(ctrl.triggerWithShift(onOpen)).toBe(true);
+    expect(onOpen).toHaveBeenCalledWith({ token: '魔法', lineId: 42 });
+  });
+
   it('maps K / I / S keys to known / ignored / learning when no modifiers are held', () => {
     const base = { altKey: false, ctrlKey: false, shiftKey: false, metaKey: false };
     expect(resolvePopupWordAction({ ...base, code: 'KeyK' })).toBe('known');

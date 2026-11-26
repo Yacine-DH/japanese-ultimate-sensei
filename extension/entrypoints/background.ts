@@ -44,6 +44,7 @@ import {
   type SyncPoint,
   type TabEpisodeState,
   type TabStateChangedMessage,
+  type TranslationJob,
   type TriggerAutoAttachResponse,
   type WordOut,
   type WordStatus,
@@ -177,15 +178,27 @@ export default defineBackground(() => {
     subOffsetMs: number,
     syncPoints: SyncPoint[],
   ): Promise<void> {
+    const payload: EpisodeSyncUpdatedMessage = {
+      type: 'SENSEI_EPISODE_SYNC_UPDATED',
+      episodeId,
+      subOffsetMs,
+      syncPoints,
+    };
     try {
-      await browser.runtime.sendMessage({
-        type: 'SENSEI_EPISODE_SYNC_UPDATED',
-        episodeId,
-        subOffsetMs,
-        syncPoints,
-      } satisfies EpisodeSyncUpdatedMessage);
+      await browser.runtime.sendMessage(payload);
     } catch {
       // Popup is closed or no extension page is listening
+    }
+    try {
+      const tabs = await browser.tabs.query({});
+      await Promise.all(
+        tabs.map((tab) => {
+          if (typeof tab.id !== 'number') return Promise.resolve();
+          return browser.tabs.sendMessage(tab.id, payload).catch(() => undefined);
+        }),
+      );
+    } catch {
+      // Ignore tab broadcast errors
     }
   }
 
@@ -536,8 +549,10 @@ export default defineBackground(() => {
         const epMatch = /^\/episodes\/(\d+)$/.exec(message.path);
         const reprocessMatch = /^\/episodes\/(\d+)\/reprocess$/.exec(message.path);
         const linesMatch = /^\/episodes\/(\d+)\/lines$/.exec(message.path);
+        const translateMatch = /^\/episodes\/(\d+)\/translate$/.exec(message.path);
         const wordStatusMatch = /^\/words\/(\d+)\/status$/.exec(message.path);
         const isBulkWordStatus = message.path === '/words/bulk-status';
+        const isCreateCard = message.path === '/cards';
 
         if (method === 'POST' && reprocessMatch) {
           const epId = Number(reprocessMatch[1]);
@@ -619,6 +634,22 @@ export default defineBackground(() => {
           })();
         }
 
+        if (method === 'GET' && translateMatch) {
+          const epId = Number(translateMatch[1]);
+          return (async () => {
+            const settings = await getSettings();
+            const res = await executeApiCall<TranslationJob>(
+              settings,
+              message.path,
+              message.init,
+            );
+            if (res.ok && res.data && typeof res.data.translated_lines === 'number') {
+              await transcriptCache.noteTranslationProgress(epId, res.data.translated_lines);
+            }
+            return res;
+          })();
+        }
+
         if (method === 'POST' && isBulkWordStatus) {
           return (async () => {
             const settings = await getSettings();
@@ -628,9 +659,21 @@ export default defineBackground(() => {
                 | { word_ids?: number[]; status?: WordStatus }
                 | undefined;
               if (Array.isArray(body?.word_ids) && body.status) {
-                for (const wid of body.word_ids) {
-                  await transcriptCache.updateWordStatus(wid, body.status);
-                }
+                await transcriptCache.updateWordStatuses(body.word_ids, body.status);
+              }
+            }
+            return res;
+          })();
+        }
+
+        if (method === 'POST' && isCreateCard) {
+          return (async () => {
+            const settings = await getSettings();
+            const res = await executeApiCall(settings, message.path, message.init);
+            if (res.ok) {
+              const body = message.init?.json as { word_id?: number } | undefined;
+              if (typeof body?.word_id === 'number' && Number.isInteger(body.word_id)) {
+                await transcriptCache.updateWordStatus(body.word_id, 'learning');
               }
             }
             return res;

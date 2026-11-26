@@ -132,6 +132,31 @@ describe('subtitle timing logic (E-2)', () => {
     expect(findActiveLines(lines, 4000, 0).map((l) => l.id)).toEqual([12]);
   });
 
+  it('finds active lines with bounded backward scan including long overlapping signs (#182)', () => {
+    const lines: LineOut[] = [];
+    // Long sign lasting 60s starting at 10s, plus 500 short dialogue lines
+    lines.push(makeLine({ id: 999, idx: 0, start_ms: 10_000, end_ms: 70_000, text: '看板' }));
+    for (let i = 1; i <= 500; i++) {
+      lines.push(
+        makeLine({
+          id: i,
+          idx: i,
+          start_ms: 10_000 + i * 2000,
+          end_ms: 10_000 + i * 2000 + 1500,
+          text: `台詞${i}`,
+        }),
+      );
+    }
+
+    // At 50,500ms: both the long sign (id 999) and dialogue line #20 (50_000..51_500) are active
+    const mid = findActiveLines(lines, 50_500, 0);
+    expect(mid.map((l) => l.id)).toEqual([999, 20]);
+
+    // Late in the episode (at 900,500ms): only dialogue line #445 is active
+    const late = findActiveLines(lines, 900_500, 0);
+    expect(late.map((l) => l.id)).toEqual([445]);
+  });
+
   it('normalizes and resolves piecewise sync points by video time (#138)', () => {
     const normalized = normalizeSyncPoints([
       { at_ms: 900_000, offset_ms: -500 },
