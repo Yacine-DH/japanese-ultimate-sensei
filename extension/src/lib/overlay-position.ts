@@ -25,8 +25,31 @@ export interface PixelPoint {
 }
 
 export const OVERLAY_EDGE_MARGIN_PX = 8;
-export const OVERLAY_DEFAULT_BOTTOM_PX = 44;
+export const OVERLAY_DEFAULT_BOTTOM_PX = 108;
+export const OVERLAY_DEFAULT_BOTTOM_RATIO = 0.16;
+export const OVERLAY_DEFAULT_BOTTOM_MIN_PX = 96;
+export const OVERLAY_DEFAULT_BOTTOM_MAX_PX = 160;
+export const OVERLAY_DEFAULT_BOTTOM_MAX_SHARE = 0.35;
 export const HOVER_POPUP_FLIP_THRESHOLD_PX = 210;
+
+/**
+ * Computes the default bottom clearance for the unpositioned subtitle overlay so
+ * Japanese lines sit above both the site's player controls/progress bar and
+ * bottom-aligned English subtitles, while still staying inside small embeds (#171).
+ */
+export function computeDefaultBottomOffsetPx(containerHeightPx: number): number {
+  if (!Number.isFinite(containerHeightPx) || containerHeightPx <= 0) {
+    return OVERLAY_DEFAULT_BOTTOM_PX;
+  }
+  const scaled = Math.round(containerHeightPx * OVERLAY_DEFAULT_BOTTOM_RATIO);
+  const clamped = clampNumber(
+    scaled,
+    OVERLAY_DEFAULT_BOTTOM_MIN_PX,
+    OVERLAY_DEFAULT_BOTTOM_MAX_PX,
+  );
+  const maxForSmallPlayer = Math.round(containerHeightPx * OVERLAY_DEFAULT_BOTTOM_MAX_SHARE);
+  return Math.max(OVERLAY_EDGE_MARGIN_PX, Math.min(clamped, maxForSmallPlayer));
+}
 
 export function clampNumber(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
