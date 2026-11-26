@@ -8,6 +8,7 @@ import {
   type AutoImport,
   type AutoImportOut,
   type CaptureVisibleTabResponse,
+  type ClaimUnconfiguredHintResponse,
   type EpisodeOut,
   type EpisodeSyncUpdatedMessage,
   executeApiCall,
@@ -21,11 +22,13 @@ import {
   isAnkiTestMessage,
   isApiCallMessage,
   isCaptureVisibleTabMessage,
+  isClaimUnconfiguredHintMessage,
   isConsumeAutoAttachNoticeMessage,
   isConsumeManualSearchFlagMessage,
   isGetNativeUpdateStateMessage,
   isGetTabStateMessage,
   isOpenPopupSearchMessage,
+  isOpenSetupPopupMessage,
   isSetTabStateMessage,
   isStartNativeUpdateMessage,
   isSyncEpisodeMessage,
@@ -37,6 +40,7 @@ import {
   type NativeUpdateStateChangedMessage,
   type NativeUpdateStateResponse,
   type OpenPopupSearchResponse,
+  type OpenSetupPopupResponse,
   type SyncPoint,
   type TabEpisodeState,
   type TabStateChangedMessage,
@@ -63,6 +67,7 @@ import {
 } from '../src/lib/auto-attach';
 import { EpisodeTranscriptCache, type SessionStorageLike } from '../src/lib/line-cache';
 import { BackgroundNativeUpdater, type PopupUpdateUiState } from '../src/lib/native-updater';
+import { UnconfiguredServerHintTracker } from '../src/lib/server-hint';
 import { getSettings, isServerUrlConfigured, saveSettings } from '../src/lib/settings';
 import { normalizePageUrlPattern } from '../src/lib/url-mapping';
 
@@ -124,6 +129,24 @@ async function tryOpenActionPopup(): Promise<boolean> {
   }
 }
 
+async function tryOpenOptionsPage(): Promise<boolean> {
+  const g = globalThis as unknown as {
+    browser?: { runtime?: { openOptionsPage?: () => Promise<void> } };
+    chrome?: { runtime?: { openOptionsPage?: () => Promise<void> } };
+  };
+  const openOptions =
+    g.browser?.runtime?.openOptionsPage ?? g.chrome?.runtime?.openOptionsPage;
+  if (typeof openOptions !== 'function') {
+    return false;
+  }
+  try {
+    await openOptions();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default defineBackground(() => {
   markAsBackgroundContext();
 
@@ -135,6 +158,7 @@ export default defineBackground(() => {
   const pendingNotices = new Map<number, PendingNoticeEntry>();
   const manualSearchTabs = new Map<number, number>();
   const transcriptCache = new EpisodeTranscriptCache(getSessionStorage());
+  const unconfiguredHintTracker = new UnconfiguredServerHintTracker(getSessionStorage());
   const ankiQueue = new AnkiPushQueue(getLocalStorage());
 
   async function broadcastNativeUpdateState(state: PopupUpdateUiState): Promise<void> {
@@ -871,6 +895,26 @@ export default defineBackground(() => {
         return Promise.resolve({
           state: nativeUpdater.getState(),
         } satisfies NativeUpdateStateResponse);
+      }
+
+      if (isClaimUnconfiguredHintMessage(message)) {
+        return (async (): Promise<ClaimUnconfiguredHintResponse> => {
+          const settings = await getSettings();
+          const show = await unconfiguredHintTracker.claimIfEligible(settings.serverUrl);
+          return { show };
+        })();
+      }
+
+      if (isOpenSetupPopupMessage(message)) {
+        return (async (): Promise<OpenSetupPopupResponse> => {
+          if (await tryOpenActionPopup()) {
+            return { ok: true, opened: 'popup' };
+          }
+          if (await tryOpenOptionsPage()) {
+            return { ok: true, opened: 'options' };
+          }
+          return { ok: false, opened: 'none' };
+        })();
       }
 
       return undefined;

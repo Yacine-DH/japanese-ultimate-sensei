@@ -62,8 +62,13 @@ import {
 } from '../src/lib/highlight';
 import { shouldLoadTranscriptForFrame } from '../src/lib/line-cache';
 import {
+  buildUnconfiguredServerHintContent,
+  shouldRequestUnconfiguredServerHint,
+} from '../src/lib/server-hint';
+import {
   type ExtensionSettings,
   getSettings,
+  isServerUrlConfigured,
   saveSettings,
   SETTINGS_STORAGE_KEY,
 } from '../src/lib/settings';
@@ -156,6 +161,8 @@ export default defineContentScript({
     let missedPromptedEpisodeId: number | null = null;
     let toastEl: HTMLDivElement | null = null;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
+    let checkedUnconfiguredHint = false;
+    let showingUnconfiguredHint = false;
     let pendingAutoAttachNotice: AutoAttachNotice | null = null;
     const shownAutoAttachNoticeIds = new Set<string>();
     let overlayControlsEl: HTMLDivElement | null = null;
@@ -1135,15 +1142,25 @@ export default defineContentScript({
       });
     }
 
+    function hideToast(): void {
+      if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+      }
+      showingUnconfiguredHint = false;
+      toastEl?.classList.remove('visible', 'interactive');
+    }
+
     function showToast(text: string, durationMs = 1600): void {
       if (!toastEl) return;
+      showingUnconfiguredHint = false;
       toastEl.innerHTML = '';
       toastEl.classList.remove('interactive');
       toastEl.textContent = text;
       toastEl.classList.add('visible');
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(() => {
-        toastEl?.classList.remove('visible', 'interactive');
+        hideToast();
       }, durationMs);
     }
 
@@ -1156,6 +1173,7 @@ export default defineContentScript({
       onAction?: () => void;
     }): void {
       if (!toastEl) return;
+      showingUnconfiguredHint = false;
       toastEl.innerHTML = '';
       toastEl.classList.remove('interactive');
 
@@ -1201,8 +1219,7 @@ export default defineContentScript({
         dismissBtn.textContent = 'Dismiss';
         dismissBtn.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          if (toastTimer) clearTimeout(toastTimer);
-          toastEl?.classList.remove('visible', 'interactive');
+          hideToast();
         });
 
         actions.append(actionBtn, dismissBtn);
@@ -1213,7 +1230,7 @@ export default defineContentScript({
       toastEl.classList.add('visible');
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(() => {
-        toastEl?.classList.remove('visible', 'interactive');
+        hideToast();
       }, options.durationMs ?? (isInteractive ? 15_000 : 4000));
     }
 
@@ -1223,6 +1240,7 @@ export default defineContentScript({
       thumbnailDataUrl: string | null,
     ): void {
       if (!toastEl) return;
+      showingUnconfiguredHint = false;
       toastEl.innerHTML = '';
       toastEl.classList.remove('interactive');
       if (thumbnailDataUrl) {
@@ -1246,8 +1264,49 @@ export default defineContentScript({
       toastEl.classList.add('visible');
       if (toastTimer) clearTimeout(toastTimer);
       toastTimer = setTimeout(() => {
-        toastEl?.classList.remove('visible', 'interactive');
+        hideToast();
       }, 2800);
+    }
+
+    function maybeShowUnconfiguredServerHint(): void {
+      if (
+        !shouldRequestUnconfiguredServerHint({
+          hasVideo: Boolean(currentVideo),
+          serverUrl: settings?.serverUrl,
+          alreadyCheckedInFrame: checkedUnconfiguredHint,
+        })
+      ) {
+        return;
+      }
+      checkedUnconfiguredHint = true;
+      void api.claimUnconfiguredHint().then((res) => {
+        if (
+          !res.show ||
+          !currentVideo ||
+          !settings ||
+          isServerUrlConfigured(settings.serverUrl)
+        ) {
+          return;
+        }
+        ensureOverlayMounted(currentVideo);
+        const content = buildUnconfiguredServerHintContent();
+        showRichToast({
+          title: content.title,
+          hint: content.hint,
+          actionLabel: content.actionLabel,
+          durationMs: content.durationMs,
+          onAction: () => {
+            void api.openSetupPopup().then((openRes) => {
+              if (openRes.ok) {
+                hideToast();
+              } else {
+                showToast(content.fallbackToast, 4200);
+              }
+            });
+          },
+        });
+        showingUnconfiguredHint = true;
+      });
     }
 
     function flushPendingAutoAttachNotice(): void {
@@ -2706,6 +2765,7 @@ export default defineContentScript({
         }
         ensureOverlayMounted(currentVideo);
         flushPendingAutoAttachNotice();
+        maybeShowUnconfiguredServerHint();
         void maybeLoadTranscript();
         startFrameLoop();
         syncWatchHeartbeat();
@@ -2947,6 +3007,14 @@ export default defineContentScript({
             currentTabPageUrl = tabState.pageUrl;
           }
           renderedLinesKey = null;
+          if (isServerUrlConfigured(next.serverUrl)) {
+            if (showingUnconfiguredHint) {
+              hideToast();
+            }
+          } else {
+            checkedUnconfiguredHint = false;
+            maybeShowUnconfiguredServerHint();
+          }
           applyTabState(tabState.episodeId, tabState.enabled);
           applyOverlayPlacement();
         });
