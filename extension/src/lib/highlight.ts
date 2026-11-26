@@ -77,20 +77,38 @@ export function selectSensesForLanguage(
   return { lang: fallback.length > 0 ? fallbackLang : preferredLang, senses: fallback };
 }
 
-export function updateWordStatusInLines(
+export function updateWordStatusesInLines(
   lines: readonly LineOut[],
-  wordId: number,
+  wordIds: ReadonlySet<number> | readonly number[],
   status: WordStatus,
 ): LineOut[] {
-  return lines.map((line) => {
+  const idSet = wordIds instanceof Set ? wordIds : new Set(wordIds);
+  if (idSet.size === 0 || lines.length === 0) {
+    return lines as LineOut[];
+  }
+  let anyLineChanged = false;
+  const nextLines = lines.map((line) => {
     let changed = false;
     const nextTokens = line.tokens.map((tok) => {
-      if (tok.word_id === wordId && tok.status !== status) {
+      if (tok.word_id !== null && idSet.has(tok.word_id) && tok.status !== status) {
         changed = true;
         return { ...tok, status };
       }
       return tok;
     });
-    return changed ? { ...line, tokens: nextTokens } : line;
+    if (changed) {
+      anyLineChanged = true;
+      return { ...line, tokens: nextTokens };
+    }
+    return line;
   });
+  return anyLineChanged ? nextLines : (lines as LineOut[]);
+}
+
+export function updateWordStatusInLines(
+  lines: readonly LineOut[],
+  wordId: number,
+  status: WordStatus,
+): LineOut[] {
+  return updateWordStatusesInLines(lines, new Set([wordId]), status);
 }

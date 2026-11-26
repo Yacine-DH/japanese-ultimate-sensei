@@ -115,6 +115,28 @@ export function isLineActive(
   return videoMs >= start && videoMs < end;
 }
 
+const maxDurationCache = new WeakMap<
+  readonly LineOut[],
+  { length: number; maxDurationMs: number }
+>();
+
+function getMaxLineDurationMs(lines: readonly LineOut[]): number {
+  const cached = maxDurationCache.get(lines);
+  if (cached && cached.length === lines.length) {
+    return cached.maxDurationMs;
+  }
+  let maxDurationMs = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const duration = line.end_ms - line.start_ms;
+    if (duration > maxDurationMs) {
+      maxDurationMs = duration;
+    }
+  }
+  maxDurationCache.set(lines, { length: lines.length, maxDurationMs });
+  return maxDurationMs;
+}
+
 export function findActiveLines(
   lines: readonly LineOut[],
   videoMs: number,
@@ -144,13 +166,18 @@ export function findActiveLines(
     return [];
   }
 
+  const maxDurationMs = getMaxLineDurationMs(lines);
   const active: LineOut[] = [];
-  for (let i = 0; i <= upperIdx; i++) {
+  for (let i = upperIdx; i >= 0; i--) {
     const line = lines[i]!;
+    if (line.start_ms + subOffsetMs + maxDurationMs <= videoMs) {
+      break;
+    }
     if (isLineActive(line, videoMs, subOffsetMs)) {
       active.push(line);
     }
   }
+  active.reverse();
   return active;
 }
 
