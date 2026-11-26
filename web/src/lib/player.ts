@@ -1,10 +1,150 @@
-import type { LineOut, TokenOut, WatchIn } from '../api/client';
+import type { EpisodePatch, LineOut, SyncPoint, TokenOut, WatchIn } from '../api/client';
 
 export const PLAYER_OFFSET_STEP_MS = 100;
 export const PLAYER_SLOW_REPLAY_RATE = 0.75;
 export const PLAYER_HEARTBEAT_FLUSH_MS = 30_000;
 export const PLAYER_MAX_TICK_DELTA_MS = 65_000;
 export const PLAYER_MAX_HEARTBEAT_SECONDS = 600;
+
+/**
+ * Normalize piecewise sync points to match the server contract (#137):
+ * integer ms, `at_ms > 0`, deduplicated by `at_ms` (last wins), sorted ascending.
+ */
+export function normalizePlayerSyncPoints(
+  points: readonly SyncPoint[] | null | undefined,
+): SyncPoint[] {
+  if (!points || points.length === 0) return [];
+  const byAt = new Map<number, number>();
+  for (const pt of points) {
+    if (!pt || !Number.isFinite(pt.at_ms) || !Number.isFinite(pt.offset_ms)) continue;
+    const atMs = Math.round(pt.at_ms);
+    if (atMs <= 0) continue;
+    byAt.set(atMs, Math.round(pt.offset_ms));
+  }
+  return Array.from(byAt.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([at_ms, offset_ms]) => ({ at_ms, offset_ms }));
+}
+
+/**
+ * Resolve the subtitle offset in effect at `videoMs` (#137, #184):
+ * `offset_ms` of the last sync point with `at_ms <= videoMs`, else `baseOffsetMs`.
+ */
+export function resolvePlayerOffsetAt(
+  videoMs: number,
+  baseOffsetMs: number,
+  syncPoints: readonly SyncPoint[] = [],
+): number {
+  let offset = baseOffsetMs;
+  let bestAtMs = -1;
+  for (const pt of syncPoints) {
+    if (pt.at_ms > 0 && pt.at_ms <= videoMs && pt.at_ms >= bestAtMs) {
+      bestAtMs = pt.at_ms;
+      offset = pt.offset_ms;
+    }
+  }
+  return offset;
+}
+
+/**
+ * Resolve the effective offset for seeking to / displaying a transcript line when
+ * piecewise sync points exist: picks the stretch whose shifted timestamp
+ * `line.start_ms + offset` lands inside `[stretchStart, nextStretchStart)`.
+ */
+export function resolvePlayerOffsetForLine(
+  line: Pick<LineOut, 'start_ms'>,
+  baseOffsetMs: number,
+  syncPoints: readonly SyncPoint[] = [],
+): number {
+  const normalized = normalizePlayerSyncPoints(syncPoints);
+  if (normalized.length === 0) return baseOffsetMs;
+
+  const stretches: Array<{ startMs: number; endMs: number; offsetMs: number }> = [];
+  const firstPoint = normalized[0];
+  if (firstPoint) {
+    stretches.push({
+      startMs: Number.NEGATIVE_INFINITY,
+      endMs: firstPoint.at_ms,
+      offsetMs: baseOffsetMs,
+    });
+  }
+  for (let i = 0; i < normalized.length; i++) {
+    const pt = normalized[i];
+    if (!pt) continue;
+    const next = normalized[i + 1];
+    stretches.push({
+      startMs: pt.at_ms,
+      endMs: next ? next.at_ms : Number.POSITIVE_INFINITY,
+      offsetMs: pt.offset_ms,
+    });
+  }
+
+  for (const stretch of stretches) {
+    const videoMs = line.start_ms + stretch.offsetMs;
+    if (videoMs >= stretch.startMs && videoMs < stretch.endMs) {
+      return stretch.offsetMs;
+    }
+  }
+  return resolvePlayerOffsetAt(Math.max(0, line.start_ms + baseOffsetMs), baseOffsetMs, normalized);
+}
+
+export interface PlayerStretchOffsetUpdate {
+  subOffsetMs: number;
+  syncPoints: SyncPoint[];
+  target: 'base' | 'point';
+  pointAtMs: number | null;
+  offsetMs: number;
+  patch: Pick<EpisodePatch, 'sub_offset_ms' | 'sync_points'>;
+}
+
+/**
+ * Apply a manual offset change to the stretch currently in effect at `videoMs`:
+ * before the first sync point (or with no points) updates `sub_offset_ms`;
+ * otherwise updates only the active sync point without disturbing other stretches.
+ */
+export function applyPlayerOffsetToActiveStretch(
+  videoMs: number,
+  baseOffsetMs: number,
+  syncPoints: readonly SyncPoint[],
+  nextOffsetMs: number,
+): PlayerStretchOffsetUpdate {
+  const normalized = normalizePlayerSyncPoints(syncPoints);
+  const roundedOffset = Math.round(nextOffsetMs);
+
+  let ownerIdx = -1;
+  for (let i = 0; i < normalized.length; i++) {
+    const pt = normalized[i];
+    if (pt && pt.at_ms <= videoMs) {
+      ownerIdx = i;
+    } else {
+      break;
+    }
+  }
+
+  if (ownerIdx < 0) {
+    return {
+      subOffsetMs: roundedOffset,
+      syncPoints: normalized,
+      target: 'base',
+      pointAtMs: null,
+      offsetMs: roundedOffset,
+      patch: { sub_offset_ms: roundedOffset },
+    };
+  }
+
+  const owner = normalized[ownerIdx]!;
+  const updatedPoints = normalized.map((pt, idx) =>
+    idx === ownerIdx ? { at_ms: pt.at_ms, offset_ms: roundedOffset } : pt,
+  );
+  return {
+    subOffsetMs: Math.round(baseOffsetMs),
+    syncPoints: updatedPoints,
+    target: 'point',
+    pointAtMs: owner.at_ms,
+    offsetMs: roundedOffset,
+    patch: { sync_points: updatedPoints },
+  };
+}
 
 const VIDEO_EXT_RE = /\.(mp4|m4v|webm|mkv|mov|ogv|ogg)$/i;
 

@@ -3,7 +3,9 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   apiClient,
+  type EpisodePatch,
   type LineOut,
+  type SyncPoint,
   type TokenOut,
   type WordStatus,
 } from '../api/client';
@@ -11,6 +13,7 @@ import { MarkdownContent } from '../components/MarkdownContent';
 import { MissedWordsPanel } from '../components/MissedWordsPanel';
 import { TranscribePanel } from '../components/TranscribePanel';
 import {
+  applyPlayerOffsetToActiveStretch,
   captureLocalVideoScreenshot,
   computePlayerSeekSeconds,
   computeSyncOffsetMs,
@@ -20,11 +23,14 @@ import {
   formatOffsetLabel,
   isEditableElement,
   isSupportedVideoFile,
+  normalizePlayerSyncPoints,
   PLAYER_OFFSET_STEP_MS,
   PLAYER_SLOW_REPLAY_RATE,
   PlayerWatchAccumulator,
   rankPlayerHighlightIndices,
   recordLocalLineAudio,
+  resolvePlayerOffsetAt,
+  resolvePlayerOffsetForLine,
   shouldAutoPauseAfterLine,
 } from '../lib/player';
 import { type GlossLanguage, loadWebSettings } from '../lib/settings';
@@ -57,6 +63,8 @@ export function PlayerPage() {
   const [showTranscribe, setShowTranscribe] = useState(false);
 
   const [subOffsetMs, setSubOffsetMs] = useState(0);
+  const [syncPoints, setSyncPoints] = useState<SyncPoint[]>([]);
+  const [activeOffsetMs, setActiveOffsetMs] = useState(0);
   const [activeLines, setActiveLines] = useState<LineOut[]>([]);
   const [showRomaji, setShowRomaji] = useState(initialSettings.romaji);
   const [glossLang, setGlossLang] = useState<GlossLanguage>(initialSettings.glossLang);
@@ -142,10 +150,23 @@ export function PlayerPage() {
   const lines = useMemo(() => linesQuery.data ?? [], [linesQuery.data]);
   const llmConfigured = Boolean(llmStatusQuery.data?.configured);
 
-  // Sync subOffsetMs when episode loads or changes
+  // Sync subOffsetMs and piecewise sync_points when episode loads or changes
   useEffect(() => {
+    if (offsetTimerRef.current) {
+      clearTimeout(offsetTimerRef.current);
+      offsetTimerRef.current = null;
+    }
     if (episodeQuery.data) {
-      setSubOffsetMs(episodeQuery.data.sub_offset_ms);
+      const base = episodeQuery.data.sub_offset_ms;
+      const pts = normalizePlayerSyncPoints(episodeQuery.data.sync_points);
+      setSubOffsetMs(base);
+      setSyncPoints(pts);
+      const videoMs = (videoRef.current?.currentTime ?? 0) * 1000;
+      setActiveOffsetMs(resolvePlayerOffsetAt(videoMs, base, pts));
+    } else {
+      setSubOffsetMs(0);
+      setSyncPoints([]);
+      setActiveOffsetMs(0);
     }
   }, [episodeQuery.data]);
 
@@ -180,13 +201,18 @@ export function PlayerPage() {
   }, [dispatchHeartbeat]);
 
   const persistOffset = useCallback(
-    (epId: number, nextOffset: number) => {
+    (epId: number, patch: EpisodePatch) => {
       if (offsetTimerRef.current) clearTimeout(offsetTimerRef.current);
       offsetTimerRef.current = setTimeout(() => {
-        void apiClient.patchEpisode(epId, { sub_offset_ms: nextOffset }).catch(() => {});
+        void apiClient
+          .patchEpisode(epId, patch)
+          .then((updated) => {
+            queryClient.setQueryData(['episode', epId], updated);
+          })
+          .catch(() => {});
       }, 400);
     },
-    [],
+    [queryClient],
   );
 
   const syncFrame = useCallback(() => {
@@ -203,7 +229,10 @@ export function PlayerPage() {
       slowReplayEndMsRef.current = null;
     }
 
-    const nextActive = findActivePlayerLines(lines, videoMs, subOffsetMs);
+    const effectiveOffsetMs = resolvePlayerOffsetAt(videoMs, subOffsetMs, syncPoints);
+    setActiveOffsetMs((prev) => (prev === effectiveOffsetMs ? prev : effectiveOffsetMs));
+
+    const nextActive = findActivePlayerLines(lines, videoMs, effectiveOffsetMs);
     const nextIds = nextActive.map((l) => l.id);
 
     if (
@@ -224,7 +253,7 @@ export function PlayerPage() {
       setActiveLines(nextActive);
       setRevealedLineId(null);
     }
-  }, [lines, subOffsetMs, autoPause, capturing, showToast]);
+  }, [lines, subOffsetMs, syncPoints, autoPause, capturing, showToast]);
 
   // Keep subtitles synced smoothly while playing
   useEffect(() => {
@@ -368,7 +397,12 @@ export function PlayerPage() {
           }
           if (line) {
             skipAutoPauseOnceRef.current = true;
-            const audio = await recordLocalLineAudio(video, line, subOffsetMs);
+            const effectiveOffsetMs = resolvePlayerOffsetAt(
+              video.currentTime * 1000,
+              subOffsetMs,
+              syncPoints,
+            );
+            const audio = await recordLocalLineAudio(video, line, effectiveOffsetMs);
             if (audio) {
               try {
                 const uploaded = await apiClient.uploadMedia({
@@ -414,7 +448,7 @@ export function PlayerPage() {
         setCapturing(false);
       }
     },
-    [capturing, subOffsetMs, activeEpisodeId, queryClient, showToast],
+    [capturing, subOffsetMs, syncPoints, activeEpisodeId, queryClient, showToast],
   );
 
   const openTokenPopup = useCallback(
@@ -442,36 +476,58 @@ export function PlayerPage() {
 
   const shiftOffset = useCallback(
     (deltaMs: number) => {
-      const next = subOffsetMs + deltaMs;
-      setSubOffsetMs(next);
-      showToast(`Sub offset: ${formatOffsetLabel(next)}`, 1400);
+      const videoMs = (videoRef.current?.currentTime ?? 0) * 1000;
+      const effectiveOffsetMs = resolvePlayerOffsetAt(videoMs, subOffsetMs, syncPoints);
+      const updated = applyPlayerOffsetToActiveStretch(
+        videoMs,
+        subOffsetMs,
+        syncPoints,
+        effectiveOffsetMs + deltaMs,
+      );
+      setSubOffsetMs(updated.subOffsetMs);
+      setSyncPoints(updated.syncPoints);
+      setActiveOffsetMs(updated.offsetMs);
+      const toastText =
+        updated.target === 'point' && updated.pointAtMs !== null
+          ? `Sub offset (from ${formatTimestampMs(updated.pointAtMs)}): ${formatOffsetLabel(updated.offsetMs)}`
+          : `Sub offset: ${formatOffsetLabel(updated.offsetMs)}`;
+      showToast(toastText, 1400);
       if (activeEpisodeId !== null) {
-        persistOffset(activeEpisodeId, next);
+        persistOffset(activeEpisodeId, updated.patch);
       }
     },
-    [subOffsetMs, activeEpisodeId, persistOffset, showToast],
+    [subOffsetMs, syncPoints, activeEpisodeId, persistOffset, showToast],
   );
 
   const syncLineNow = useCallback(() => {
     const video = videoRef.current;
     if (!video || lines.length === 0) return;
     const videoMs = video.currentTime * 1000;
-    const refLine = findReferenceLineForSync(lines, videoMs, subOffsetMs);
+    const effectiveOffsetMs = resolvePlayerOffsetAt(videoMs, subOffsetMs, syncPoints);
+    const refLine = findReferenceLineForSync(lines, videoMs, effectiveOffsetMs);
     if (!refLine) return;
     const next = computeSyncOffsetMs(videoMs, refLine);
-    setSubOffsetMs(next);
-    showToast(`Synced line: ${formatOffsetLabel(next)}`, 1600);
+    const updated = applyPlayerOffsetToActiveStretch(videoMs, subOffsetMs, syncPoints, next);
+    setSubOffsetMs(updated.subOffsetMs);
+    setSyncPoints(updated.syncPoints);
+    setActiveOffsetMs(updated.offsetMs);
+    const toastText =
+      updated.target === 'point' && updated.pointAtMs !== null
+        ? `Synced line (from ${formatTimestampMs(updated.pointAtMs)}): ${formatOffsetLabel(updated.offsetMs)}`
+        : `Synced line: ${formatOffsetLabel(updated.offsetMs)}`;
+    showToast(toastText, 1600);
     if (activeEpisodeId !== null) {
-      persistOffset(activeEpisodeId, next);
+      persistOffset(activeEpisodeId, updated.patch);
     }
-  }, [lines, subOffsetMs, activeEpisodeId, persistOffset, showToast]);
+  }, [lines, subOffsetMs, syncPoints, activeEpisodeId, persistOffset, showToast]);
 
   const replayLine = useCallback(
     (slow: boolean) => {
       const video = videoRef.current;
       if (!video || lines.length === 0) return;
       const videoMs = video.currentTime * 1000;
-      const target = findPlayerLineToReplay(lines, videoMs, subOffsetMs);
+      const effectiveOffsetMs = resolvePlayerOffsetAt(videoMs, subOffsetMs, syncPoints);
+      const target = findPlayerLineToReplay(lines, videoMs, effectiveOffsetMs);
       if (!target) {
         showToast('No subtitle line to replay');
         return;
@@ -479,7 +535,7 @@ export function PlayerPage() {
       if (slow) {
         const originalRate = slowReplayEndMsRef.current?.originalRate ?? video.playbackRate;
         slowReplayEndMsRef.current = {
-          endMs: target.end_ms + subOffsetMs + 150,
+          endMs: target.end_ms + effectiveOffsetMs + 150,
           originalRate,
         };
         video.playbackRate = PLAYER_SLOW_REPLAY_RATE;
@@ -493,10 +549,10 @@ export function PlayerPage() {
       }
       skipAutoPauseOnceRef.current = true;
       pausedByHoverRef.current = false;
-      video.currentTime = computePlayerSeekSeconds(target, subOffsetMs);
+      video.currentTime = computePlayerSeekSeconds(target, effectiveOffsetMs);
       void video.play().catch(() => {});
     },
-    [lines, subOffsetMs, showToast],
+    [lines, subOffsetMs, syncPoints, showToast],
   );
 
   const toggleFullscreen = useCallback(() => {
@@ -980,7 +1036,11 @@ export function PlayerPage() {
                 className="btn px-2 py-1 text-torii-ink cursor-pointer"
                 title="Sync nearest line to current playback time (\)"
               >
-                Sync ({formatOffsetLabel(subOffsetMs)})
+                Sync ({formatOffsetLabel(activeOffsetMs)}
+                {syncPoints.length > 0
+                  ? ` · ${syncPoints.length} pt${syncPoints.length === 1 ? '' : 's'}`
+                  : ''}
+                )
               </button>
               <button
                 type="button"
@@ -1140,6 +1200,7 @@ export function PlayerPage() {
             <div className="overflow-y-auto space-y-1 flex-1 pr-1">
               {lines.map((line) => {
                 const isActive = activeIdSet.has(line.id);
+                const lineOffsetMs = resolvePlayerOffsetForLine(line, subOffsetMs, syncPoints);
                 return (
                   <button
                     key={line.id}
@@ -1148,7 +1209,7 @@ export function PlayerPage() {
                       const video = videoRef.current;
                       if (!video) return;
                       skipAutoPauseOnceRef.current = true;
-                      video.currentTime = computePlayerSeekSeconds(line, subOffsetMs);
+                      video.currentTime = computePlayerSeekSeconds(line, lineOffsetMs);
                     }}
                     className={`w-full text-left rounded-lg px-2.5 py-2 text-xs transition cursor-pointer ${
                       isActive
@@ -1157,7 +1218,7 @@ export function PlayerPage() {
                     }`}
                   >
                     <div className="font-mono text-[10px] text-faint">
-                      {formatTimestampMs(Math.max(0, line.start_ms + subOffsetMs))}
+                      {formatTimestampMs(Math.max(0, line.start_ms + lineOffsetMs))}
                     </div>
                     <div className="mt-0.5 leading-snug">{line.text}</div>
                   </button>

@@ -55,6 +55,8 @@ export type TranslationJob = components['schemas']['TranslationJob'];
 export type LineExplanation = components['schemas']['LineExplanation'];
 export type SttStatus = components['schemas']['SttStatus'];
 export type SttJobOut = components['schemas']['SttJobOut'];
+export type SyncPoint = components['schemas']['SyncPoint'];
+export type SyncOut = components['schemas']['SyncOut'];
 
 export class SenseiApiError extends Error {
   readonly status: number;
