@@ -7,6 +7,7 @@ import { deflateRawSync } from 'node:zlib';
 import en from '../copy.en.mjs';
 import ja from '../copy.ja.mjs';
 import { assertPublishable, findPrivate } from '../guard.mjs';
+import { compareVersions, selectDownloads } from '../src/downloads.mjs';
 
 const DIST = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const read = (f) => readFileSync(join(DIST, f), 'utf8');
@@ -96,4 +97,38 @@ test('private details can never be published in a download', () => {
     assert.throws(() => assertPublishable('x.zip', zip('a.js', bad)), /Refusing to publish/, bad);
   }
   assert.throws(() => assertPublishable('x.zip', zip('server/.env', 'A=1')), /environment file/);
+});
+
+test('selectDownloads picks the newest zip per browser and matches its version', () => {
+  assert.ok(compareVersions('0.1.44', '0.1.9') > 0);
+  assert.ok(compareVersions('0.1.44', '0.1.38') > 0);
+  const picked = selectDownloads([
+    'sensei-extension-0.1.9-chrome.zip',
+    'sensei-extension-0.1.38-chrome.zip',
+    'sensei-extension-0.1.44-chrome.zip',
+    'sensei-extension-0.1.38-firefox.zip',
+    'sensei-extension-0.1.40-firefox.zip',
+    'sensei-server-0.1.38.zip',
+    'sensei-server-0.1.44.zip',
+    'unrelated.zip',
+  ]);
+  assert.deepEqual(picked.browsers, {
+    chrome: { file: 'sensei-extension-0.1.44-chrome.zip', version: '0.1.44' },
+    firefox: { file: 'sensei-extension-0.1.40-firefox.zip', version: '0.1.40' },
+  });
+  assert.equal(picked.serverZip, 'sensei-server-0.1.44.zip');
+  assert.equal(picked.version, '0.1.44');
+
+  const withEnv = selectDownloads(['sensei-extension-0.1.38-chrome.zip'], 'v0.2.0');
+  assert.equal(withEnv.version, '0.2.0');
+  assert.equal(withEnv.browsers.chrome.version, '0.1.38');
+});
+
+test('review demo includes localized show and restart labels in EN and JA', () => {
+  const enHtml = read('index.html');
+  assert.ok(enHtml.includes(`data-show="${en.review.show}"`));
+  assert.ok(enHtml.includes(`data-restart="${en.review.restart}"`));
+  const jaHtml = read('ja/index.html');
+  assert.ok(jaHtml.includes(`data-show="${ja.review.show}"`));
+  assert.ok(jaHtml.includes(`data-restart="${ja.review.restart}"`));
 });

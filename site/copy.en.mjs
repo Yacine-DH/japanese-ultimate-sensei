@@ -33,6 +33,7 @@ export default {
     p: 'A saved word keeps its screenshot, the voice saying the line and a short clip, about 0.3 MB in all. The review card shows you the scene before it asks for the word, because a place in a story is easier to remember than a list.',
     due: 'due today',
     show: 'Show answer',
+    restart: 'Start again',
     rates: [
       ['Again', '10 min'],
       ['Hard', '2 days'],
