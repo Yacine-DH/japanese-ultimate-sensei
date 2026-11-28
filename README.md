@@ -303,7 +303,7 @@ flowchart LR
 | Speech-to-text | GPU laptop | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server`, large-v3-turbo q5_0 (kotoba-whisper v2 optional); ffmpeg extracts 16 kHz audio |
 | Words + readings | home server | SudachiPy (split mode B, sudachidict-core), readings in hiragana, pykakasi for romaji |
 | Dictionary + ranking | home server | JMdict via jmdict-simplified (EN + DE, offline SQLite), wordfreq Zipf scores |
-| Translation + explanations | GPU laptop | **gemma3:4b** on Ollama, OpenAI-compatible API in JSON mode, 12 lines per batch with context and character names |
+| Translation + explanations | GPU laptop | **gemma3:4b** on Ollama, OpenAI-compatible API in JSON mode, 8 lines per batch with context and character names |
 | Overlay + capture | laptop, Edge/Firefox | WXT (Manifest V3), TypeScript, captureStream + MediaRecorder |
 | Auto-sync | home server | ReazonSpeech k2 via sherpa-onnx when installed, else webrtcvad + loudness; cross-correlation with a confidence check |
 | Media | home server | ffmpeg: WebP 640 px, Opus 32 kbps, VP9 360p clips |

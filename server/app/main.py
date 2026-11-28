@@ -29,6 +29,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from sqlmodel import Session, delete, func, or_, select
 
@@ -138,6 +139,20 @@ EXTENSION_ORIGINS = (
 )
 
 
+class SelectiveGZip(GZipMiddleware):
+    """GZip for everything except paths that are already compressed."""
+
+    def __init__(self, app, minimum_size: int = 500, skip_prefixes: tuple[str, ...] = ()):
+        super().__init__(app, minimum_size=minimum_size, compresslevel=6)  # cheap on the CPU
+        self.skip_prefixes = skip_prefixes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith(self.skip_prefixes):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     check_auth_settings(settings)
@@ -159,7 +174,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.llm_api_key.strip(),
         settings.llm_timeout_s,
     )
-    app.state.translator = Translator(app.state.engine, app.state.llm)
+    app.state.translator = Translator(
+        app.state.engine, app.state.llm, batch=settings.llm_translate_batch
+    )
 
     def auto_translate() -> bool:
         return settings.llm_auto_translate and app.state.llm.configured
@@ -188,6 +205,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Lines JSON shrinks ~10× (896 KB → 84 KB), the web bundle ~3×. Media and downloads are
+    # already compressed (and media needs byte ranges), so they skip it (#188).
+    app.add_middleware(SelectiveGZip, minimum_size=1024, skip_prefixes=("/media", "/downloads"))
 
     # ---- dependencies -------------------------------------------------------------------
 
@@ -405,7 +425,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=auth,
         tags=["episodes"],
     )
-    async def create_episode(
+    def create_episode(  # plain def: parsing + tokenizing runs in the threadpool (#188)
         response: Response,
         subtitle: UploadFile = File(description="Japanese .srt/.ass/.ssa/.vtt file"),
         anime_title: str = Form(),
@@ -413,7 +433,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title: str | None = Form(None),
         session: Session = Depends(get_session),
     ):
-        raw = await subtitle.read(MAX_SUBTITLE_BYTES + 1)
+        raw = subtitle.file.read(MAX_SUBTITLE_BYTES + 1)
         if len(raw) > MAX_SUBTITLE_BYTES:
             raise HTTPException(413, "subtitle file too large")
         created = import_episode(
@@ -1481,10 +1501,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         before = [x.text for x in neighbours[max(0, pos - 2) : pos]]
         after = [x.text for x in neighbours[pos + 1 : pos + 2]]
         try:
-            text = explain_line(
-                app.state.llm, line.text, before, after, lang, json.loads(line.tokens_json),
-                timeout=settings.llm_explain_timeout_s,
-            )  # fmt: skip
+            with app.state.translator.interactive():  # no new translation batch meanwhile
+                text = explain_line(
+                    app.state.llm, line.text, before, after, lang, json.loads(line.tokens_json),
+                    timeout=settings.llm_explain_timeout_s,
+                )  # fmt: skip
         except LLMError as e:
             raise HTTPException(e.status, str(e)) from e
         note = note or LineNote(line_id=line_id, lang=lang, text="", model="")

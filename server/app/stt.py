@@ -9,7 +9,6 @@ Jobs run one at a time in a background thread; they live in memory (a restart fo
 """
 
 import logging
-import queue
 import subprocess
 import threading
 import time
@@ -19,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+
+from app.workqueue import SerialWorker
 
 log = logging.getLogger("sensei.stt")
 
@@ -120,9 +121,8 @@ class SttJobs:
         self.synchronous = synchronous  # tests: run jobs inline
         self.jobs: dict[int, SttJob] = {}
         self._next_id = 1
-        self._queue: queue.Queue[int] = queue.Queue()
         self._lock = threading.Lock()
-        self._worker: threading.Thread | None = None
+        self._worker = SerialWorker("stt", lambda job_id: self._run(self.jobs[job_id]))
 
     def submit(
         self, path: Path, filename: str, anime_title: str, number: float | None, title: str | None
@@ -134,19 +134,8 @@ class SttJobs:
         if self.synchronous:
             self._run(job)
             return job
-        self._queue.put(job.id)
-        if self._worker is None or not self._worker.is_alive():
-            self._worker = threading.Thread(target=self._loop, name="stt", daemon=True)
-            self._worker.start()
+        self._worker.put(job.id)
         return job
-
-    def _loop(self) -> None:
-        while True:
-            try:
-                job_id = self._queue.get(timeout=60)
-            except queue.Empty:
-                return
-            self._run(self.jobs[job_id])
 
     def _run(self, job: SttJob) -> None:
         job.started_at = datetime.now(UTC)
