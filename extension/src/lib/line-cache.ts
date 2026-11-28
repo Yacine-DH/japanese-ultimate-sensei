@@ -6,6 +6,7 @@ import type {
   WordStatus,
 } from '../api/client';
 import { updateWordStatusesInLines } from './highlight';
+import { countTranslatedLines } from './llm';
 
 export interface SessionStorageLike {
   get(key: string): Promise<Record<string, unknown>>;
@@ -14,16 +15,6 @@ export interface SessionStorageLike {
 }
 
 const CACHED_LINE_IDS_KEY = 'sensei_cache_line_ids';
-
-function countTranslatedLines(lines: readonly LineOut[]): number {
-  let count = 0;
-  for (const line of lines) {
-    if (line.translation_en || line.translation_de) {
-      count += 1;
-    }
-  }
-  return count;
-}
 
 export class EpisodeTranscriptCache {
   private readonly episodes = new Map<number, EpisodeOut>();
