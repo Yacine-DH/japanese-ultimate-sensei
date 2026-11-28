@@ -19,11 +19,15 @@ import {
 import type { AutoAttachNotice } from '../src/lib/auto-attach';
 import {
   type ActiveSyncRecordingHandle,
+  AUTO_SYNC_UNAVAILABLE_TOAST,
   type AutoSyncAbortReason,
+  type AutoSyncAttemptRecord,
   type AutoSyncRunMode,
   AutoSyncStateMachine,
   BackgroundAutoSyncScheduler,
+  type BackgroundSyncTriggerReason,
   buildSyncOutcomePresentation,
+  findOpeningGap,
   formatBackgroundSyncToast,
   formatManualApplyToast,
   formatSyncProgressText,
@@ -1437,7 +1441,47 @@ export default defineContentScript({
         });
     }
 
-    function startAutoSync(mode: AutoSyncRunMode = 'manual'): StartAutoSyncResponse {
+    function reportSyncAttempt(record: AutoSyncAttemptRecord): void {
+      void api.recordSyncAttempt(record);
+    }
+
+    function notifyAudioCaptureUnavailable(
+      episodeId: number,
+      mode: AutoSyncRunMode,
+      trigger: BackgroundSyncTriggerReason | 'manual',
+      detail: string,
+    ): void {
+      backgroundSyncScheduler.markUnavailableForVideo();
+      reportSyncAttempt({
+        episodeId,
+        atMs: Date.now(),
+        mode,
+        trigger,
+        kind: 'unavailable',
+        detail,
+      });
+      const host = getCurrentOverlayHostKey() ?? window.location.hostname;
+      if (mode === 'manual') {
+        if (currentVideo) {
+          ensureOverlayMounted(currentVideo);
+          showToast(AUTO_SYNC_UNAVAILABLE_TOAST, 5500);
+        }
+        // Mark host as already notified so background retries on this site stay quiet.
+        void api.claimAudioUnavailableHint(host);
+        return;
+      }
+      void api.claimAudioUnavailableHint(host).then((res) => {
+        if (res.show && currentVideo) {
+          ensureOverlayMounted(currentVideo);
+          showToast(AUTO_SYNC_UNAVAILABLE_TOAST, 5500);
+        }
+      });
+    }
+
+    function startAutoSync(
+      mode: AutoSyncRunMode = 'manual',
+      trigger: BackgroundSyncTriggerReason | 'manual' = mode === 'manual' ? 'manual' : 'periodic',
+    ): StartAutoSyncResponse {
       const isBackground = mode === 'background';
 
       if (autoSyncMachine.isActive()) {
@@ -1473,6 +1517,19 @@ export default defineContentScript({
         playbackRate: currentVideo.playbackRate,
       });
       if (!playbackCheck.ok) {
+        reportSyncAttempt({
+          episodeId: currentEpisodeId,
+          atMs: Date.now(),
+          mode,
+          trigger,
+          kind: 'paused',
+          detail:
+            playbackCheck.reason === 'rate_changed'
+              ? 'playback not at 1×'
+              : playbackCheck.reason === 'ended'
+                ? 'video ended'
+                : 'video paused',
+        });
         if (!isBackground) {
           showToast(playbackCheck.message, 2800);
         }
@@ -1482,7 +1539,12 @@ export default defineContentScript({
       const targetEpisodeId = currentEpisodeId;
       const syncSeq = ++autoSyncSeq;
       activeSyncMode = mode;
-      backgroundSyncScheduler.markSyncStarted(Date.now());
+      const startVideoMs = currentVideo.currentTime * 1000;
+      backgroundSyncScheduler.markSyncStarted(
+        Date.now(),
+        startVideoMs,
+        getEffectiveOffsetMs(startVideoMs),
+      );
       const handle = startSyncAudioRecording({
         video: currentVideo,
         machine: autoSyncMachine,
@@ -1502,12 +1564,21 @@ export default defineContentScript({
         const msg = immediateSnap.abortMessage ?? 'Could not start auto-sync';
         autoSyncMachine.reset();
         backgroundSyncScheduler.markSyncFinished(Date.now());
-        if (reason === 'unavailable') {
-          backgroundSyncScheduler.markUnavailableForVideo();
-        }
         updateSyncStatusIndicator();
-        if (!isBackground) {
-          showToast(msg, 3000);
+        if (reason === 'unavailable') {
+          notifyAudioCaptureUnavailable(targetEpisodeId, mode, trigger, msg);
+        } else {
+          reportSyncAttempt({
+            episodeId: targetEpisodeId,
+            atMs: Date.now(),
+            mode,
+            trigger,
+            kind: reason === 'paused' ? 'paused' : 'aborted',
+            detail: msg,
+          });
+          if (!isBackground) {
+            showToast(msg, 3000);
+          }
         }
         return { ok: false, error: msg };
       }
@@ -1524,12 +1595,21 @@ export default defineContentScript({
           activeSyncMode = null;
           autoSyncMachine.reset();
           backgroundSyncScheduler.markSyncFinished(Date.now());
-          if (sample.reason === 'unavailable') {
-            backgroundSyncScheduler.markUnavailableForVideo();
-          }
           updateSyncStatusIndicator();
-          if (!isBackground && sample.reason !== 'episode_changed') {
-            showToast(sample.message, 3200);
+          if (sample.reason === 'unavailable') {
+            notifyAudioCaptureUnavailable(targetEpisodeId, mode, trigger, sample.message);
+          } else if (sample.reason !== 'episode_changed') {
+            reportSyncAttempt({
+              episodeId: targetEpisodeId,
+              atMs: Date.now(),
+              mode,
+              trigger,
+              kind: sample.reason === 'paused' ? 'paused' : 'aborted',
+              detail: sample.message,
+            });
+            if (!isBackground) {
+              showToast(sample.message, 3200);
+            }
           }
           return;
         }
@@ -1546,6 +1626,14 @@ export default defineContentScript({
           autoSyncMachine.reset();
           backgroundSyncScheduler.markSyncFinished(Date.now());
           updateSyncStatusIndicator();
+          reportSyncAttempt({
+            episodeId: targetEpisodeId,
+            atMs: Date.now(),
+            mode,
+            trigger,
+            kind: 'error',
+            detail: 'could not encode recorded audio',
+          });
           if (!isBackground) {
             showToast('Auto-sync failed: could not encode recorded audio', 3200);
           }
@@ -1580,6 +1668,27 @@ export default defineContentScript({
               ...res.data,
             },
           );
+          reportSyncAttempt({
+            episodeId: targetEpisodeId,
+            atMs: Date.now(),
+            mode,
+            trigger,
+            kind: res.data.applied ? 'applied' : 'not_applied',
+            method: res.data.method,
+            offsetMs: res.data.offset_ms,
+            action: res.data.action,
+            syncPointAtMs: res.data.at_ms,
+            detail: res.data.detail,
+          });
+        } else {
+          reportSyncAttempt({
+            episodeId: targetEpisodeId,
+            atMs: Date.now(),
+            mode,
+            trigger,
+            kind: 'error',
+            detail: res.error ?? 'Request failed',
+          });
         }
 
         if (isBackground) {
@@ -2728,6 +2837,10 @@ export default defineContentScript({
         translationPollComplete =
           lines.length === 0 || countTranslatedLines(lines) >= lines.length;
         lastTranslationPollAtMs = Date.now();
+        backgroundSyncScheduler.setOpeningGap(findOpeningGap(lines));
+      }
+      if (currentVideo) {
+        backgroundSyncScheduler.observeVideoPosition(currentVideo.currentTime * 1000, Date.now());
       }
       void ensureLlmStatus();
       syncOverlayControlsVisibility();
@@ -2767,6 +2880,9 @@ export default defineContentScript({
 
     function handleVideoPlay(): void {
       isVideoBuffering = false;
+      if (currentVideo) {
+        backgroundSyncScheduler.observeVideoPosition(currentVideo.currentTime * 1000, Date.now());
+      }
       startFrameLoop();
       syncWatchHeartbeat();
     }
@@ -2802,9 +2918,11 @@ export default defineContentScript({
 
     function tickBackgroundAutoSync(nowMs = Date.now()): void {
       if (!currentVideo || !settings) return;
+      const videoMs = currentVideo.currentTime * 1000;
       const trigger = backgroundSyncScheduler.tick({
         nowMs,
-        videoMs: currentVideo.currentTime * 1000,
+        videoMs,
+        effectiveOffsetMs: getEffectiveOffsetMs(videoMs),
         episodeId: currentEpisodeId,
         overlayEnabled: tabOverlayEnabled && lines.length > 0,
         isPlaying: !currentVideo.paused && !currentVideo.ended && currentVideo.readyState >= 2,
@@ -2816,7 +2934,7 @@ export default defineContentScript({
         autoPauseEachLine: settings.autoPauseEachLine,
       });
       if (trigger !== null) {
-        startAutoSync('background');
+        startAutoSync('background', trigger);
       }
     }
 

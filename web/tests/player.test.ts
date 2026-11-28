@@ -141,14 +141,14 @@ describe('web built-in player helpers (W-6 / #32)', () => {
       { at_ms: 900_000, offset_ms: -1_200 },
     ];
 
-    // Before first point: updates base sub_offset_ms only
+    // Before first point: updates base sub_offset_ms and sends both fields in patch (#185 nit)
     const before = applyPlayerOffsetToActiveStretch(120_000, 400, points, 500);
     expect(before.target).toBe('base');
     expect(before.subOffsetMs).toBe(500);
     expect(before.syncPoints).toEqual(points);
-    expect(before.patch).toEqual({ sub_offset_ms: 500 });
+    expect(before.patch).toEqual({ sub_offset_ms: 500, sync_points: points });
 
-    // Inside middle stretch: updates only the 420s point
+    // Inside middle stretch: updates only the 420s point and sends both fields in patch
     const middle = applyPlayerOffsetToActiveStretch(600_000, 400, points, 2_700);
     expect(middle.target).toBe('point');
     expect(middle.pointAtMs).toBe(420_000);
@@ -157,6 +157,6 @@ describe('web built-in player helpers (W-6 / #32)', () => {
       { at_ms: 420_000, offset_ms: 2_700 },
       { at_ms: 900_000, offset_ms: -1_200 },
     ]);
-    expect(middle.patch).toEqual({ sync_points: middle.syncPoints });
+    expect(middle.patch).toEqual({ sub_offset_ms: 400, sync_points: middle.syncPoints });
   });
 });

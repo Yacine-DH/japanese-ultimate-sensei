@@ -128,7 +128,7 @@ export function applyPlayerOffsetToActiveStretch(
       target: 'base',
       pointAtMs: null,
       offsetMs: roundedOffset,
-      patch: { sub_offset_ms: roundedOffset },
+      patch: { sub_offset_ms: roundedOffset, sync_points: normalized },
     };
   }
 
@@ -136,13 +136,14 @@ export function applyPlayerOffsetToActiveStretch(
   const updatedPoints = normalized.map((pt, idx) =>
     idx === ownerIdx ? { at_ms: pt.at_ms, offset_ms: roundedOffset } : pt,
   );
+  const roundedBase = Math.round(baseOffsetMs);
   return {
-    subOffsetMs: Math.round(baseOffsetMs),
+    subOffsetMs: roundedBase,
     syncPoints: updatedPoints,
     target: 'point',
     pointAtMs: owner.at_ms,
     offsetMs: roundedOffset,
-    patch: { sync_points: updatedPoints },
+    patch: { sub_offset_ms: roundedBase, sync_points: updatedPoints },
   };
 }
 

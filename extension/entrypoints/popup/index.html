@@ -296,6 +296,21 @@
         border-radius: 4px;
         padding: 1px 5px;
       }
+      .sync-last-attempt {
+        margin-top: 5px;
+        font-size: 0.7rem;
+        line-height: 1.3;
+        color: #94a3b8;
+      }
+      .sync-last-attempt.ok {
+        color: #86efac;
+      }
+      .sync-last-attempt.warn {
+        color: #fcd34d;
+      }
+      .sync-last-attempt.muted {
+        color: #94a3b8;
+      }
       .setup-card {
         display: none;
         background: rgba(56, 189, 248, 0.08);
@@ -670,6 +685,7 @@
             <button id="reset-sync-btn" type="button" class="small" disabled>Reset sync</button>
           </div>
           <div id="sync-points-list" class="sync-points-list" style="display: none"></div>
+          <div id="sync-last-attempt" class="sync-last-attempt muted"></div>
         </div>
         <div id="auto-sync-status" class="upload-status muted" style="display: none"></div>
       </div>

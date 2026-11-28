@@ -8,6 +8,7 @@ import {
   type AutoImport,
   type AutoImportOut,
   type CaptureVisibleTabResponse,
+  type ClaimAudioUnavailableHintResponse,
   type ClaimUnconfiguredHintResponse,
   type EpisodeOut,
   type EpisodeSyncUpdatedMessage,
@@ -15,6 +16,7 @@ import {
   executeMediaUpload,
   executeSubtitleUpload,
   executeSyncEpisode,
+  type GetSyncAttemptResponse,
   type ImportReport,
   isAnkiFlushQueueMessage,
   isAnkiImportDeckMessage,
@@ -22,13 +24,16 @@ import {
   isAnkiTestMessage,
   isApiCallMessage,
   isCaptureVisibleTabMessage,
+  isClaimAudioUnavailableHintMessage,
   isClaimUnconfiguredHintMessage,
   isConsumeAutoAttachNoticeMessage,
   isConsumeManualSearchFlagMessage,
   isGetNativeUpdateStateMessage,
+  isGetSyncAttemptMessage,
   isGetTabStateMessage,
   isOpenPopupSearchMessage,
   isOpenSetupPopupMessage,
+  isRecordSyncAttemptMessage,
   isSetTabStateMessage,
   isStartNativeUpdateMessage,
   isSyncEpisodeMessage,
@@ -41,6 +46,7 @@ import {
   type NativeUpdateStateResponse,
   type OpenPopupSearchResponse,
   type OpenSetupPopupResponse,
+  type SyncAttemptUpdatedMessage,
   type SyncPoint,
   type TabEpisodeState,
   type TabStateChangedMessage,
@@ -66,6 +72,10 @@ import {
   removeMappingsForDetach,
   type TabTitleWatchState,
 } from '../src/lib/auto-attach';
+import {
+  AudioUnavailableHintTracker,
+  AutoSyncStatusStore,
+} from '../src/lib/auto-sync';
 import { EpisodeTranscriptCache, type SessionStorageLike } from '../src/lib/line-cache';
 import { BackgroundNativeUpdater, type PopupUpdateUiState } from '../src/lib/native-updater';
 import { UnconfiguredServerHintTracker } from '../src/lib/server-hint';
@@ -160,6 +170,8 @@ export default defineBackground(() => {
   const manualSearchTabs = new Map<number, number>();
   const transcriptCache = new EpisodeTranscriptCache(getSessionStorage());
   const unconfiguredHintTracker = new UnconfiguredServerHintTracker(getSessionStorage());
+  const audioUnavailableHintTracker = new AudioUnavailableHintTracker(getSessionStorage());
+  const autoSyncStatusStore = new AutoSyncStatusStore(getSessionStorage());
   const ankiQueue = new AnkiPushQueue(getLocalStorage());
 
   async function broadcastNativeUpdateState(state: PopupUpdateUiState): Promise<void> {
@@ -957,6 +969,35 @@ export default defineBackground(() => {
             return { ok: true, opened: 'options' };
           }
           return { ok: false, opened: 'none' };
+        })();
+      }
+
+      if (isClaimAudioUnavailableHintMessage(message)) {
+        return (async (): Promise<ClaimAudioUnavailableHintResponse> => {
+          const show = await audioUnavailableHintTracker.claimForHost(message.host);
+          return { show };
+        })();
+      }
+
+      if (isRecordSyncAttemptMessage(message)) {
+        return (async () => {
+          await autoSyncStatusStore.set(message.record);
+          try {
+            await browser.runtime.sendMessage({
+              type: 'SENSEI_SYNC_ATTEMPT_UPDATED',
+              record: message.record,
+            } satisfies SyncAttemptUpdatedMessage);
+          } catch {
+            // Popup is closed or no extension page is listening
+          }
+          return { ok: true };
+        })();
+      }
+
+      if (isGetSyncAttemptMessage(message)) {
+        return (async (): Promise<GetSyncAttemptResponse> => {
+          const record = await autoSyncStatusStore.get(message.episodeId);
+          return { record };
         })();
       }
 
