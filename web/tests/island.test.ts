@@ -8,6 +8,7 @@ import {
   MAX_FLOORS,
   overallUnderstanding,
   pagodaFloors,
+  resolveCanvasResize,
   routeFor,
   sanitizeIslandSettings,
   saveIslandSettings,
@@ -120,6 +121,34 @@ describe('island settings', () => {
   it('survives corrupt storage', () => {
     localStorage.setItem('sensei_island', '{nope');
     expect(loadIslandSettings()).toEqual(DEFAULT_ISLAND_SETTINGS);
+  });
+});
+
+describe('resolveCanvasResize', () => {
+  it('skips resize when canvas dimensions are 0×0 or invalid', () => {
+    expect(resolveCanvasResize(0, 0)).toBeNull();
+    expect(resolveCanvasResize(0, 720)).toBeNull();
+    expect(resolveCanvasResize(1280, 0)).toBeNull();
+    expect(resolveCanvasResize(-10, 500)).toBeNull();
+    expect(resolveCanvasResize(Number.NaN, 500)).toBeNull();
+  });
+
+  it('skips resize on a hidden route and resizes once the route becomes visible', () => {
+    const hiddenRoute = routeFor('/player');
+    const visibleRoute = routeFor('/');
+    const calls: Array<[number, number]> = [];
+
+    // Mounting or resizing on /player (display: none -> 0x0, or hidden flag true)
+    const onHiddenMount = resolveCanvasResize(0, 0, hiddenRoute.hidden);
+    if (onHiddenMount) calls.push([onHiddenMount.width, onHiddenMount.height]);
+    const onHiddenResize = resolveCanvasResize(1280, 720, hiddenRoute.hidden);
+    if (onHiddenResize) calls.push([onHiddenResize.width, onHiddenResize.height]);
+    expect(calls).toEqual([]);
+
+    // Navigating back to Home (!route.hidden) with real layout dimensions
+    const onVisible = resolveCanvasResize(1280, 720, visibleRoute.hidden);
+    if (onVisible) calls.push([onVisible.width, onVisible.height]);
+    expect(calls).toEqual([[1280, 720]]);
   });
 });
 

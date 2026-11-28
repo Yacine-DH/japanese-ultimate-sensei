@@ -852,7 +852,13 @@ export function createIsland(canvas: HTMLCanvasElement, options: IslandOptions):
   };
   const onDown = (e: PointerEvent) => {
     ptr.down = e.target === canvas;
-    if (ptr.down) hop = 1;
+    if (ptr.down) {
+      ptr.tx = (e.clientX / innerWidth) * 2 - 1;
+      ptr.ty = -((e.clientY / innerHeight) * 2 - 1);
+      ptr.dx = 0;
+      ptr.dy = 0;
+      hop = 1;
+    }
   };
   const onUp = () => {
     ptr.down = false;
@@ -1057,6 +1063,7 @@ export function createIsland(canvas: HTMLCanvasElement, options: IslandOptions):
       }
     },
     resize(w, h) {
+      if (w <= 0 || h <= 0) return;
       W = Math.max(1, w);
       H = Math.max(1, h);
       renderer.setPixelRatio(Math.min(devicePixelRatio, options.light ? 1 : 1.75));

@@ -5,6 +5,7 @@ import {
   type IslandRoute,
   loadIslandSettings,
   type PagodaFloor,
+  resolveCanvasResize,
   type SceneQuality,
   timeOfDay,
 } from '../lib/island';
@@ -65,15 +66,21 @@ export function IslandStage({ route, floors, knownWords }: IslandStageProps) {
           },
         });
         handleRef.current = handle;
-        const resize = () => handle.resize(canvas.clientWidth, canvas.clientHeight);
+        const resize = () => {
+          const size = resolveCanvasResize(canvas.clientWidth, canvas.clientHeight);
+          if (size) handle.resize(size.width, size.height);
+        };
         resize();
         addEventListener('resize', resize);
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
+        ro?.observe(canvas);
         const followClock = () =>
           handle.setTime(loadIslandSettings().time ?? timeOfDay(new Date()));
         followClock();
         const clock = setInterval(followClock, 60_000);
         cleanup = () => {
           removeEventListener('resize', resize);
+          ro?.disconnect();
           clearInterval(clock);
           handle.dispose();
           handleRef.current = null;
@@ -99,6 +106,13 @@ export function IslandStage({ route, floors, knownWords }: IslandStageProps) {
       wide: route.layout === 'wide',
       hidden: route.hidden,
     });
+    if (!route.hidden) {
+      const canvas = canvasRef.current;
+      const size = canvas
+        ? resolveCanvasResize(canvas.clientWidth, canvas.clientHeight, route.hidden)
+        : null;
+      if (size) handleRef.current?.resize(size.width, size.height);
+    }
   }, [ready, route.view, route.layout, route.page, route.hidden]);
 
   const floorsKey = floors.map((f) => f.animeId ?? '-').join(',');

@@ -180,3 +180,25 @@ export function saveIslandSettings(patch: Partial<IslandSettings>): IslandSettin
   }
   return next;
 }
+
+export interface CanvasSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Decide whether the 3D island canvas should be resized.
+ * Hidden routes (e.g. `/player`) hide the canvas with `display: none` (0×0); skipping resize
+ * while hidden or 0×0 keeps the renderer from clamping to 1×1.
+ */
+export function resolveCanvasResize(
+  width: number,
+  height: number,
+  hidden = false,
+): CanvasSize | null {
+  if (hidden) return null;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
