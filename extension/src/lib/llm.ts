@@ -1,7 +1,9 @@
-import type { LineOut, LLMStatus, TranslationJob } from '../api/client';
+import type { LineOut, LLMStatus, TranslationJob, WordStatus } from '../api/client';
 import { findLineToReplay } from './replay';
 import type { GlossLanguage, TranslationDisplayMode } from './settings';
 import { findActiveLines } from './timing';
+
+export const TRANSLATION_POLL_INTERVAL_MS = 60_000;
 
 export type LlmLang = 'en' | 'de';
 
@@ -174,6 +176,117 @@ export function formatTranslationProgress(
     shouldPoll: false,
     detail: null,
   };
+}
+
+export function countTranslatedLines(lines: readonly LineOut[]): number {
+  let count = 0;
+  for (const line of lines) {
+    if (line.translation_en?.trim() || line.translation_de?.trim()) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+export function isTranslationJobComplete(
+  job: Pick<TranslationJob, 'translated_lines' | 'total_lines'> | null | undefined,
+): boolean {
+  if (!job || !Number.isFinite(job.total_lines) || job.total_lines <= 0) {
+    return true;
+  }
+  if (!Number.isFinite(job.translated_lines)) {
+    return false;
+  }
+  return job.translated_lines >= job.total_lines;
+}
+
+/**
+ * Decide whether the overlay should refetch `/episodes/{id}/lines` after a
+ * `GET /episodes/{id}/translate` poll returned `job`.
+ */
+export function shouldRefreshTranslations(
+  prevTranslatedLines: number,
+  job: Pick<TranslationJob, 'translated_lines' | 'total_lines'> | null | undefined,
+): boolean {
+  if (!job || !Number.isFinite(job.total_lines) || job.total_lines <= 0) {
+    return false;
+  }
+  if (!Number.isFinite(job.translated_lines) || job.translated_lines <= 0) {
+    return false;
+  }
+  const prev = Number.isFinite(prevTranslatedLines) ? Math.max(0, Math.floor(prevTranslatedLines)) : 0;
+  return job.translated_lines > prev;
+}
+
+export interface TranslationPollCheckParams {
+  episodeId: number | null;
+  overlayEnabled: boolean;
+  totalLines: number;
+  translatedLines: number;
+  complete: boolean;
+  isPlaying: boolean;
+  tabVisible: boolean;
+  inFlight: boolean;
+  nowMs: number;
+  lastPollAtMs: number | null;
+  intervalMs?: number;
+}
+
+/**
+ * Decide whether the content script should poll `GET /episodes/{id}/translate` now.
+ * Polls only while the episode has untranslated lines, the video is playing,
+ * and the tab is visible, at most once per `intervalMs` (default 60 s).
+ */
+export function shouldPollTranslationProgress(params: TranslationPollCheckParams): boolean {
+  if (
+    params.episodeId === null ||
+    !params.overlayEnabled ||
+    params.totalLines <= 0 ||
+    params.complete ||
+    params.translatedLines >= params.totalLines ||
+    !params.isPlaying ||
+    !params.tabVisible ||
+    params.inFlight
+  ) {
+    return false;
+  }
+  if (params.lastPollAtMs === null) {
+    return true;
+  }
+  const intervalMs = params.intervalMs ?? TRANSLATION_POLL_INTERVAL_MS;
+  return params.nowMs - params.lastPollAtMs >= intervalMs;
+}
+
+/**
+ * Apply locally-changed word statuses on top of freshly-fetched lines so
+ * in-flight translation refreshes never clobber recent Known/Ignore/Save clicks.
+ */
+export function applyWordStatusOverrides(
+  lines: readonly LineOut[],
+  overrides: ReadonlyMap<number, WordStatus>,
+): LineOut[] {
+  if (overrides.size === 0 || lines.length === 0) {
+    return lines as LineOut[];
+  }
+  let anyChanged = false;
+  const nextLines = lines.map((line) => {
+    let lineChanged = false;
+    const nextTokens = line.tokens.map((token) => {
+      if (token.word_id === null) return token;
+      const override = overrides.get(token.word_id);
+      if (override === undefined || token.status === override) {
+        return token;
+      }
+      lineChanged = true;
+      return { ...token, status: override };
+    });
+    if (!lineChanged) {
+      return line;
+    }
+    anyChanged = true;
+    return { ...line, tokens: nextTokens };
+  });
+  return anyChanged ? nextLines : (lines as LineOut[]);
 }
 
 export type InlineNode =

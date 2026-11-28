@@ -3,15 +3,21 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { LineOut, LLMStatus, TranslationJob } from '../src/api/client';
 import {
+  applyWordStatusOverrides,
+  countTranslatedLines,
   findLineForAction,
   formatTranslationProgress,
   glossLangToLlmLang,
+  isTranslationJobComplete,
   isTranslationUnreachable,
   parseInlineMarkdown,
   parseMarkdown,
   pickLineTranslationForLang,
   renderMarkdownToFragment,
   resolveOverlayTranslation,
+  shouldPollTranslationProgress,
+  shouldRefreshTranslations,
+  TRANSLATION_POLL_INTERVAL_MS,
 } from '../src/lib/llm';
 import { sanitizeSettings } from '../src/lib/settings';
 
@@ -310,5 +316,143 @@ describe('popup translation progress helpers (E-16, #135)', () => {
     expect(popupMain).toContain('getTranslationJob');
     expect(popupMain).toContain('formatTranslationProgress');
     expect(popupMain).toContain('buildSettingsUrl');
+  });
+});
+
+describe('overlay live translation refresh helpers (#186)', () => {
+  it('counts translated lines ignoring null and whitespace-only values', () => {
+    const sample = [
+      makeLine({ id: 1, translation_en: 'Hello', translation_de: null }),
+      makeLine({ id: 2, translation_en: null, translation_de: 'Hallo' }),
+      makeLine({ id: 3, translation_en: '   ', translation_de: '\n' }),
+      makeLine({ id: 4, translation_en: null, translation_de: null }),
+    ];
+    expect(countTranslatedLines(sample)).toBe(2);
+    expect(countTranslatedLines([])).toBe(0);
+  });
+
+  it('refreshes translations only when translated_lines grew past previous count', () => {
+    expect(shouldRefreshTranslations(10, makeJob({ translated_lines: 22, total_lines: 300 }))).toBe(
+      true,
+    );
+    expect(shouldRefreshTranslations(10, makeJob({ translated_lines: 10, total_lines: 300 }))).toBe(
+      false,
+    );
+    expect(shouldRefreshTranslations(10, makeJob({ translated_lines: 5, total_lines: 300 }))).toBe(
+      false,
+    );
+    expect(shouldRefreshTranslations(0, makeJob({ translated_lines: 0, total_lines: 300 }))).toBe(
+      false,
+    );
+    expect(shouldRefreshTranslations(0, makeJob({ translated_lines: 5, total_lines: 0 }))).toBe(
+      false,
+    );
+    expect(shouldRefreshTranslations(0, null)).toBe(false);
+  });
+
+  it('detects translation job completion', () => {
+    expect(isTranslationJobComplete(makeJob({ translated_lines: 300, total_lines: 300 }))).toBe(
+      true,
+    );
+    expect(isTranslationJobComplete(makeJob({ translated_lines: 299, total_lines: 300 }))).toBe(
+      false,
+    );
+    expect(isTranslationJobComplete(makeJob({ translated_lines: 0, total_lines: 0 }))).toBe(true);
+    expect(isTranslationJobComplete(null)).toBe(true);
+  });
+
+  it('polls only while playing, tab visible, incomplete, and interval elapsed', () => {
+    const base = {
+      episodeId: 42,
+      overlayEnabled: true,
+      totalLines: 300,
+      translatedLines: 10,
+      complete: false,
+      isPlaying: true,
+      tabVisible: true,
+      inFlight: false,
+      nowMs: 120_000,
+      lastPollAtMs: 50_000,
+    };
+
+    expect(shouldPollTranslationProgress(base)).toBe(true);
+    expect(shouldPollTranslationProgress({ ...base, lastPollAtMs: null })).toBe(true);
+    expect(
+      shouldPollTranslationProgress({
+        ...base,
+        nowMs: 50_000 + TRANSLATION_POLL_INTERVAL_MS - 1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPollTranslationProgress({
+        ...base,
+        nowMs: 50_000 + TRANSLATION_POLL_INTERVAL_MS,
+      }),
+    ).toBe(true);
+
+    // Stops when complete, paused, hidden, detached, inFlight, or all translated
+    expect(shouldPollTranslationProgress({ ...base, complete: true })).toBe(false);
+    expect(shouldPollTranslationProgress({ ...base, translatedLines: 300 })).toBe(false);
+    expect(shouldPollTranslationProgress({ ...base, isPlaying: false })).toBe(false);
+    expect(shouldPollTranslationProgress({ ...base, tabVisible: false })).toBe(false);
+    expect(shouldPollTranslationProgress({ ...base, inFlight: true })).toBe(false);
+    expect(shouldPollTranslationProgress({ ...base, overlayEnabled: false })).toBe(false);
+    expect(shouldPollTranslationProgress({ ...base, episodeId: null })).toBe(false);
+    expect(shouldPollTranslationProgress({ ...base, totalLines: 0 })).toBe(false);
+  });
+
+  it('preserves local word-status overrides when swapping in freshly-translated lines', () => {
+    const freshLines: LineOut[] = [
+      makeLine({
+        id: 1,
+        translation_en: 'Freshly translated!',
+        tokens: [
+          {
+            surface: '食べる',
+            reading: 'たべる',
+            lemma: '食べる',
+            lemma_reading: 'たべる',
+            pos: '動詞',
+            pos_detail: [],
+            romaji: 'taberu',
+            is_content: true,
+            is_proper_noun: false,
+            word_id: 101,
+            status: 'new',
+            common: true,
+            zipf: 5.2,
+            furigana: [],
+          },
+          {
+            surface: '猫',
+            reading: 'ねこ',
+            lemma: '猫',
+            lemma_reading: 'ねこ',
+            pos: '名詞',
+            pos_detail: [],
+            romaji: 'neko',
+            is_content: true,
+            is_proper_noun: false,
+            word_id: 202,
+            status: 'new',
+            common: true,
+            zipf: 4.8,
+            furigana: [],
+          },
+        ],
+      }),
+    ];
+
+    const overrides = new Map<number, 'known' | 'learning' | 'ignored' | 'new'>([
+      [101, 'known'],
+    ]);
+    const merged = applyWordStatusOverrides(freshLines, overrides);
+    expect(merged[0]?.translation_en).toBe('Freshly translated!');
+    expect(merged[0]?.tokens[0]?.status).toBe('known');
+    expect(merged[0]?.tokens[1]?.status).toBe('new');
+
+    // Preserves array reference when no overrides apply
+    const unchanged = applyWordStatusOverrides(freshLines, new Map([[999, 'ignored']]));
+    expect(unchanged).toBe(freshLines);
   });
 });

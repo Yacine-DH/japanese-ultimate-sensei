@@ -35,11 +35,16 @@ import {
   startSyncAudioRecording,
 } from '../src/lib/auto-sync';
 import {
+  applyWordStatusOverrides,
+  countTranslatedLines,
   findLineForAction,
   glossLangToLlmLang,
+  isTranslationJobComplete,
   type LlmLang,
   renderMarkdownToFragment,
   resolveOverlayTranslation,
+  shouldPollTranslationProgress,
+  shouldRefreshTranslations,
 } from '../src/lib/llm';
 import {
   bulkSaveMissedWords,
@@ -166,6 +171,11 @@ export default defineContentScript({
     let explainRequestSeq = 0;
     const revealedTranslationLineIds = new Set<number>();
     const explainCache = new Map<string, LineExplanation>();
+    const localWordStatusOverrides = new Map<number, WordStatus>();
+    let translationPollComplete = false;
+    let translationPollInFlight = false;
+    let lastTranslationPollAtMs: number | null = null;
+    let translationPollSeq = 0;
     let missedPromptedEpisodeId: number | null = null;
     let missedPanelSeq = 0;
     let toastEl: HTMLDivElement | null = null;
@@ -1843,6 +1853,7 @@ export default defineContentScript({
         });
 
         if (result.cardRes.ok) {
+          localWordStatusOverrides.set(token.word_id, 'learning');
           lines = updateWordStatusInLines(lines, token.word_id, 'learning');
           renderedLinesKey = null;
           syncSubtitleFrame();
@@ -1874,6 +1885,7 @@ export default defineContentScript({
       }
       const res = await api.setWordStatus(token.word_id, status);
       if (res.ok) {
+        localWordStatusOverrides.set(token.word_id, status);
         lines = updateWordStatusInLines(lines, token.word_id, status);
         renderedLinesKey = null;
         syncSubtitleFrame();
@@ -2536,6 +2548,9 @@ export default defineContentScript({
         const bulkRes = await api.bulkWordStatus(ids, status);
         if (seq !== missedPanelSeq || episodeId !== currentEpisodeId) return;
         if (bulkRes.ok) {
+          for (const id of ids) {
+            localWordStatusOverrides.set(id, status);
+          }
           lines = updateWordStatusesInLines(lines, ids, status);
           renderedLinesKey = null;
           syncSubtitleFrame();
@@ -2562,6 +2577,9 @@ export default defineContentScript({
           return created;
         });
         if (seq !== missedPanelSeq || episodeId !== currentEpisodeId) return;
+        for (const id of saveRes.savedWordIds) {
+          localWordStatusOverrides.set(id, 'learning');
+        }
         lines = updateWordStatusesInLines(lines, saveRes.savedWordIds, 'learning');
         renderedLinesKey = null;
         syncSubtitleFrame();
@@ -2694,6 +2712,79 @@ export default defineContentScript({
       }
     }
 
+    function resetTranslationRefreshState(): void {
+      translationPollSeq += 1;
+      translationPollInFlight = false;
+      translationPollComplete = false;
+      lastTranslationPollAtMs = null;
+    }
+
+    function tickTranslationRefresh(nowMs = Date.now()): void {
+      if (!currentVideo || currentEpisodeId === null) return;
+      const isPlaying =
+        !currentVideo.paused && !currentVideo.ended && currentVideo.readyState >= 2;
+      const tabVisible = document.visibilityState !== 'hidden';
+      const currentTranslatedCount = countTranslatedLines(lines);
+
+      if (
+        !shouldPollTranslationProgress({
+          episodeId: currentEpisodeId,
+          overlayEnabled: tabOverlayEnabled,
+          totalLines: lines.length,
+          translatedLines: currentTranslatedCount,
+          complete: translationPollComplete,
+          isPlaying,
+          tabVisible,
+          inFlight: translationPollInFlight,
+          nowMs,
+          lastPollAtMs: lastTranslationPollAtMs,
+        })
+      ) {
+        return;
+      }
+
+      const targetId = currentEpisodeId;
+      const pollSeq = ++translationPollSeq;
+      translationPollInFlight = true;
+      lastTranslationPollAtMs = nowMs;
+
+      void (async () => {
+        try {
+          const jobRes = await api.getTranslationJob(targetId);
+          if (pollSeq !== translationPollSeq || currentEpisodeId !== targetId) {
+            return;
+          }
+          if (!jobRes.ok || !jobRes.data) {
+            return;
+          }
+          const job = jobRes.data;
+          if (isTranslationJobComplete(job)) {
+            translationPollComplete = true;
+          }
+          const prevTranslated = countTranslatedLines(lines);
+          if (!shouldRefreshTranslations(prevTranslated, job)) {
+            return;
+          }
+          const linesRes = await api.getEpisodeLines(targetId);
+          if (pollSeq !== translationPollSeq || currentEpisodeId !== targetId) {
+            return;
+          }
+          if (linesRes.ok && linesRes.data) {
+            lines = applyWordStatusOverrides(linesRes.data, localWordStatusOverrides);
+            if (lines.length > 0 && countTranslatedLines(lines) >= lines.length) {
+              translationPollComplete = true;
+            }
+            renderedLinesKey = null;
+            syncSubtitleFrame();
+          }
+        } finally {
+          if (pollSeq === translationPollSeq) {
+            translationPollInFlight = false;
+          }
+        }
+      })();
+    }
+
     async function maybeLoadTranscript(): Promise<void> {
       const shouldLoad = shouldLoadTranscriptForFrame({
         hasQualifyingVideo: currentVideo !== null,
@@ -2707,6 +2798,8 @@ export default defineContentScript({
         syncPoints = [];
         loadedEpisodeId = null;
         renderedLinesKey = null;
+        localWordStatusOverrides.clear();
+        resetTranslationRefreshState();
         renderLines([]);
         syncOverlayControlsVisibility();
         return;
@@ -2722,6 +2815,8 @@ export default defineContentScript({
       const targetId = currentEpisodeId;
       loadedEpisodeId = targetId;
       renderedLinesKey = null;
+      localWordStatusOverrides.clear();
+      resetTranslationRefreshState();
 
       const [epRes, linesRes] = await Promise.all([
         api.getEpisode(targetId),
@@ -2738,7 +2833,10 @@ export default defineContentScript({
         syncPoints = [];
       }
       if (linesRes.ok && linesRes.data) {
-        lines = linesRes.data;
+        lines = applyWordStatusOverrides(linesRes.data, localWordStatusOverrides);
+        translationPollComplete =
+          lines.length === 0 || countTranslatedLines(lines) >= lines.length;
+        lastTranslationPollAtMs = Date.now();
         backgroundSyncScheduler.setOpeningGap(findOpeningGap(lines));
       }
       if (currentVideo) {
@@ -3167,9 +3265,11 @@ export default defineContentScript({
         tickBackgroundAutoSync(Date.now());
       }, 1000);
       setInterval(() => {
+        const nowMs = Date.now();
         if (currentVideo) {
-          dispatchWatchHeartbeat(watchHeartbeat.tick(Date.now()));
+          dispatchWatchHeartbeat(watchHeartbeat.tick(nowMs));
         }
+        tickTranslationRefresh(nowMs);
       }, 5000);
     });
   },
