@@ -113,17 +113,26 @@ function card() {
     kake.dataset.state = 'done';
     $('.due', kake).textContent = kake.dataset.done;
     ans.hidden = true;
+    btn.textContent = kake.dataset.restart;
     btn.hidden = false;
     return;
   }
   kake.dataset.state = 'front';
   $('.due', kake).innerHTML = `<b>${queue.length}</b> ${kake.dataset.due}`;
   const mark = $('.mark', lines[i]);
-  $('.sent', kake).innerHTML = $('.jp', lines[i]).innerHTML.replace(/<button[^>]*class="w( mark)?[^"]*"[^>]*>/g, (_, m) => `<span${m ? ' class="tgt"' : ''}>`).replace(/<\/button>/g, '</span>');
+  let highlighted = false;
+  $('.sent', kake).innerHTML = $('.jp', lines[i]).innerHTML
+    .replace(/<button[^>]*class="w( mark)?[^"]*"[^>]*>/g, (_, m) => {
+      const tgt = Boolean(m) && !highlighted;
+      if (tgt) highlighted = true;
+      return `<span${tgt ? ' class="tgt"' : ''}>`;
+    })
+    .replace(/<\/button>/g, '</span>');
   $('.word', kake).innerHTML = `<ruby>${mark.dataset.w}<rt>${mark.dataset.r}</rt></ruby>`;
   $('.gl', kake).textContent = `${mark.dataset.en} · ${mark.dataset.de}`;
   still($('.still', kake), +lines[i].dataset.hue, i);
   ans.hidden = true;
+  btn.textContent = kake.dataset.show;
   btn.hidden = false;
 }
 $('.show', kake).addEventListener('click', () => {
@@ -182,6 +191,6 @@ brush
     track();
     // the remaining kanji live in other font slices; have them ready before they are written
     const rest = sections.map((s) => s.dataset.kanji).join('') + '約束仲間諦';
-    document.fonts?.load('200px "Yuji Boku"', rest).catch(() => {});
+    document.fonts?.load('200px "Yuji Boku"', rest).then(() => ink?.rewrite()).catch(() => {});
   })
   .catch((err) => console.warn('The ink scene could not start; the page works without it.', err));

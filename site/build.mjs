@@ -9,6 +9,7 @@ import { build } from 'esbuild';
 import en from './copy.en.mjs';
 import ja from './copy.ja.mjs';
 import { assertPublishable } from './guard.mjs';
+import { selectDownloads } from './src/downloads.mjs';
 import { LINES, notFound, page } from './src/template.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -26,17 +27,26 @@ const downloads = {};
 let serverZip = null;
 let version = process.env.SITE_VERSION?.replace(/^v/, '') || '';
 if (existsSync(at('downloads'))) {
-  for (const file of readdirSync(at('downloads')).filter((f) => f.endsWith('.zip'))) {
-    const buf = readFileSync(at('downloads', file));
-    assertPublishable(file, buf);
-    const m = file.match(/^sensei-extension-(\d[\d.]*)-(chrome|firefox)\.zip$/);
-    if (m) {
-      version ||= m[1];
-      downloads[m[2]] = { file, bytes: buf.length, sha256: createHash('sha256').update(buf).digest('hex') };
-    } else if (/^sensei-server.*\.zip$/.test(file)) serverZip = file;
-    else continue;
+  const picked = selectDownloads(readdirSync(at('downloads')), version);
+  version = picked.version;
+  for (const [browser, entry] of Object.entries(picked.browsers)) {
+    const buf = readFileSync(at('downloads', entry.file));
+    assertPublishable(entry.file, buf);
+    downloads[browser] = {
+      file: entry.file,
+      version: entry.version,
+      bytes: buf.length,
+      sha256: createHash('sha256').update(buf).digest('hex'),
+    };
     mkdirSync(join(DIST, 'downloads'), { recursive: true });
-    cpSync(at('downloads', file), join(DIST, 'downloads', file));
+    cpSync(at('downloads', entry.file), join(DIST, 'downloads', entry.file));
+  }
+  if (picked.serverZip) {
+    const buf = readFileSync(at('downloads', picked.serverZip));
+    assertPublishable(picked.serverZip, buf);
+    serverZip = picked.serverZip;
+    mkdirSync(join(DIST, 'downloads'), { recursive: true });
+    cpSync(at('downloads', serverZip), join(DIST, 'downloads', serverZip));
   }
 }
 

@@ -71,7 +71,7 @@ export function page(t, ctx) {
   const sec = (id, side, kanji, inner, extra = '') => `<section id="${id}" class="scene ${side}" data-kanji="${kanji}" data-side="${side}" ${extra}><div class="in">${inner}</div></section>`;
   const dl = (k) => {
     const d = downloads[k];
-    return `<div class="dl"><h3>${t.download[k]}</h3>${d ? `<p>${t.download.version} ${esc(version)} · ${kb(d.bytes)}</p><a class="btn" href="${root}downloads/${d.file}" download>${t.download.zip}</a><p class="sha"><span>${t.download.sha}</span> <code>${d.sha256}</code></p>` : `<p>${t.download.missing}</p>`}</div>`;
+    return `<div class="dl"><h3>${t.download[k]}</h3>${d ? `<p>${t.download.version} ${esc(d.version || version)} · ${kb(d.bytes)}</p><a class="btn" href="${root}downloads/${d.file}" download>${t.download.zip}</a><p class="sha"><span>${t.download.sha}</span> <code>${d.sha256}</code></p>` : `<p>${t.download.missing}</p>`}</div>`;
   };
   return `<!doctype html>
 <html lang="${t.lang}"><head>
@@ -115,7 +115,7 @@ ${sec(
   'right',
   t.review.kanji,
   `<h2>${t.review.h2}</h2><p>${t.review.p}</p>
-  <div class="kake" data-state="front" data-due="${t.review.due}" data-done="${esc(t.review.done)}"><p class="due"><b>3</b> ${t.review.due}</p><figure><canvas class="still" width="640" height="360" role="img" aria-label="${t.try.scene}"></canvas><figcaption>${t.review.caption}</figcaption></figure><p class="sent" lang="ja"></p><div class="act"><button type="button" class="btn show">${t.review.show}</button><div class="ans" hidden><p class="word" lang="ja"></p><p class="gl"></p><div class="rates">${t.review.rates.map(([n, d], i) => `<button type="button" data-r="${i + 1}"><b>${n}</b><small>${d}</small></button>`).join('')}</div></div></div></div>`,
+  <div class="kake" data-state="front" data-due="${t.review.due}" data-done="${esc(t.review.done)}" data-show="${esc(t.review.show)}" data-restart="${esc(t.review.restart)}"><p class="due"><b>3</b> ${t.review.due}</p><figure><canvas class="still" width="640" height="360" role="img" aria-label="${t.try.scene}"></canvas><figcaption>${t.review.caption}</figcaption></figure><p class="sent" lang="ja"></p><div class="act"><button type="button" class="btn show">${t.review.show}</button><div class="ans" hidden><p class="word" lang="ja"></p><p class="gl"></p><div class="rates">${t.review.rates.map(([n, d], i) => `<button type="button" data-r="${i + 1}"><b>${n}</b><small>${d}</small></button>`).join('')}</div></div></div></div>`,
 )}
 ${sec('how', 'left', t.how.kanji, `<h2>${t.how.h2}</h2><ol class="steps">${t.how.steps.map(([k, h, p]) => `<li><span class="k" lang="ja" aria-hidden="true">${k}</span><div><h3>${h}</h3><p>${p}</p></div></li>`).join('')}</ol>`)}
 ${sec('features', 'right', t.features.kanji, `<h2>${t.features.h2}</h2><dl class="feats">${t.features.items.map(([h, p]) => `<div><dt>${h}</dt><dd>${p}</dd></div>`).join('')}</dl>`)}
