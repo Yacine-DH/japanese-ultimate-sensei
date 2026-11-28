@@ -1,10 +1,11 @@
-import type { ApiCallResponse, EpisodeOut, SyncOut, SyncPoint } from '../api/client';
+import type { ApiCallResponse, EpisodeOut, LineOut, SyncOut, SyncPoint } from '../api/client';
 import {
   AUDIO_MIME_CANDIDATES,
   getVideoCaptureStream,
   pickRecorderMimeType,
   type VideoWithCaptureStream,
 } from './capture';
+import type { SessionStorageLike } from './line-cache';
 import { normalizeSyncPoints } from './timing';
 
 export const AUTO_SYNC_DURATION_MS = 45_000;
@@ -19,8 +20,18 @@ export const BACKGROUND_SYNC_SEEK_BURST_MS = 2_500;
 export const BACKGROUND_SYNC_TOAST_MIN_DELTA_MS = 100;
 export const BACKGROUND_SYNC_MAX_TICK_STEP_MS = 10_000;
 
+export const OPENING_GAP_MIN_MS = 60_000;
+export const OPENING_GAP_MAX_START_MS = 8 * 60_000;
+export const OPENING_GAP_SYNC_DELAY_MS = 2_000;
+export const OPENING_GAP_TRIGGER_WINDOW_MS = 60_000;
+
+export const AUTO_SYNC_UNAVAILABLE_TOAST =
+  "Auto-sync can't hear this video (site blocks audio capture). Use / or , . to fix timing.";
+export const AUTO_SYNC_UNAVAILABLE_HOSTS_SESSION_KEY = 'sensei_auto_sync_unavailable_hosts';
+export const AUTO_SYNC_LAST_ATTEMPTS_SESSION_KEY = 'sensei_auto_sync_last_attempts';
+
 export type AutoSyncRunMode = 'manual' | 'background';
-export type BackgroundSyncTriggerReason = 'periodic' | 'seek';
+export type BackgroundSyncTriggerReason = 'periodic' | 'seek' | 'opening';
 
 export const AUTO_SYNC_ABORT_MESSAGE = 'Keep it playing at 1× while syncing';
 export const AUTO_SYNC_DIALOGUE_HINT = 'Try during dialogue, not during the opening song.';
@@ -871,17 +882,318 @@ export function startSyncAudioRecording(params: {
   };
 }
 
+export interface OpeningGap {
+  startMs: number;
+  endMs: number;
+  durationMs: number;
+}
+
+/**
+ * Find the first long subtitle gap (default ≥ 60 s starting within the first ~8 min
+ * of subtitle time) that typically corresponds to the anime opening song (#187).
+ * Handles both cold-open → OP → dialogue and immediate-OP → dialogue layouts.
+ */
+export function findOpeningGap(
+  lines: readonly Pick<LineOut, 'start_ms' | 'end_ms'>[],
+  options?: { minGapMs?: number; maxStartMs?: number },
+): OpeningGap | null {
+  if (lines.length === 0) {
+    return null;
+  }
+  const minGapMs = Math.max(1_000, Math.round(options?.minGapMs ?? OPENING_GAP_MIN_MS));
+  const maxStartMs = Math.max(0, Math.round(options?.maxStartMs ?? OPENING_GAP_MAX_START_MS));
+
+  const ordered = [...lines]
+    .filter((l) => Number.isFinite(l.start_ms) && Number.isFinite(l.end_ms))
+    .sort((a, b) => a.start_ms - b.start_ms);
+
+  if (ordered.length === 0) {
+    return null;
+  }
+
+  let runningEndMs = 0;
+  for (const line of ordered) {
+    const startMs = Math.max(0, Math.round(line.start_ms));
+    const endMs = Math.max(startMs, Math.round(line.end_ms));
+
+    if (runningEndMs > maxStartMs) {
+      break;
+    }
+
+    const gapMs = startMs - runningEndMs;
+    if (gapMs >= minGapMs) {
+      return {
+        startMs: runningEndMs,
+        endMs: startMs,
+        durationMs: gapMs,
+      };
+    }
+
+    if (endMs > runningEndMs) {
+      runningEndMs = endMs;
+    }
+  }
+
+  return null;
+}
+
+export type AutoSyncAttemptKind =
+  | 'applied'
+  | 'not_applied'
+  | 'unavailable'
+  | 'paused'
+  | 'disabled'
+  | 'aborted'
+  | 'error';
+
+export interface AutoSyncAttemptRecord {
+  episodeId: number;
+  atMs: number;
+  mode: AutoSyncRunMode;
+  trigger?: BackgroundSyncTriggerReason | 'manual';
+  kind: AutoSyncAttemptKind;
+  method?: 'asr' | 'vad';
+  offsetMs?: number;
+  action?: SyncOut['action'];
+  syncPointAtMs?: number;
+  detail?: string;
+}
+
+export interface LastSyncAttemptPresentation {
+  text: string;
+  tone: 'ok' | 'warn' | 'muted';
+  detail: string | null;
+}
+
+export function formatRelativeSyncTime(atMs: number, nowMs = Date.now()): string {
+  if (!Number.isFinite(atMs) || atMs <= 0) {
+    return '';
+  }
+  const diffSec = Math.max(0, Math.floor((nowMs - atMs) / 1000));
+  if (diffSec < 30) {
+    return 'just now';
+  }
+  if (diffSec < 3600) {
+    return `${Math.floor(diffSec / 60)}m ago`;
+  }
+  if (diffSec < 86_400) {
+    return `${Math.floor(diffSec / 3600)}h ago`;
+  }
+  return `${Math.floor(diffSec / 86_400)}d ago`;
+}
+
+export function formatLastSyncAttempt(
+  record: AutoSyncAttemptRecord | null | undefined,
+  options?: { backgroundAutoSyncEnabled?: boolean; nowMs?: number },
+): LastSyncAttemptPresentation {
+  if (!record) {
+    if (options?.backgroundAutoSyncEnabled === false) {
+      return {
+        text: 'Last auto-sync: disabled in Options',
+        tone: 'muted',
+        detail: null,
+      };
+    }
+    return {
+      text: 'Last auto-sync: not run yet',
+      tone: 'muted',
+      detail: null,
+    };
+  }
+
+  const when = formatRelativeSyncTime(record.atMs, options?.nowMs);
+  const prefix = when ? `Last sync ${when}` : 'Last sync';
+  const methodTag = record.method ? `${record.method.toUpperCase()} ` : '';
+
+  switch (record.kind) {
+    case 'applied': {
+      const offsetStr = formatOffsetSeconds(record.offsetMs ?? 0);
+      const actionStr =
+        record.action === 'point'
+          ? `point @ ${formatSyncTimestamp(record.syncPointAtMs ?? 0)}`
+          : (record.action ?? 'applied');
+      return {
+        text: `${prefix} · ${methodTag}${offsetStr} (${actionStr})`,
+        tone: 'ok',
+        detail: record.detail?.trim() || null,
+      };
+    }
+    case 'not_applied': {
+      const reason = record.detail?.trim() || 'not enough speech';
+      return {
+        text: `${prefix} · ${methodTag}no match (${reason})`,
+        tone: 'warn',
+        detail:
+          record.offsetMs !== undefined
+            ? `Guess ${formatOffsetSeconds(record.offsetMs)}`
+            : null,
+      };
+    }
+    case 'unavailable':
+      return {
+        text: `${prefix} · unavailable (site blocks audio capture)`,
+        tone: 'warn',
+        detail: record.detail?.trim() || null,
+      };
+    case 'paused':
+      return {
+        text: `${prefix} · skipped (${record.detail?.trim() || 'paused'})`,
+        tone: 'muted',
+        detail: null,
+      };
+    case 'disabled':
+      return {
+        text: 'Last auto-sync: disabled in Options',
+        tone: 'muted',
+        detail: null,
+      };
+    case 'aborted':
+      return {
+        text: `${prefix} · aborted (${record.detail?.trim() || 'playback changed'})`,
+        tone: 'muted',
+        detail: null,
+      };
+    case 'error':
+      return {
+        text: `${prefix} · failed (${record.detail?.trim() || 'request error'})`,
+        tone: 'warn',
+        detail: null,
+      };
+  }
+}
+
+/**
+ * Tracks hosts where the one-time "can't hear this video" toast has already
+ * been shown during the current browser session (#187).
+ */
+export class AudioUnavailableHintTracker {
+  private readonly hostsInMemory = new Set<string>();
+  private queue: Promise<void> = Promise.resolve();
+
+  constructor(private readonly storage: SessionStorageLike | null) {}
+
+  async claimForHost(rawHost: string | null | undefined): Promise<boolean> {
+    const host = rawHost?.trim().toLowerCase() || '__unknown__';
+    let claimed = false;
+
+    const next = this.queue.then(async () => {
+      if (this.hostsInMemory.has(host)) {
+        claimed = false;
+        return;
+      }
+
+      let storedHosts: string[] = [];
+      if (this.storage) {
+        try {
+          const data = await this.storage.get(AUTO_SYNC_UNAVAILABLE_HOSTS_SESSION_KEY);
+          const raw = data?.[AUTO_SYNC_UNAVAILABLE_HOSTS_SESSION_KEY];
+          if (Array.isArray(raw)) {
+            storedHosts = raw.filter((item): item is string => typeof item === 'string');
+            for (const h of storedHosts) {
+              this.hostsInMemory.add(h);
+            }
+          }
+        } catch {
+          // Fall back to in-memory set
+        }
+      }
+
+      if (this.hostsInMemory.has(host)) {
+        claimed = false;
+        return;
+      }
+
+      this.hostsInMemory.add(host);
+      if (this.storage) {
+        try {
+          const nextList = Array.from(new Set([...storedHosts, host]));
+          await this.storage.set({ [AUTO_SYNC_UNAVAILABLE_HOSTS_SESSION_KEY]: nextList });
+        } catch {
+          // Best-effort persistence
+        }
+      }
+      claimed = true;
+    });
+
+    this.queue = next.catch(() => undefined);
+    await next;
+    return claimed;
+  }
+}
+
+/**
+ * Stores the latest auto-sync attempt per episode in memory + `storage.session`
+ * so the popup can always explain what happened (#187).
+ */
+export class AutoSyncStatusStore {
+  private readonly records = new Map<number, AutoSyncAttemptRecord>();
+  private loadedFromStorage = false;
+
+  constructor(private readonly storage: SessionStorageLike | null) {}
+
+  private async ensureLoaded(): Promise<void> {
+    if (this.loadedFromStorage || !this.storage) {
+      this.loadedFromStorage = true;
+      return;
+    }
+    this.loadedFromStorage = true;
+    try {
+      const data = await this.storage.get(AUTO_SYNC_LAST_ATTEMPTS_SESSION_KEY);
+      const raw = data?.[AUTO_SYNC_LAST_ATTEMPTS_SESSION_KEY];
+      if (raw && typeof raw === 'object') {
+        for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+          const epId = Number(key);
+          if (
+            Number.isInteger(epId) &&
+            val &&
+            typeof val === 'object' &&
+            typeof (val as AutoSyncAttemptRecord).kind === 'string'
+          ) {
+            this.records.set(epId, val as AutoSyncAttemptRecord);
+          }
+        }
+      }
+    } catch {
+      // Ignore session storage read errors
+    }
+  }
+
+  async set(record: AutoSyncAttemptRecord): Promise<void> {
+    await this.ensureLoaded();
+    this.records.set(record.episodeId, record);
+    if (this.storage) {
+      try {
+        const serialized: Record<string, AutoSyncAttemptRecord> = {};
+        for (const [id, rec] of this.records.entries()) {
+          serialized[String(id)] = rec;
+        }
+        await this.storage.set({ [AUTO_SYNC_LAST_ATTEMPTS_SESSION_KEY]: serialized });
+      } catch {
+        // Ignore session storage write errors
+      }
+    }
+  }
+
+  async get(episodeId: number): Promise<AutoSyncAttemptRecord | null> {
+    await this.ensureLoaded();
+    return this.records.get(episodeId) ?? null;
+  }
+}
+
 export interface BackgroundAutoSyncSchedulerOptions {
   enabled?: boolean;
   intervalMs?: number;
   seekThresholdMs?: number;
   seekSettleMs?: number;
   seekBurstMs?: number;
+  openingDelayMs?: number;
+  openingWindowMs?: number;
 }
 
 export interface BackgroundSyncTickInput {
   nowMs: number;
   videoMs: number;
+  effectiveOffsetMs?: number;
   episodeId: number | null;
   overlayEnabled: boolean;
   isPlaying: boolean;
@@ -894,15 +1206,18 @@ export interface BackgroundSyncTickInput {
 }
 
 /**
- * Decides when to quietly kick off a 45 s background re-sync sample (#138):
+ * Decides when to quietly kick off a 45 s background re-sync sample (#138, #187):
  * - Periodically after ~3 minutes of normal 1× playback with subtitles attached.
- * - Right after any seek (or rapid scrub burst) of more than 30 s, once playback settles.
+ * - Right after any seek (or rapid scrub burst / "Skip intro" jump) of more than 30 s, once playback settles.
+ * - Shortly after the first long subtitle gap (opening song) ends, where TV-timed files jump.
  */
 export class BackgroundAutoSyncScheduler {
   readonly intervalMs: number;
   readonly seekThresholdMs: number;
   readonly seekSettleMs: number;
   readonly seekBurstMs: number;
+  readonly openingDelayMs: number;
+  readonly openingWindowMs: number;
 
   private enabled: boolean;
   private episodeId: number | null = null;
@@ -913,6 +1228,8 @@ export class BackgroundAutoSyncScheduler {
   private seekOriginVideoMs: number | null = null;
   private lastSeekWallMs: number | null = null;
   private pendingSeekSyncAtMs: number | null = null;
+  private openingGap: OpeningGap | null = null;
+  private openingSyncTriggered = false;
 
   constructor(options: BackgroundAutoSyncSchedulerOptions = {}) {
     this.enabled = options.enabled ?? true;
@@ -926,6 +1243,14 @@ export class BackgroundAutoSyncScheduler {
       Math.round(options.seekSettleMs ?? BACKGROUND_SYNC_SEEK_SETTLE_MS),
     );
     this.seekBurstMs = Math.max(0, Math.round(options.seekBurstMs ?? BACKGROUND_SYNC_SEEK_BURST_MS));
+    this.openingDelayMs = Math.max(
+      0,
+      Math.round(options.openingDelayMs ?? OPENING_GAP_SYNC_DELAY_MS),
+    );
+    this.openingWindowMs = Math.max(
+      5_000,
+      Math.round(options.openingWindowMs ?? OPENING_GAP_TRIGGER_WINDOW_MS),
+    );
   }
 
   setEnabled(enabled: boolean): void {
@@ -938,6 +1263,27 @@ export class BackgroundAutoSyncScheduler {
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  isUnavailableForVideo(): boolean {
+    return this.unavailableForVideo;
+  }
+
+  setOpeningGap(gap: OpeningGap | null): void {
+    this.openingGap = gap;
+    this.openingSyncTriggered = false;
+  }
+
+  getOpeningGap(): OpeningGap | null {
+    return this.openingGap;
+  }
+
+  observeVideoPosition(videoMs: number, nowMs: number): void {
+    if (!Number.isFinite(videoMs) || videoMs < 0) return;
+    if (this.lastSteadyVideoMs === null) {
+      this.lastSteadyVideoMs = videoMs;
+      this.lastTickWallMs = nowMs;
+    }
   }
 
   markUnavailableForVideo(): void {
@@ -964,14 +1310,24 @@ export class BackgroundAutoSyncScheduler {
     this.seekOriginVideoMs = null;
     this.lastSeekWallMs = null;
     this.pendingSeekSyncAtMs = null;
+    this.openingGap = null;
+    this.openingSyncTriggered = false;
   }
 
-  markSyncStarted(nowMs: number): void {
+  markSyncStarted(nowMs: number, videoMs?: number, effectiveOffsetMs = 0): void {
     this.playingMsSinceLastSync = 0;
     this.pendingSeekSyncAtMs = null;
     this.seekOriginVideoMs = null;
     this.lastSeekWallMs = null;
     this.lastTickWallMs = nowMs;
+    if (
+      this.openingGap !== null &&
+      videoMs !== undefined &&
+      Number.isFinite(videoMs) &&
+      videoMs >= this.openingGap.endMs + effectiveOffsetMs - 15_000
+    ) {
+      this.openingSyncTriggered = true;
+    }
   }
 
   markSyncFinished(nowMs: number): void {
@@ -1021,7 +1377,30 @@ export class BackgroundAutoSyncScheduler {
       this.resetForEpisode(input.episodeId);
     }
 
-    if (!input.isSeeking && !input.isCapturing && Number.isFinite(input.videoMs) && input.videoMs >= 0) {
+    // Detect discontinuous > 30 s jumps (e.g. a site's "Skip intro" button that shifts
+    // currentTime by ~85 s before or without a separate seeked callback reaching us first).
+    if (
+      !input.isSeeking &&
+      !input.isCapturing &&
+      Number.isFinite(input.videoMs) &&
+      input.videoMs >= 0
+    ) {
+      if (
+        this.lastSteadyVideoMs !== null &&
+        this.enabled &&
+        !this.unavailableForVideo &&
+        input.episodeId !== null &&
+        this.pendingSeekSyncAtMs === null
+      ) {
+        const wallDelta =
+          this.lastTickWallMs !== null ? Math.max(0, input.nowMs - this.lastTickWallMs) : 0;
+        const rate = Number.isFinite(input.playbackRate) ? Math.max(1, Math.abs(input.playbackRate)) : 1;
+        const expectedMaxAdvance = wallDelta * rate + 5_000;
+        const actualDelta = Math.abs(input.videoMs - this.lastSteadyVideoMs);
+        if (actualDelta > this.seekThresholdMs && actualDelta > expectedMaxAdvance) {
+          this.pendingSeekSyncAtMs = input.nowMs + this.seekSettleMs;
+        }
+      }
       this.lastSteadyVideoMs = input.videoMs;
     }
 
@@ -1062,10 +1441,34 @@ export class BackgroundAutoSyncScheduler {
         this.lastSeekWallMs = null;
         this.playingMsSinceLastSync = 0;
         this.lastTickWallMs = input.nowMs;
+        if (
+          this.openingGap !== null &&
+          input.videoMs >= this.openingGap.endMs + (input.effectiveOffsetMs ?? 0) - 15_000
+        ) {
+          this.openingSyncTriggered = true;
+        }
         return 'seek';
       }
       this.lastTickWallMs = input.nowMs;
       return null;
+    }
+
+    // Trigger once shortly after the opening gap ends (where TV-timed subs jump).
+    if (this.openingGap !== null && !this.openingSyncTriggered && Number.isFinite(input.videoMs)) {
+      const triggerAtVideoMs =
+        this.openingGap.endMs + (input.effectiveOffsetMs ?? 0) + this.openingDelayMs;
+      if (
+        input.videoMs >= triggerAtVideoMs &&
+        input.videoMs <= triggerAtVideoMs + this.openingWindowMs
+      ) {
+        this.openingSyncTriggered = true;
+        this.playingMsSinceLastSync = 0;
+        this.lastTickWallMs = input.nowMs;
+        return 'opening';
+      }
+      if (input.videoMs > triggerAtVideoMs + this.openingWindowMs) {
+        this.openingSyncTriggered = true;
+      }
     }
 
     if (this.lastTickWallMs !== null) {

@@ -6,24 +6,30 @@ import {
   type SyncOut,
 } from '../src/api/client';
 import {
+  AudioUnavailableHintTracker,
   AUTO_SYNC_ABORT_MESSAGE,
   AUTO_SYNC_DIALOGUE_HINT,
   AUTO_SYNC_DURATION_MS,
   AUTO_SYNC_MAX_DRIFT_MS,
+  AUTO_SYNC_UNAVAILABLE_TOAST,
   AutoSyncStateMachine,
+  AutoSyncStatusStore,
   BACKGROUND_SYNC_INTERVAL_MS,
   BACKGROUND_SYNC_SEEK_SETTLE_MS,
   BACKGROUND_SYNC_SEEK_THRESHOLD_MS,
   BackgroundAutoSyncScheduler,
   buildSyncOutcomePresentation,
   checkSyncPlaybackDrift,
+  findOpeningGap,
   formatBackgroundSyncToast,
+  formatLastSyncAttempt,
   formatManualApplyToast,
   formatOffsetSeconds,
   formatSyncConfidenceMeta,
   formatSyncProgressText,
   formatSyncSummary,
   formatSyncTimestamp,
+  OPENING_GAP_SYNC_DELAY_MS,
   startSyncAudioRecording,
 } from '../src/lib/auto-sync';
 import { EpisodeTranscriptCache } from '../src/lib/line-cache';
@@ -44,6 +50,8 @@ const SAMPLE_SYNC_APPLIED: SyncOut = {
   sample_ms: 45000,
   lines_in_window: 21,
   detail: 'ok',
+  method: 'vad',
+  anchors: 0,
 };
 
 const SAMPLE_SYNC_POINT: SyncOut = {
@@ -62,6 +70,8 @@ const SAMPLE_SYNC_POINT: SyncOut = {
   sample_ms: 45000,
   lines_in_window: 24,
   detail: 'ok',
+  method: 'asr',
+  anchors: 5,
 };
 
 const SAMPLE_SYNC_UNCONFIDENT: SyncOut = {
@@ -80,6 +90,8 @@ const SAMPLE_SYNC_UNCONFIDENT: SyncOut = {
   sample_ms: 45000,
   lines_in_window: 14,
   detail: 'No clear match (possibly music or opening)',
+  method: 'vad',
+  anchors: 0,
 };
 
 afterEach(() => {
@@ -883,5 +895,245 @@ describe('sync API proxy & episode offset cache (#99)', () => {
     expect(epRes2.ok).toBe(true);
     expect(epRes2.data?.sub_offset_ms).toBe(1200);
     expect(epRes2.data?.sync_points).toEqual([{ at_ms: 642_000, offset_ms: 2300 }]);
+  });
+});
+
+describe('opening gap detection & post-opening / Skip intro scheduling (#187)', () => {
+  it('finds the first >= 60 s subtitle gap within the first 8 minutes', () => {
+    // Cold open (0:05 - 1:45), 90 s opening (1:45 - 3:15), then post-OP dialogue
+    const coldOpenLines = [
+      { start_ms: 5_000, end_ms: 9_000 },
+      { start_ms: 10_000, end_ms: 105_000 },
+      { start_ms: 195_000, end_ms: 199_000 },
+      { start_ms: 200_000, end_ms: 204_000 },
+    ];
+    expect(findOpeningGap(coldOpenLines)).toEqual({
+      startMs: 105_000,
+      endMs: 195_000,
+      durationMs: 90_000,
+    });
+
+    // Episode starts directly with a 90 s OP (no cold open)
+    const immediateOpLines = [
+      { start_ms: 90_000, end_ms: 94_000 },
+      { start_ms: 96_000, end_ms: 100_000 },
+    ];
+    expect(findOpeningGap(immediateOpLines)).toEqual({
+      startMs: 0,
+      endMs: 90_000,
+      durationMs: 90_000,
+    });
+
+    // Overlapping lines do not create a false gap; gaps < 60 s are ignored
+    const shortGapLines = [
+      { start_ms: 5_000, end_ms: 80_000 },
+      { start_ms: 20_000, end_ms: 30_000 },
+      { start_ms: 139_999, end_ms: 145_000 },
+    ];
+    expect(findOpeningGap(shortGapLines)).toBeNull();
+
+    // Gap starting after 8 minutes (480_000 ms) is ignored (e.g. mid-episode eye-catch or ED)
+    const lateGapLines = [
+      { start_ms: 5_000, end_ms: 485_000 },
+      { start_ms: 600_000, end_ms: 605_000 },
+    ];
+    expect(findOpeningGap(lateGapLines)).toBeNull();
+
+    expect(findOpeningGap([])).toBeNull();
+  });
+
+  it('triggers background re-sync shortly after the opening gap ends without double-firing', () => {
+    const sched = new BackgroundAutoSyncScheduler({ intervalMs: 180_000, seekSettleMs: 1_500 });
+    const baseTick = {
+      episodeId: 12,
+      overlayEnabled: true,
+      isPlaying: true,
+      isSeeking: false,
+      playbackRate: 1,
+      isBuffering: false,
+      isCapturing: false,
+      isSyncActive: false,
+      autoPauseEachLine: false,
+      effectiveOffsetMs: -300,
+    };
+
+    sched.resetForEpisode(12);
+    sched.setOpeningGap({ startMs: 105_000, endMs: 195_000, durationMs: 90_000 });
+
+    // During cold open and OP -> no trigger yet
+    expect(sched.tick({ ...baseTick, nowMs: 1_000, videoMs: 100_000 })).toBeNull();
+    expect(sched.tick({ ...baseTick, nowMs: 95_000, videoMs: 194_000 })).toBeNull();
+
+    // Right after opening ends + 2 s delay (195_000 - 300 + 2_000 = 196_700) -> triggers 'opening'
+    expect(
+      sched.tick({
+        ...baseTick,
+        nowMs: 98_000,
+        videoMs: 195_000 - 300 + OPENING_GAP_SYNC_DELAY_MS,
+      }),
+    ).toBe('opening');
+
+    // Subsequent ticks past the opening do not re-trigger 'opening'
+    expect(sched.tick({ ...baseTick, nowMs: 100_000, videoMs: 200_000 })).toBeNull();
+
+    // Resuming an episode already at 12:00 does NOT spuriously trigger 'opening'
+    sched.resetForEpisode(13);
+    sched.setOpeningGap({ startMs: 105_000, endMs: 195_000, durationMs: 90_000 });
+    expect(sched.tick({ ...baseTick, episodeId: 13, nowMs: 1_000, videoMs: 720_000 })).toBeNull();
+  });
+
+  it('fires >30 s seek trigger for a site "Skip intro" (~85 s) jump even if tick sees jump first', () => {
+    const sched = new BackgroundAutoSyncScheduler({ intervalMs: 180_000, seekSettleMs: 1_500 });
+    const baseTick = {
+      episodeId: 21,
+      overlayEnabled: true,
+      isPlaying: true,
+      isSeeking: false,
+      playbackRate: 1,
+      isBuffering: false,
+      isCapturing: false,
+      isSyncActive: false,
+      autoPauseEachLine: false,
+    };
+
+    // Case 1: observeVideoPosition seeds origin before first tick, then Skip Intro fires onSeeked
+    sched.resetForEpisode(21);
+    sched.observeVideoPosition(105_000, 1_000);
+    expect(sched.onSeeked(190_000, 1_200)).toBe(true);
+    expect(sched.hasPendingSeekSync()).toBe(true);
+    expect(sched.tick({ ...baseTick, nowMs: 2_800, videoMs: 191_600 })).toBe('seek');
+
+    // Case 2: site Skip Intro button shifts currentTime by +85 s and tick runs before/without seeked
+    sched.resetForEpisode(22);
+    sched.setOpeningGap({ startMs: 105_000, endMs: 195_000, durationMs: 90_000 });
+    expect(sched.tick({ ...baseTick, episodeId: 22, nowMs: 10_000, videoMs: 105_000 })).toBeNull();
+    // 1 s later, videoMs jumped +85 s to 190_000
+    expect(sched.tick({ ...baseTick, episodeId: 22, nowMs: 11_000, videoMs: 190_000 })).toBeNull();
+    expect(sched.hasPendingSeekSync()).toBe(true);
+    // After settle delay -> triggers 'seek' (and suppresses duplicate 'opening' trigger)
+    expect(sched.tick({ ...baseTick, episodeId: 22, nowMs: 12_600, videoMs: 191_600 })).toBe('seek');
+    expect(sched.tick({ ...baseTick, episodeId: 22, nowMs: 18_000, videoMs: 197_000 })).toBeNull();
+  });
+});
+
+describe('one-time audio-unavailable hint & popup last sync status (#187)', () => {
+  it('claims audio-unavailable toast once per host per session and persists in session storage', async () => {
+    const store = new Map<string, unknown>();
+    const sessionStorage = {
+      get: async (k: string) => (store.has(k) ? { [k]: store.get(k) } : {}),
+      set: async (items: Record<string, unknown>) => {
+        for (const [k, v] of Object.entries(items)) store.set(k, v);
+      },
+    };
+
+    expect(AUTO_SYNC_UNAVAILABLE_TOAST).toContain("can't hear this video");
+    const tracker = new AudioUnavailableHintTracker(sessionStorage);
+
+    // Concurrent calls for the same host only allow one toast
+    const [first, second] = await Promise.all([
+      tracker.claimForHost('crunchyroll.com'),
+      tracker.claimForHost('CRUNCHYROLL.COM'),
+    ]);
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+
+    // Different host gets its own one-time toast
+    expect(await tracker.claimForHost('netflix.com')).toBe(true);
+    expect(await tracker.claimForHost('netflix.com')).toBe(false);
+
+    // New tracker instance (simulating MV3 service worker restart) remembers both hosts
+    const restarted = new AudioUnavailableHintTracker(sessionStorage);
+    expect(await restarted.claimForHost('crunchyroll.com')).toBe(false);
+    expect(await restarted.claimForHost('netflix.com')).toBe(false);
+    expect(await restarted.claimForHost('hianime.to')).toBe(true);
+  });
+
+  it('stores and formats last auto-sync attempt per episode for the popup', async () => {
+    const store = new Map<string, unknown>();
+    const sessionStorage = {
+      get: async (k: string) => (store.has(k) ? { [k]: store.get(k) } : {}),
+      set: async (items: Record<string, unknown>) => {
+        for (const [k, v] of Object.entries(items)) store.set(k, v);
+      },
+    };
+
+    const statusStore = new AutoSyncStatusStore(sessionStorage);
+    expect(await statusStore.get(7)).toBeNull();
+
+    await statusStore.set({
+      episodeId: 7,
+      atMs: 1_000_000,
+      mode: 'background',
+      trigger: 'opening',
+      kind: 'applied',
+      method: 'asr',
+      offsetMs: 9700,
+      action: 'point',
+      syncPointAtMs: 195_000,
+    });
+
+    const restarted = new AutoSyncStatusStore(sessionStorage);
+    const loaded = await restarted.get(7);
+    expect(loaded?.method).toBe('asr');
+    expect(loaded?.offsetMs).toBe(9700);
+
+    const now = 1_120_000; // 2 minutes later
+    expect(formatLastSyncAttempt(loaded, { nowMs: now })).toEqual({
+      text: 'Last sync 2m ago · ASR +9.7 s (point @ 3:15)',
+      tone: 'ok',
+      detail: null,
+    });
+
+    expect(
+      formatLastSyncAttempt(
+        {
+          episodeId: 7,
+          atMs: now - 10_000,
+          mode: 'background',
+          kind: 'unavailable',
+          detail: 'DRM',
+        },
+        { nowMs: now },
+      ),
+    ).toEqual({
+      text: 'Last sync just now · unavailable (site blocks audio capture)',
+      tone: 'warn',
+      detail: 'DRM',
+    });
+
+    expect(
+      formatLastSyncAttempt(
+        {
+          episodeId: 7,
+          atMs: now - 60_000,
+          mode: 'manual',
+          kind: 'not_applied',
+          method: 'vad',
+          offsetMs: 1200,
+          detail: 'not enough speech',
+        },
+        { nowMs: now },
+      ),
+    ).toEqual({
+      text: 'Last sync 1m ago · VAD no match (not enough speech)',
+      tone: 'warn',
+      detail: 'Guess +1.2 s',
+    });
+
+    expect(
+      formatLastSyncAttempt(null, { backgroundAutoSyncEnabled: false, nowMs: now }),
+    ).toEqual({
+      text: 'Last auto-sync: disabled in Options',
+      tone: 'muted',
+      detail: null,
+    });
+
+    expect(
+      formatLastSyncAttempt(null, { backgroundAutoSyncEnabled: true, nowMs: now }),
+    ).toEqual({
+      text: 'Last auto-sync: not run yet',
+      tone: 'muted',
+      detail: null,
+    });
   });
 });

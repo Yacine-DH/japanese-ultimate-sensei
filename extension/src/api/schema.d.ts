@@ -1887,6 +1887,19 @@ export interface components {
              * @description 'ok', or why the result isn't confident
              */
             detail: string;
+            /**
+             * Method
+             * @description asr: lines recognized in the speech agreed on the offset (confidence = number of agreeing lines, runner_up = lines agreeing on another offset) · vad: voice activity correlation (no ASR model, or too few lines recognized)
+             * @default vad
+             * @enum {string}
+             */
+            method: "asr" | "vad";
+            /**
+             * Anchors
+             * @description Subtitle lines recognized in the sample
+             * @default 0
+             */
+            anchors: number;
         };
         /** SyncPoint */
         SyncPoint: {

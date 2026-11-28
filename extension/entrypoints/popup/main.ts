@@ -5,6 +5,7 @@ import {
   type EpisodeSyncUpdatedMessage,
   isEpisodeSyncUpdatedMessage,
   isNativeUpdateStateChangedMessage,
+  isSyncAttemptUpdatedMessage,
   isTabStateChangedMessage,
   type JimakuEntry,
   type JimakuFile,
@@ -20,7 +21,11 @@ import {
   decideAutoAttach,
   resolvePageEpisodeInfo,
 } from '../../src/lib/auto-attach';
-import { formatSyncSummary } from '../../src/lib/auto-sync';
+import {
+  type AutoSyncAttemptRecord,
+  formatLastSyncAttempt,
+  formatSyncSummary,
+} from '../../src/lib/auto-sync';
 import { formatBinding, HOTKEY_ACTIONS, HOTKEY_LABELS } from '../../src/lib/hotkeys';
 import {
   describeJimakuFileWarning,
@@ -139,6 +144,7 @@ const autoSyncBtn = document.getElementById('auto-sync-btn') as HTMLButtonElemen
 const syncSummaryText = document.getElementById('sync-summary-text') as HTMLSpanElement;
 const resetSyncBtn = document.getElementById('reset-sync-btn') as HTMLButtonElement;
 const syncPointsListEl = document.getElementById('sync-points-list') as HTMLDivElement;
+const syncLastAttemptEl = document.getElementById('sync-last-attempt') as HTMLDivElement;
 const autoSyncStatus = document.getElementById('auto-sync-status') as HTMLDivElement;
 const primeEpisodeBtn = document.getElementById('prime-episode-btn') as HTMLButtonElement;
 const missedEpisodeBtn = document.getElementById('missed-episode-btn') as HTMLButtonElement;
@@ -186,6 +192,9 @@ let currentLlmStatus: LLMStatus | null = null;
 let currentTranslationJob: TranslationJob | null = null;
 let translationPollTimer: ReturnType<typeof setTimeout> | null = null;
 let translationPollSeq = 0;
+let currentBackgroundAutoSyncEnabled = true;
+let lastSyncAttemptRecord: AutoSyncAttemptRecord | null = null;
+let syncAttemptFetchSeq = 0;
 
 const TRANSLATION_POLL_INTERVAL_MS = 3000;
 
@@ -459,6 +468,43 @@ function syncTranslationProgressForAttachedEpisode(): void {
   void pollTranslationProgress(attachedEpisodeId, seq);
 }
 
+function renderLastSyncAttempt(): void {
+  if (attachedEpisodeId === null) {
+    syncLastAttemptEl.textContent = '';
+    syncLastAttemptEl.title = '';
+    syncLastAttemptEl.className = 'sync-last-attempt muted';
+    return;
+  }
+  const matchingRecord =
+    lastSyncAttemptRecord && lastSyncAttemptRecord.episodeId === attachedEpisodeId
+      ? lastSyncAttemptRecord
+      : null;
+  const pres = formatLastSyncAttempt(matchingRecord, {
+    backgroundAutoSyncEnabled: currentBackgroundAutoSyncEnabled,
+  });
+  syncLastAttemptEl.textContent = pres.text;
+  syncLastAttemptEl.title = pres.detail ?? '';
+  syncLastAttemptEl.className = `sync-last-attempt ${pres.tone}`;
+}
+
+function fetchLastSyncAttemptForAttachedEpisode(): void {
+  const seq = ++syncAttemptFetchSeq;
+  if (attachedEpisodeId === null) {
+    lastSyncAttemptRecord = null;
+    renderLastSyncAttempt();
+    return;
+  }
+  const targetId = attachedEpisodeId;
+  renderLastSyncAttempt();
+  void api.getSyncAttempt(targetId).then((res) => {
+    if (seq !== syncAttemptFetchSeq || attachedEpisodeId !== targetId) {
+      return;
+    }
+    lastSyncAttemptRecord = res.record;
+    renderLastSyncAttempt();
+  });
+}
+
 function renderSyncSummary(): void {
   const attachedEp =
     attachedEpisodeId !== null
@@ -479,6 +525,7 @@ function renderSyncSummary(): void {
   } else {
     syncPointsListEl.style.display = 'none';
   }
+  renderLastSyncAttempt();
 }
 
 function updatePrimerButton(): void {
@@ -486,6 +533,7 @@ function updatePrimerButton(): void {
     attachedEpisodeId !== null ? buildPrepUrl(currentServerUrl, attachedEpisodeId) : null;
   autoSyncWrap.style.display = attachedEpisodeId !== null ? 'block' : 'none';
   renderSyncSummary();
+  fetchLastSyncAttemptForAttachedEpisode();
   if (attachedEpisodeId === null) {
     autoSyncStatus.style.display = 'none';
     autoSyncStatus.textContent = '';
@@ -611,6 +659,7 @@ async function refreshPopup(): Promise<void> {
   const settings = await getSettings();
   currentServerUrl = settings.serverUrl;
   currentExtensionFolder = settings.extensionFolder;
+  currentBackgroundAutoSyncEnabled = settings.backgroundAutoSync;
   const configured = isServerUrlConfigured(settings.serverUrl);
   serverUrlText.textContent = configured
     ? settings.serverUrl.replace(/^https?:\/\//, '')
@@ -1284,6 +1333,13 @@ missedEpisodeBtn.addEventListener('click', async () => {
 browser.runtime.onMessage.addListener((msg: unknown) => {
   if (isNativeUpdateStateChangedMessage(msg)) {
     applyBackgroundUpdateState(msg.state);
+    return;
+  }
+  if (isSyncAttemptUpdatedMessage(msg)) {
+    if (attachedEpisodeId === msg.record.episodeId) {
+      lastSyncAttemptRecord = msg.record;
+      renderLastSyncAttempt();
+    }
     return;
   }
   if (isEpisodeSyncUpdatedMessage(msg)) {

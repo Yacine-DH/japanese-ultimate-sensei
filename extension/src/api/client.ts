@@ -1,5 +1,6 @@
 import type { components, paths } from './schema';
 import type { AutoAttachNotice } from '../lib/auto-attach';
+import type { AutoSyncAttemptRecord } from '../lib/auto-sync';
 import type { PopupUpdateUiState } from '../lib/native-updater';
 import {
   type ExtensionSettings,
@@ -291,6 +292,34 @@ export interface OpenSetupPopupResponse {
   opened: 'popup' | 'options' | 'none';
 }
 
+export interface ClaimAudioUnavailableHintMessage {
+  type: 'SENSEI_CLAIM_AUDIO_UNAVAILABLE_HINT';
+  host: string;
+}
+
+export interface ClaimAudioUnavailableHintResponse {
+  show: boolean;
+}
+
+export interface RecordSyncAttemptMessage {
+  type: 'SENSEI_RECORD_SYNC_ATTEMPT';
+  record: AutoSyncAttemptRecord;
+}
+
+export interface GetSyncAttemptMessage {
+  type: 'SENSEI_GET_SYNC_ATTEMPT';
+  episodeId: number;
+}
+
+export interface GetSyncAttemptResponse {
+  record: AutoSyncAttemptRecord | null;
+}
+
+export interface SyncAttemptUpdatedMessage {
+  type: 'SENSEI_SYNC_ATTEMPT_UPDATED';
+  record: AutoSyncAttemptRecord;
+}
+
 export function isApiCallMessage(msg: unknown): msg is ApiCallMessage {
   return (
     typeof msg === 'object' &&
@@ -507,6 +536,46 @@ export function isOpenSetupPopupMessage(msg: unknown): msg is OpenSetupPopupMess
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'SENSEI_OPEN_SETUP_POPUP'
+  );
+}
+
+export function isClaimAudioUnavailableHintMessage(
+  msg: unknown,
+): msg is ClaimAudioUnavailableHintMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_CLAIM_AUDIO_UNAVAILABLE_HINT' &&
+    typeof (msg as { host?: unknown }).host === 'string'
+  );
+}
+
+export function isRecordSyncAttemptMessage(msg: unknown): msg is RecordSyncAttemptMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_RECORD_SYNC_ATTEMPT' &&
+    typeof (msg as { record?: unknown }).record === 'object' &&
+    (msg as { record?: unknown }).record !== null
+  );
+}
+
+export function isGetSyncAttemptMessage(msg: unknown): msg is GetSyncAttemptMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_GET_SYNC_ATTEMPT' &&
+    typeof (msg as { episodeId?: unknown }).episodeId === 'number'
+  );
+}
+
+export function isSyncAttemptUpdatedMessage(msg: unknown): msg is SyncAttemptUpdatedMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'SENSEI_SYNC_ATTEMPT_UPDATED' &&
+    typeof (msg as { record?: unknown }).record === 'object' &&
+    (msg as { record?: unknown }).record !== null
   );
 }
 
@@ -1431,6 +1500,61 @@ export const api = {
       return { ok: false, opened: 'none' };
     } catch {
       return { ok: false, opened: 'none' };
+    }
+  },
+
+  async claimAudioUnavailableHint(host: string): Promise<ClaimAudioUnavailableHintResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { show: false };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_CLAIM_AUDIO_UNAVAILABLE_HINT',
+        host,
+      } satisfies ClaimAudioUnavailableHintMessage)) as
+        | ClaimAudioUnavailableHintResponse
+        | undefined;
+      if (res && typeof res.show === 'boolean') {
+        return res;
+      }
+      return { show: false };
+    } catch {
+      return { show: false };
+    }
+  },
+
+  async recordSyncAttempt(record: AutoSyncAttemptRecord): Promise<void> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return;
+    }
+    try {
+      await runtime.sendMessage({
+        type: 'SENSEI_RECORD_SYNC_ATTEMPT',
+        record,
+      } satisfies RecordSyncAttemptMessage);
+    } catch {
+      // Ignore background errors
+    }
+  },
+
+  async getSyncAttempt(episodeId: number): Promise<GetSyncAttemptResponse> {
+    const runtime = getBrowserRuntime();
+    if (!runtime?.sendMessage) {
+      return { record: null };
+    }
+    try {
+      const res = (await runtime.sendMessage({
+        type: 'SENSEI_GET_SYNC_ATTEMPT',
+        episodeId,
+      } satisfies GetSyncAttemptMessage)) as GetSyncAttemptResponse | undefined;
+      if (res && 'record' in res) {
+        return res;
+      }
+      return { record: null };
+    } catch {
+      return { record: null };
     }
   },
 };
