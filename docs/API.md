@@ -315,7 +315,9 @@ batches) and writes `llm-bench.md`: speed, estimated time per episode, side-by-s
 
 ### `POST /episodes/{id}/translate` → 202 `TranslationJob` · `GET /episodes/{id}/translate` → `TranslationJob`
 Background job (one episode at a time) translating every untranslated line to EN + DE in
-batches of 12 with 2 lines of context; results appear in `LineOut.translation_en/de`. Poll GET.
+batches of `SENSEI_LLM_TRANSLATE_BATCH` lines (default 8) with 2 lines of context; results appear in
+`LineOut.translation_en/de`. Poll GET. While an explanation is being generated no new batch starts
+(the LLM serves one request at a time), so Explain only waits for the batch in flight.
 `{"episode_id":1,"total_lines":255,"translated_lines":120,"queued":false,"running":true,"error":null,"failed_lines":0,"retry_at":null}`
 Slow on a small local model: start it before watching. Re-running only does missing lines.
 
